@@ -1,0 +1,506 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "django__django-13128",
+    "debug_difficulty": "1-4 hours"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/django/db/models/fields/__init__.py"
+      ],
+      "flags": {
+        "n": "class DateTimeField"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "1:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "view_range": [
+          1230,
+          1300
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/django/db/models/fields/__init__.py"
+      ],
+      "flags": {
+        "n": "class DurationField"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "3:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "view_range": [
+          1520,
+          1600
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/django/db/models/expressions.py"
+      ],
+      "flags": {
+        "n": "class CombinedExpression"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "5:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/expressions.py",
+        "view_range": [
+          420,
+          500
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "6:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/django/db/models/expressions.py"
+      ],
+      "flags": {
+        "n": "class TemporalSubtraction"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "7:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/expressions.py",
+        "view_range": [
+          510,
+          550
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "8:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/expressions.py",
+        "old_str": "    def as_sql(self, compiler, connection):\n        try:\n            lhs_type = self.lhs.output_field.get_internal_type()\n        except FieldError:\n            lhs_type = None\n        try:\n            rhs_type = self.rhs.output_field.get_internal_type()\n        except FieldError:\n            rhs_type = None\n        if (\n            not connection.features.has_native_duration_field and\n            'DurationField' in {lhs_type, rhs_type} and\n            lhs_type != rhs_type\n        ):\n            return DurationExpression(self.lhs, self.connector, self.rhs).as_sql(compiler, connection)\n        datetime_fields = {'DateField', 'DateTimeField', 'TimeField'}\n        if self.connector == self.SUB and lhs_type in datetime_fields and lhs_type == rhs_type:\n            return TemporalSubtraction(self.lhs, self.rhs).as_sql(compiler, connection)\n        expressions = []\n        expression_params = []\n        sql, params = compiler.compile(self.lhs)\n        expressions.append(sql)\n        expression_params.extend(params)\n        sql, params = compiler.compile(self.rhs)\n        expressions.append(sql)\n        expression_params.extend(params)\n        # order of precedence\n        expression_wrapper = '(%s)'\n        sql = connection.ops.combine_expression(self.connector, expressions)\n        return expression_wrapper % sql, expression_params",
+        "new_str": "    def as_sql(self, compiler, connection):\n        try:\n            lhs_type = self.lhs.output_field.get_internal_type()\n        except FieldError:\n            lhs_type = None\n        try:\n            rhs_type = self.rhs.output_field.get_internal_type()\n        except FieldError:\n            rhs_type = None\n        if (\n            not connection.features.has_native_duration_field and\n            'DurationField' in {lhs_type, rhs_type} and\n            lhs_type != rhs_type\n        ):\n            return DurationExpression(self.lhs, self.connector, self.rhs).as_sql(compiler, connection)\n        datetime_fields = {'DateField', 'DateTimeField', 'TimeField'}\n        if self.connector == self.SUB and lhs_type in datetime_fields and lhs_type == rhs_type:\n            return TemporalSubtraction(self.lhs, self.rhs).as_sql(compiler, connection)\n        # Handle DurationField operations\n        if 'DurationField' in {lhs_type, rhs_type}:\n            if self.connector in (self.ADD, self.SUB):\n                if lhs_type == 'DurationField' and rhs_type == 'DurationField':\n                    # Both sides are DurationField, use standard handling\n                    pass\n                else:\n                    # Mixed types, ensure output field is DurationField\n                    self.output_field = fields.DurationField()\n        expressions = []\n        expression_params = []\n        sql, params = compiler.compile(self.lhs)\n        expressions.append(sql)\n        expression_params.extend(params)\n        sql, params = compiler.compile(self.rhs)\n        expressions.append(sql)\n        expression_params.extend(params)\n        # order of precedence\n        expression_wrapper = '(%s)'\n        sql = connection.ops.combine_expression(self.connector, expressions)\n        return expression_wrapper % sql, expression_params",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_temporal_subtraction.py",
+        "file_text": "import datetime\nimport os\nimport sys\n\nimport django\nfrom django.db import models\nfrom django.db.models import F, Value\nfrom django.db.models.fields import DurationField\n\n# Setup Django environment\nsys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"test_settings\")\ndjango.setup()\n\n# Define model\nclass Experiment(models.Model):\n    start = models.DateTimeField()\n    end = models.DateTimeField()\n\n    class Meta:\n        app_label = \"test_app\"\n\n# Test the expression\nprint(\"Testing temporal subtraction with DurationField addition...\")\ntry:\n    # This should not raise FieldError after our fix\n    queryset = Experiment.objects.annotate(\n        delta=F('end') - F('start') + Value(datetime.timedelta(), output_field=DurationField())\n    )\n    print(\"Success! No FieldError raised.\")\nexcept django.core.exceptions.FieldError as e:\n    print(f\"FieldError: {e}\")\n    sys.exit(1)\n\nprint(\"Test completed successfully.\")"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "10:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        11,
+        14
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "11:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_temporal_subtraction.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        11,
+        14
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "12:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_settings.py",
+        "file_text": "DATABASES = {\n    'default': {\n        'ENGINE': 'django.db.backends.sqlite3',\n        'NAME': ':memory:',\n    }\n}\n\nINSTALLED_APPS = [\n    'django.contrib.contenttypes',\n    'django.contrib.auth',\n]\n\nSECRET_KEY = 'test-secret-key'"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "13:str_replace_editor: create"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_temporal_subtraction.py",
+        "old_str": "# Setup Django environment\nsys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"test_settings\")\ndjango.setup()",
+        "new_str": "# Setup Django environment\nsys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))\n# Create minimal settings\nfrom django.conf import settings\nif not settings.configured:\n    settings.configure(\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=[\n            'django.contrib.contenttypes',\n            'django.contrib.auth',\n        ],\n        SECRET_KEY='test-secret-key'\n    )\ndjango.setup()",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "14:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        15,
+        18
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "15:submit"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        16
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "16:think"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_temporal_subtraction.py",
+        "/testbed/test_settings.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "17:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:grep",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:grep",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:grep",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:grep",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:grep",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:grep",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: view",
+      "target": "7:grep",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:grep",
+      "target": "8:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:str_replace_editor: view",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "10:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:str_replace_editor: create",
+      "target": "11:cd",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "11:cd",
+      "target": "12:python",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "11:cd",
+      "target": "12:python",
+      "key": 1
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "12:python",
+      "target": "13:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "12:python",
+      "target": "15:submit",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "13:str_replace_editor: create",
+      "target": "14:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "14:str_replace_editor: str_replace",
+      "target": "11:cd",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "15:submit",
+      "target": "16:think",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "16:think",
+      "target": "17:rm",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "17:rm",
+      "target": "15:submit",
+      "key": 0
+    }
+  ]
+}

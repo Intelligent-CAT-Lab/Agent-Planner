@@ -1,0 +1,970 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "pydata__xarray-3095",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization",
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        0,
+        2,
+        7,
+        17,
+        19,
+        21,
+        25,
+        35
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "0:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "file_text": "import xarray as xr\n\n# Create a Dataset with Unicode string indices\nds = xr.Dataset(\n    coords={'x': ['foo'], 'y': ('x', ['bar'])},\n    data_vars={'z': ('x', ['baz'])}\n)\n\n# Perform shallow and deep copies\nds_shallow = ds.copy(deep=False)\nds_deep = ds.copy(deep=True)\n\n# Check the dtype of the 'x' coordinate\nprint(\"Shallow copy 'x' dtype:\", ds_shallow['x'].dtype)\nprint(\"Deep copy 'x' dtype:\", ds_deep['x'].dtype)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "1:str_replace_editor: create"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {
+        "r": "def copy("
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "2:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "view_range": [
+          744,
+          823
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "old_str": "                    # pandas.Index is immutable\n                    data = np.array(data)",
+        "new_str": "                    # pandas.Index is immutable\n                    data = np.array(data, dtype=getattr(data, 'dtype', None))",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {
+        "r": "class IndexVariable"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "6:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "view_range": [
+          400,
+          420
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "7:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/xarray/core/variable.py"
+      ],
+      "flags": {
+        "n": "class IndexVariable"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "8:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "view_range": [
+          1834,
+          1850
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        11,
+        23
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "9:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/xarray/core/dataset.py"
+      ],
+      "flags": {
+        "n": "def copy("
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "10:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/dataset.py",
+        "view_range": [
+          842,
+          900
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        13,
+        30
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "11:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/xarray/core/variable.py"
+      ],
+      "flags": {
+        "n": "def as_compatible_data("
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "12:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "view_range": [
+          139,
+          193
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "13:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "old_str": "    # validate whether the data is valid data types\n    data = np.asarray(data)",
+        "new_str": "    # validate whether the data is valid data types\n    data = np.asarray(data, dtype=getattr(data, 'dtype', None))",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        16
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "14:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "old_str": "                elif not isinstance(data, PandasIndexAdapter):\n                    # pandas.Index is immutable\n                    data = np.array(data, dtype=getattr(data, 'dtype', None))",
+        "new_str": "                elif not isinstance(data, PandasIndexAdapter):\n                    # pandas.Index is immutable\n                    if isinstance(data, np.ndarray):\n                        data = np.array(data, dtype=data.dtype)\n                    else:\n                        data = np.array(data, dtype=getattr(data, 'dtype', None))",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        18
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "15:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "old_str": "import xarray as xr\n\n# Create a Dataset with Unicode string indices\nds = xr.Dataset(\n    coords={'x': ['foo'], 'y': ('x', ['bar'])},\n    data_vars={'z': ('x', ['baz'])}\n)\n\n# Perform shallow and deep copies\nds_shallow = ds.copy(deep=False)\nds_deep = ds.copy(deep=True)\n\n# Check the dtype of the 'x' coordinate\nprint(\"Shallow copy 'x' dtype:\", ds_shallow['x'].dtype)\nprint(\"Deep copy 'x' dtype:\", ds_deep['x'].dtype)",
+        "new_str": "import xarray as xr\nimport numpy as np\n\n# Create a Dataset with Unicode string indices\nds = xr.Dataset(\n    coords={'x': ['foo'], 'y': ('x', ['bar'])},\n    data_vars={'z': ('x', ['baz'])}\n)\n\n# Print original dtype\nprint(\"Original 'x' dtype:\", ds['x'].dtype)\nprint(\"Original 'x' values:\", ds['x'].values)\n\n# Perform shallow and deep copies\nds_shallow = ds.copy(deep=False)\nds_deep = ds.copy(deep=True)\n\n# Check the dtype of the 'x' coordinate\nprint(\"Shallow copy 'x' dtype:\", ds_shallow['x'].dtype)\nprint(\"Shallow copy 'x' values:\", ds_shallow['x'].values)\nprint(\"Deep copy 'x' dtype:\", ds_deep['x'].dtype)\nprint(\"Deep copy 'x' values:\", ds_deep['x'].values)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        20
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "16:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/dataset.py",
+        "view_range": [
+          842,
+          870
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        22,
+        28
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "17:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/variable.py",
+        "old_str": "            if deep:\n                if isinstance(data, dask_array_type):\n                    data = data.copy()\n                elif not isinstance(data, PandasIndexAdapter):\n                    # pandas.Index is immutable\n                    if isinstance(data, np.ndarray):\n                        data = np.array(data, dtype=data.dtype)\n                    else:\n                        data = np.array(data, dtype=getattr(data, 'dtype', None))",
+        "new_str": "            if deep:\n                print(f\"Original data type: {type(data)}, dtype: {getattr(data, 'dtype', None)}\")\n                if isinstance(data, dask_array_type):\n                    data = data.copy()\n                elif not isinstance(data, PandasIndexAdapter):\n                    # pandas.Index is immutable\n                    if isinstance(data, np.ndarray):\n                        data = np.array(data, dtype=data.dtype)\n                    else:\n                        data = np.array(data, dtype=getattr(data, 'dtype', None))\n                print(f\"Copied data type: {type(data)}, dtype: {getattr(data, 'dtype', None)}\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        24
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "18:str_replace_editor: str_replace"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/xarray/core/dataset.py"
+      ],
+      "flags": {
+        "n": "def __init__"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        26
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "19:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/dataset.py",
+        "view_range": [
+          342,
+          400
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        27
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "20:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/dataset.py",
+        "old_str": "    def copy(self, deep: bool = False, data: Mapping = None) -> 'Dataset':\n        \"\"\"Returns a copy of this dataset.\n\n        If `deep=True`, a deep copy is made of each of the component variables.\n        Otherwise, a shallow copy of each of the component variable is made, so\n        that the underlying memory region of the new dataset is the same as in\n        the original dataset.\n\n        Use `data` to create a new object with the same structure as\n        original but entirely new data.\n\n        Parameters\n        ----------\n        deep : bool, optional\n            Whether each component variable is loaded into memory and copied onto\n            the new object. Default is False.\n        data : dict-like, optional\n            Data to use in the new object. Each item in `data` must have same\n            shape as corresponding data variable in original. When `data` is\n            used, `deep` is ignored for the data variables and only used for\n            coords.\n\n        Returns\n        -------\n        object : Dataset\n            New object with dimensions, attributes, coordinates, name, encoding,\n            and optionally data copied from original.\n\n        Examples",
+        "new_str": "    def copy(self, deep: bool = False, data: Mapping = None) -> 'Dataset':\n        \"\"\"Returns a copy of this dataset.\n\n        If `deep=True`, a deep copy is made of each of the component variables.\n        Otherwise, a shallow copy of each of the component variable is made, so\n        that the underlying memory region of the new dataset is the same as in\n        the original dataset.\n\n        Use `data` to create a new object with the same structure as\n        original but entirely new data.\n\n        Parameters\n        ----------\n        deep : bool, optional\n            Whether each component variable is loaded into memory and copied onto\n            the new object. Default is False.\n        data : dict-like, optional\n            Data to use in the new object. Each item in `data` must have same\n            shape as corresponding data variable in original. When `data` is\n            used, `deep` is ignored for the data variables and only used for\n            coords.\n\n        Returns\n        -------\n        object : Dataset\n            New object with dimensions, attributes, coordinates, name, encoding,\n            and optionally data copied from original.\n\n        Examples",
+        "edit_status": "failure: no change"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        29
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "21:str_replace_editor: str_replace"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/xarray/core/dataset.py",
+        "|",
+        "grep",
+        "return"
+      ],
+      "flags": {
+        "n": "def copy(",
+        "A": "50",
+        "B": "50"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        31
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "22:grep"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/xarray/core/dataset.py",
+        "|",
+        "grep",
+        "return"
+      ],
+      "flags": {
+        "n": "def copy(",
+        "A": "100",
+        "m": "1",
+        "B": "100"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        32
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "23:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/dataset.py",
+        "view_range": [
+          842,
+          950
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        33
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "24:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/dataset.py",
+        "old_str": "        if data is None:\n            variables = OrderedDict((k, v.copy(deep=deep))\n                                    for k, v in self._variables.items())",
+        "new_str": "        if data is None:\n            variables = OrderedDict()\n            for k, v in self._variables.items():\n                if isinstance(v, xr.IndexVariable):\n                    # Ensure IndexVariable dtype is preserved during copy\n                    copied_var = v.copy(deep=deep)\n                    if deep and isinstance(copied_var.data, np.ndarray):\n                        copied_var.data = np.array(copied_var.data, dtype=v.dtype)\n                    variables[k] = copied_var\n                else:\n                    variables[k] = v.copy(deep=deep)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        34
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "25:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        36
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "26:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        37,
+        40
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "27:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        38
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "28:rm"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        39
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "29:cd"
+    },
+    {
+      "label": "git",
+      "args": [
+        "status"
+      ],
+      "flags": {
+        "porcelain": true
+      },
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        39
+      ],
+      "tool": "",
+      "command": "git",
+      "subcommand": "",
+      "id": "30:git"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:python",
+      "target": "1:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "0:python",
+      "target": "2:grep",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "0:python",
+      "target": "6:grep",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "0:python",
+      "target": "15:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "0:python",
+      "target": "16:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "0:python",
+      "target": "17:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "26",
+      "type": "exec",
+      "source": "0:python",
+      "target": "19:grep",
+      "key": 0
+    },
+    {
+      "label": "36",
+      "type": "exec",
+      "source": "0:python",
+      "target": "26:think",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: create",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "2:grep",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "7:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "9:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "13:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "6:grep",
+      "target": "7:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "7:str_replace_editor: view",
+      "target": "8:grep",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "8:grep",
+      "target": "9:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "9:str_replace_editor: view",
+      "target": "10:grep",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "9:str_replace_editor: view",
+      "target": "18:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "10:grep",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "11:str_replace_editor: view",
+      "target": "12:grep",
+      "key": 0
+    },
+    {
+      "label": "31",
+      "type": "exec",
+      "source": "11:str_replace_editor: view",
+      "target": "22:grep",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "11:str_replace_editor: view",
+      "target": "17:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "12:grep",
+      "target": "13:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "13:str_replace_editor: view",
+      "target": "14:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "14:str_replace_editor: str_replace",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "15:str_replace_editor: str_replace",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "16:str_replace_editor: str_replace",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "17:str_replace_editor: view",
+      "target": "9:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "29",
+      "type": "exec",
+      "source": "17:str_replace_editor: view",
+      "target": "21:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "25",
+      "type": "exec",
+      "source": "18:str_replace_editor: str_replace",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "19:grep",
+      "target": "20:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "28",
+      "type": "exec",
+      "source": "20:str_replace_editor: view",
+      "target": "17:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "30",
+      "type": "exec",
+      "source": "21:str_replace_editor: str_replace",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "32",
+      "type": "exec",
+      "source": "22:grep",
+      "target": "23:grep",
+      "key": 0
+    },
+    {
+      "label": "33",
+      "type": "exec",
+      "source": "23:grep",
+      "target": "24:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "34",
+      "type": "exec",
+      "source": "24:str_replace_editor: view",
+      "target": "25:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "24:str_replace_editor: view",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "24:str_replace_editor: view",
+      "target": "17:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "35",
+      "type": "exec",
+      "source": "25:str_replace_editor: str_replace",
+      "target": "0:python",
+      "key": 0
+    },
+    {
+      "label": "37",
+      "type": "exec",
+      "source": "26:think",
+      "target": "27:submit",
+      "key": 0
+    },
+    {
+      "label": "38",
+      "type": "exec",
+      "source": "27:submit",
+      "target": "28:rm",
+      "key": 0
+    },
+    {
+      "label": "39",
+      "type": "exec",
+      "source": "28:rm",
+      "target": "29:cd",
+      "key": 0
+    },
+    {
+      "label": "39",
+      "type": "exec",
+      "source": "29:cd",
+      "target": "30:git",
+      "key": 0
+    },
+    {
+      "label": "40",
+      "type": "exec",
+      "source": "30:git",
+      "target": "27:submit",
+      "key": 0
+    }
+  ]
+}

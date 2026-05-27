@@ -1,0 +1,48 @@
+{
+  "_comment": "Example configurations for different plan compliance scenarios",
+
+  "example_1_full_workflow": {
+    "description": "Full workflow with specific validation types",
+    "plan_compliance": {
+      "intended_plan": ["L_navigate", "L_reproduce", "P", "V_newly_generated_test"],
+      "ending_flags": ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT", "submit"],
+      "message": "Plan violation: {violation}. Expected to {expected}. Skipped: {skipped}"
+    }
+  },
+
+  "example_2_minimal_workflow": {
+    "description": "Minimal workflow with broad validation (accepts any V_* phase)",
+    "plan_compliance": {
+      "intended_plan": ["L_navigate", "P", "V"],
+      "ending_flags": ["submit"],
+      "message": "Plan violation: {violation}. Expected to {expected}. Skipped: {skipped}"
+    }
+  },
+
+  "example_3_no_reproduce": {
+    "description": "Skip reproduction step, directly from navigation to patch",
+    "plan_compliance": {
+      "intended_plan": ["L_navigate", "P", "V_newly_generated_test"],
+      "ending_flags": ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"],
+      "message": "Plan violation: {violation}. Expected to {expected}. Skipped: {skipped}"
+    }
+  },
+
+  "example_4_multiple_validation_types": {
+    "description": "Require both newly generated and regression tests",
+    "plan_compliance": {
+      "intended_plan": ["L_navigate", "L_reproduce", "P", "V_newly_generated_test", "V_regression_test"],
+      "ending_flags": ["submit"],
+      "message": "Plan violation: {violation}. Expected to {expected}. Skipped: {skipped}"
+    }
+  },
+
+  "notes": [
+    "The 'intended_plan' is a sequential list of required phases",
+    "Phase revisits are allowed - we only track first appearance",
+    "Exact matches: 'L_navigate', 'L_reproduce', 'P', 'V_newly_generated_test', 'V_regression_test'",
+    "Prefix matches: 'L' matches any L_* phase, 'V' matches any V_* phase, 'P' matches any P_* phase",
+    "ending_flags can be any substring that appears in the command (e.g., 'submit', 'echo COMPLETE')",
+    "If agent ends without completing all intended phases, a violation is triggered"
+  ]
+}

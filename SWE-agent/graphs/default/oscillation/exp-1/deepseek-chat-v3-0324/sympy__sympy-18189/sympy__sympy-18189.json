@@ -1,0 +1,417 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "sympy__sympy-18189",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/solvers"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/solvers/diophantine.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/solvers/diophantine.py",
+        "view_range": [
+          101,
+          200
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/solvers/diophantine.py",
+        "view_range": [
+          201,
+          300
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/solvers/diophantine.py",
+        "view_range": [
+          300,
+          400
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "5:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_diophantine.py",
+        "file_text": "from sympy.solvers.diophantine import diophantine\nfrom sympy.abc import m, n\n\n# Test case from PR description\nequation = n**4 + m**4 - 2**4 - 3**4\n\n# Case 1: syms=(m,n)\nresult1 = diophantine(equation, syms=(m,n), permute=True)\nprint(\"Case 1 (syms=(m,n)):\", result1)\n\n# Case 2: syms=(n,m)\nresult2 = diophantine(equation, syms=(n,m), permute=True)\nprint(\"Case 2 (syms=(n,m)):\", result2)\n\n# Verify if results are equal\nprint(\"Results equal:\", result1 == result2)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "6:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "7:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_diophantine.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "8:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/solvers/diophantine.py",
+        "old_str": "        if syms:\n            if not is_sequence(syms):\n                raise TypeError(\n                    'syms should be given as a sequence, e.g. a list')\n            syms = [i for i in syms if i in var]\n            if syms != var:\n                dict_sym_index = dict(zip(syms, range(len(syms))))\n                return {tuple([t[dict_sym_index[i]] for i in var])\n                            for t in diophantine(eq, param)}",
+        "new_str": "        if syms:\n            if not is_sequence(syms):\n                raise TypeError(\n                    'syms should be given as a sequence, e.g. a list')\n            syms = [i for i in syms if i in var]\n            if syms != var:\n                # Normalize symbol order before processing\n                orig_var_order = var\n                var = sorted(var, key=default_sort_key)\n                syms = sorted(syms, key=default_sort_key)\n                dict_sym_index = dict(zip(syms, range(len(syms))))\n                solutions = diophantine(eq, param, permute=permute)\n                # Restore original variable order in results\n                return {tuple([t[dict_sym_index[i]] for i in orig_var_order])\n                            for t in solutions}",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_diophantine.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "10:python"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "11:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        11,
+        14
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "12:submit"
+    },
+    {
+      "label": "str_replace_editor: undo_edit",
+      "args": {
+        "path": "/testbed/test_diophantine.py"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "undo_edit",
+      "id": "13:str_replace_editor: undo_edit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_diophantine.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "14:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "5:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: view",
+      "target": "6:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: create",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:python",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "10:python",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "10:python",
+      "target": "11:think",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "11:think",
+      "target": "12:submit",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "12:submit",
+      "target": "13:str_replace_editor: undo_edit",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "13:str_replace_editor: undo_edit",
+      "target": "14:rm",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "14:rm",
+      "target": "12:submit",
+      "key": 0
+    }
+  ]
+}

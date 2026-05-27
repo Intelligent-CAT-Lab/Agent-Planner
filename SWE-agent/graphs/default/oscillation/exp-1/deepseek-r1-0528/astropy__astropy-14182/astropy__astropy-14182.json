@@ -1,0 +1,421 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "astropy__astropy-14182",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/rst.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/fixedwidth.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_rst.py",
+        "file_text": "from astropy.table import QTable\nimport astropy.units as u\nimport sys\n\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\ntbl.write(sys.stdout, format=\"ascii.rst\", header_rows=[\"name\", \"unit\"])"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "4:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_rst.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "5:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/rst.py",
+        "old_str": "def __init__(self):\n        super().__init__(delimiter_pad=None, bookend=False)",
+        "new_str": "def __init__(self, header_rows=None, **kwargs):\n        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows, **kwargs)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/rst.py",
+        "old_str": "def write(self, lines):\n        lines = super().write(lines)\n        lines = [lines[1]] + lines + [lines[1]]\n        return lines",
+        "new_str": "def write(self, lines):\n        lines = super().write(lines)\n        # Find the separator line (it's the first line that starts and ends with '=')\n        separator_line = next((line for line in lines if line.strip().startswith('=') and line.strip().endswith('=')), None)\n        if separator_line:\n            # Add separator at top, then header rows, then separator, then data, then separator at bottom\n            return [separator_line] + lines + [separator_line]\n        return lines",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/rst.py",
+        "old_str": "def write(self, lines):\n        lines = super().write(lines)\n        # Find the separator line (it's the first line that starts and ends with '=')\n        separator_line = next((line for line in lines if line.strip().startswith('=') and line.strip().endswith('=')), None)\n        if separator_line:\n            # Add separator at top, then header rows, then separator, then data, then separator at bottom\n            return [separator_line] + lines + [separator_line]\n        return lines",
+        "new_str": "def write(self, lines):\n        lines = super().write(lines)\n        # Find the separator line (it's the first line that starts and ends with '=')\n        separator_line = next((line for line in lines if line.strip().startswith('=') and line.strip().endswith('=')), None)\n        if separator_line:\n            # The superclass returns lines in the format:\n            # [header_row1, header_row2, ..., separator_line, data_row1, data_row2, ...]\n            # We need to insert the separator at the top and bottom\n            # First, find the index of the separator line\n            sep_index = lines.index(separator_line)\n            # The header rows are all lines before the separator\n            header_rows = lines[:sep_index]\n            # The data rows are all lines after the separator\n            data_rows = lines[sep_index+1:]\n            # Reconstruct the table with separators at top and bottom\n            return [separator_line] + header_rows + [separator_line] + data_rows + [separator_line]\n        return lines",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_rst_original.py",
+        "file_text": "from astropy.table import QTable\nimport astropy.units as u\nimport sys\n\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\ntbl.write(sys.stdout, format=\"ascii.rst\")"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "9:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_rst_original.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "10:python"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        13,
+        15
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "11:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_rst.py",
+        "/testbed/test_rst_original.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "12:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 1
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 2
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 3
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "10:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:python",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "5:python",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "5:python",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "5:python",
+      "target": "9:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "5:python",
+      "target": "11:submit",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "9:str_replace_editor: create",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:python",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "11:submit",
+      "target": "12:rm",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "12:rm",
+      "target": "11:submit",
+      "key": 0
+    }
+  ]
+}

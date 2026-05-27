@@ -1,0 +1,377 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "pydata__xarray-7229",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_bug.py",
+        "file_text": "import xarray as xr\n\nds = xr.tutorial.load_dataset(\"air_temperature\")\nresult = xr.where(True, ds.air, ds.air, keep_attrs=True)\n\nprint(\"Time attributes:\")\nprint(result.time.attrs)\nprint(\"\\nExpected time attributes:\")\nprint(ds.time.attrs)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "0:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        1,
+        5,
+        10
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "1:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_bug.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        1,
+        5,
+        10
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "2:python"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "view_range": [
+          1775,
+          1875
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    if keep_attrs is True:\n        # keep the attributes of x, the second parameter, by default to\n        # be consistent with the `where` method of `DataArray` and `Dataset`\n        keep_attrs = lambda attrs, context: getattr(x, \"attrs\", {})\n\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "new_str": "    if keep_attrs is True:\n        # Preserve variable attributes from x, but keep coordinate attributes separate\n        # to prevent overwriting coordinate attributes with variable attributes\n        def keep_attrs_fn(attrs, context):\n            # For coordinates, preserve original attributes\n            if context is not None and isinstance(context, tuple) and context[0] != \"data_vars\":\n                for a in attrs:\n                    if a:  # return first non-empty attribute dictionary\n                        return a\n                return {}\n            # For variables, use attributes from x\n            return getattr(x, \"attrs\", {})\n        keep_attrs = keep_attrs_fn\n    elif keep_attrs is False:\n        keep_attrs = \"drop\"\n\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "view_range": [
+          864,
+          1217
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "6:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "view_range": [
+          220,
+          282
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "7:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    if len(coords_list) == 1 and not exclude_dims:\n        # we can skip the expensive merge\n        (unpacked_coords,) = coords_list\n        merged_vars = dict(unpacked_coords.variables)\n        merged_indexes = dict(unpacked_coords.xindexes)\n    else:\n        merged_vars, merged_indexes = merge_coordinates_without_align(\n            coords_list, exclude_dims=exclude_dims, combine_attrs=combine_attrs\n        )",
+        "new_str": "    if len(coords_list) == 1 and not exclude_dims:\n        # we can skip the expensive merge\n        (unpacked_coords,) = coords_list\n        merged_vars = dict(unpacked_coords.variables)\n        merged_indexes = dict(unpacked_coords.xindexes)\n    else:\n        # For coordinates, we want to preserve the original attributes\n        # regardless of the combine_attrs setting\n        merged_vars, merged_indexes = merge_coordinates_without_align(\n            coords_list, exclude_dims=exclude_dims, combine_attrs=\"no_conflicts\"\n        )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    if keep_attrs is True:\n        # Preserve variable attributes from x, but keep coordinate attributes separate\n        # to prevent overwriting coordinate attributes with variable attributes\n        def keep_attrs_fn(attrs, context):\n            # For coordinates, preserve original attributes\n            if context is not None and isinstance(context, tuple) and context[0] != \"data_vars\":\n                for a in attrs:\n                    if a:  # return first non-empty attribute dictionary\n                        return a\n                return {}\n            # For variables, use attributes from x\n            return getattr(x, \"attrs\", {})\n        keep_attrs = keep_attrs_fn\n    elif keep_attrs is False:\n        keep_attrs = \"drop\"\n\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "new_str": "    if keep_attrs is True:\n        # keep the attributes of x, the second parameter, by default to\n        # be consistent with the `where` method of `DataArray` and `Dataset`\n        keep_attrs = lambda attrs, context: getattr(x, \"attrs\", {})\n\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        11,
+        13
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "10:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_bug.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "11:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: create",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 1
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 2
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "2:python",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "2:python",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "2:python",
+      "target": "10:submit",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "7:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: view",
+      "target": "7:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: view",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:submit",
+      "target": "11:rm",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "11:rm",
+      "target": "10:submit",
+      "key": 0
+    }
+  ]
+}

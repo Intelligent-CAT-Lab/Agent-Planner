@@ -1,0 +1,922 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "django__django-11749",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "v": "__pycache__"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "0:find"
+    },
+    {
+      "label": "ls",
+      "args": [],
+      "flags": {
+        "R": "/testbed"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "",
+      "command": "ls",
+      "subcommand": "",
+      "id": "1:ls"
+    },
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "i": "management"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "2:find"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/management/base.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/management/base.py",
+        "view_range": [
+          300,
+          350
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/management/__init__.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "5:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/management/__init__.py",
+        "view_range": [
+          76,
+          160
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "6:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_command.py",
+        "file_text": "from django.core.management.base import BaseCommand, CommandParser\nfrom django.core.management import call_command\n\nclass Command(BaseCommand):\n    def add_arguments(self, parser):\n        shop = parser.add_mutually_exclusive_group(required=True)\n        shop.add_argument('--shop-id', nargs='?', type=int, default=None, dest='shop_id')\n        shop.add_argument('--shop', nargs='?', type=str, default=None, dest='shop_name')\n\n    def handle(self, *args, **options):\n        print(f\"shop_id: {options.get('shop_id')}\")\n        print(f\"shop_name: {options.get('shop_name')}\")\n\nif __name__ == '__main__':\n    # This should work\n    call_command(Command, '--shop-id=1')\n    \n    # This should also work but currently fails\n    call_command(Command, shop_id=1)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "7:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_command.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "8:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_app/management/commands/test_command.py",
+        "file_text": "from django.core.management.base import BaseCommand, CommandParser\n\nclass Command(BaseCommand):\n    def add_arguments(self, parser):\n        shop = parser.add_mutually_exclusive_group(required=True)\n        shop.add_argument('--shop-id', nargs='?', type=int, default=None, dest='shop_id')\n        shop.add_argument('--shop', nargs='?', type=str, default=None, dest='shop_name')\n\n    def handle(self, *args, **options):\n        print(f\"shop_id: {options.get('shop_id')}\")\n        print(f\"shop_name: {options.get('shop_name')}\")"
+      },
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        9,
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "9:str_replace_editor: create"
+    },
+    {
+      "label": "mkdir",
+      "args": [],
+      "flags": {
+        "p": "/testbed/test_app/management/commands"
+      },
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "",
+      "command": "mkdir",
+      "subcommand": "",
+      "id": "10:mkdir"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_app/__init__.py",
+        "file_text": "from django.apps import AppConfig\n\nclass TestAppConfig(AppConfig):\n    name = 'test_app'"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "11:str_replace_editor: create"
+    },
+    {
+      "label": "mkdir",
+      "args": [],
+      "flags": {
+        "p": "/testbed/test_app/management"
+      },
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "",
+      "command": "mkdir",
+      "subcommand": "",
+      "id": "12:mkdir"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_app/management/__init__.py",
+        "file_text": "from django.core.management import execute_from_command_line\n\nif __name__ == '__main__':\n    execute_from_command_line()"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "13:str_replace_editor: create"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_script.py",
+        "file_text": "from django.core.management import call_command\n\n# This should work\nprint(\"Testing with command line args:\")\ncall_command('test_command', '--shop-id=1')\n\nprint(\"\\nTesting with kwargs:\")\n# This should also work but currently fails\ncall_command('test_command', shop_id=1)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "14:str_replace_editor: create"
+    },
+    {
+      "label": "set_env",
+      "args": [
+        "PYTHONPATH=/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        16,
+        19,
+        24,
+        30,
+        32
+      ],
+      "tool": "",
+      "command": "set_env",
+      "subcommand": "",
+      "id": "15:set_env"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_script.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        16,
+        19,
+        24,
+        30,
+        32
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "16:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/settings.py",
+        "file_text": "INSTALLED_APPS = ['test_app']"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "17:str_replace_editor: create"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_script.py",
+        "old_str": "from django.core.management import call_command\n\n# This should work\nprint(\"Testing with command line args:\")\ncall_command('test_command', '--shop-id=1')\n\nprint(\"\\nTesting with kwargs:\")\n# This should also work but currently fails\ncall_command('test_command', shop_id=1)",
+        "new_str": "import os\nimport django\nfrom django.conf import settings\n\n# Configure Django\nsettings.configure(\n    INSTALLED_APPS=['test_app'],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    }\n)\ndjango.setup()\n\nfrom django.core.management import call_command\n\n# This should work\nprint(\"Testing with command line args:\")\ncall_command('test_command', '--shop-id=1')\n\nprint(\"\\nTesting with kwargs:\")\n# This should also work but currently fails\ncall_command('test_command', shop_id=1)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        18
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "18:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/management/__init__.py",
+        "view_range": [
+          130,
+          140
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        20
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "19:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_argparse.py",
+        "file_text": "import argparse\n\nparser = argparse.ArgumentParser()\nshop = parser.add_mutually_exclusive_group(required=True)\nshop.add_argument('--shop-id', nargs='?', type=int, default=None, dest='shop_id')\nshop.add_argument('--shop', nargs='?', type=str, default=None, dest='shop_name')\n\nprint(\"Parser actions:\")\nfor opt in parser._actions:\n    print(f\"Option: {opt}\")\n    print(f\"  dest: {opt.dest}\")\n    print(f\"  required: {opt.required}\")\n    print(f\"  option_strings: {opt.option_strings}\")\n    if hasattr(opt, 'choices'):\n        print(f\"  choices: {opt.choices}\")\n    print()"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        21
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "20:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_argparse.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        22
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "21:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/core/management/__init__.py",
+        "old_str": "    parser_actions = list(get_actions(parser))\n    # Any required arguments which are passed in via **options must be passed\n    # to parse_args().\n    parse_args += [\n        '{}={}'.format(min(opt.option_strings), arg_options[opt.dest])\n        for opt in parser_actions if opt.required and opt.dest in options\n    ]",
+        "new_str": "    parser_actions = list(get_actions(parser))\n    # Any required arguments which are passed in via **options must be passed\n    # to parse_args().\n    # Also handle options that are part of a required mutually exclusive group.\n    required_dests = set()\n    for opt in parser_actions:\n        if opt.required:\n            required_dests.add(opt.dest)\n        # Check if this option is part of a required group\n        if hasattr(opt, 'container') and opt.container:\n            # The container is the mutually exclusive group\n            if getattr(opt.container, 'required', False):\n                required_dests.add(opt.dest)\n    \n    parse_args += [\n        '{}={}'.format(min(opt.option_strings), arg_options[opt.dest])\n        for opt in parser_actions if opt.dest in required_dests and opt.dest in options\n    ]",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        23
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "22:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_argparse2.py",
+        "file_text": "import argparse\n\nparser = argparse.ArgumentParser()\nshop = parser.add_mutually_exclusive_group(required=True)\nshop.add_argument('--shop-id', nargs='?', type=int, default=None, dest='shop_id')\nshop.add_argument('--shop', nargs='?', type=str, default=None, dest='shop_name')\n\nprint(\"Parser actions:\")\nfor opt in parser._actions:\n    print(f\"Option: {opt}\")\n    print(f\"  dest: {opt.dest}\")\n    print(f\"  required: {opt.required}\")\n    print(f\"  option_strings: {opt.option_strings}\")\n    print(f\"  container: {getattr(opt, 'container', None)}\")\n    print(f\"  container required: {getattr(getattr(opt, 'container', None), 'required', None)}\")\n    if hasattr(opt, 'choices'):\n        print(f\"  choices: {opt.choices}\")\n    print()"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        25
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "23:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_argparse2.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        26
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "24:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_argparse3.py",
+        "file_text": "import argparse\n\nparser = argparse.ArgumentParser()\nshop = parser.add_mutually_exclusive_group(required=True)\nshop.add_argument('--shop-id', nargs='?', type=int, default=None, dest='shop_id')\nshop.add_argument('--shop', nargs='?', type=str, default=None, dest='shop_name')\n\nprint(\"Parser actions:\")\nfor opt in parser._actions:\n    print(f\"Option: {opt}\")\n    print(f\"  dest: {opt.dest}\")\n    print(f\"  required: {opt.required}\")\n    print(f\"  option_strings: {opt.option_strings}\")\n    print(f\"  container: {getattr(opt, 'container', None)}\")\n    if hasattr(opt, 'container'):\n        print(f\"  container dir: {dir(opt.container)}\")\n        print(f\"  container attrs: {vars(opt.container)}\")\n    if hasattr(opt, 'choices'):\n        print(f\"  choices: {opt.choices}\")\n    print()"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        27
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "25:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_argparse3.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        28
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "26:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/core/management/__init__.py",
+        "old_str": "    parser_actions = list(get_actions(parser))\n    # Any required arguments which are passed in via **options must be passed\n    # to parse_args().\n    # Also handle options that are part of a required mutually exclusive group.\n    required_dests = set()\n    for opt in parser_actions:\n        if opt.required:\n            required_dests.add(opt.dest)\n        # Check if this option is part of a required group\n        if hasattr(opt, 'container') and opt.container:\n            # The container is the mutually exclusive group\n            if getattr(opt.container, 'required', False):\n                required_dests.add(opt.dest)\n    \n    parse_args += [\n        '{}={}'.format(min(opt.option_strings), arg_options[opt.dest])\n        for opt in parser_actions if opt.dest in required_dests and opt.dest in options\n    ]",
+        "new_str": "    parser_actions = list(get_actions(parser))\n    # Any required arguments which are passed in via **options must be passed\n    # to parse_args().\n    # Also handle options that are part of a required mutually exclusive group.\n    required_dests = set()\n    for opt in parser_actions:\n        if opt.required:\n            required_dests.add(opt.dest)\n        # Check if this option is part of a required group\n        if hasattr(opt, 'container') and opt.container:\n            # The container is the mutually exclusive group\n            if hasattr(opt.container, '_mutually_exclusive_groups'):\n                # This is a mutually exclusive group\n                for group in opt.container._mutually_exclusive_groups:\n                    if group.required:\n                        required_dests.add(opt.dest)\n    \n    parse_args += [\n        '{}={}'.format(min(opt.option_strings), arg_options[opt.dest])\n        for opt in parser_actions if opt.dest in required_dests and opt.dest in options\n    ]",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        29
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "27:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_script.py",
+        "old_str": "import os\nimport django\nfrom django.conf import settings\n\n# Configure Django\nsettings.configure(\n    INSTALLED_APPS=['test_app'],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    }\n)\ndjango.setup()\n\nfrom django.core.management import call_command\n\n# This should work\nprint(\"Testing with command line args:\")\ncall_command('test_command', '--shop-id=1')\n\nprint(\"\\nTesting with kwargs:\")\n# This should also work but currently fails\ncall_command('test_command', shop_id=1)",
+        "new_str": "import os\nimport django\nfrom django.conf import settings\n\n# Configure Django\nsettings.configure(\n    INSTALLED_APPS=['test_app'],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    }\n)\ndjango.setup()\n\nfrom django.core.management import call_command\n\n# Test all combinations\nprint(\"Testing with command line args:\")\ncall_command('test_command', '--shop-id=1')\n\nprint(\"\\nTesting with kwargs:\")\ncall_command('test_command', shop_id=1)\n\nprint(\"\\nTesting with command line args using shop name:\")\ncall_command('test_command', '--shop=test')\n\nprint(\"\\nTesting with kwargs using shop name:\")\ncall_command('test_command', shop_name='test')\n\nprint(\"\\nTesting error case - no arguments:\")\ntry:\n    call_command('test_command')\nexcept Exception as e:\n    print(f\"Got expected error: {e}\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        31
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "28:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        33,
+        35
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "29:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/settings.py",
+        "/testbed/test_app",
+        "/testbed/test_*.py"
+      ],
+      "flags": {
+        "r": true,
+        "f": true
+      },
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        34
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "30:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:find",
+      "target": "1:ls",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:ls",
+      "target": "2:find",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:find",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: view",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "5:str_replace_editor: view",
+      "target": "6:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: view",
+      "target": "7:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "6:str_replace_editor: view",
+      "target": "19:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: create",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:python",
+      "target": "9:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: create",
+      "target": "10:mkdir",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "9:str_replace_editor: create",
+      "target": "11:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:mkdir",
+      "target": "9:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "11:str_replace_editor: create",
+      "target": "12:mkdir",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "12:mkdir",
+      "target": "13:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "13:str_replace_editor: create",
+      "target": "14:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "14:str_replace_editor: create",
+      "target": "15:set_env",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "15:set_env",
+      "target": "16:python",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "15:set_env",
+      "target": "16:python",
+      "key": 1
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "15:set_env",
+      "target": "16:python",
+      "key": 2
+    },
+    {
+      "label": "30",
+      "type": "exec",
+      "source": "15:set_env",
+      "target": "16:python",
+      "key": 3
+    },
+    {
+      "label": "32",
+      "type": "exec",
+      "source": "15:set_env",
+      "target": "16:python",
+      "key": 4
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "16:python",
+      "target": "17:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "16:python",
+      "target": "19:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "25",
+      "type": "exec",
+      "source": "16:python",
+      "target": "23:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "31",
+      "type": "exec",
+      "source": "16:python",
+      "target": "28:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "33",
+      "type": "exec",
+      "source": "16:python",
+      "target": "29:submit",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "17:str_replace_editor: create",
+      "target": "18:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "18:str_replace_editor: str_replace",
+      "target": "15:set_env",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "19:str_replace_editor: view",
+      "target": "20:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "20:str_replace_editor: create",
+      "target": "21:python",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "21:python",
+      "target": "22:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "22:str_replace_editor: str_replace",
+      "target": "15:set_env",
+      "key": 0
+    },
+    {
+      "label": "26",
+      "type": "exec",
+      "source": "23:str_replace_editor: create",
+      "target": "24:python",
+      "key": 0
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "24:python",
+      "target": "25:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "28",
+      "type": "exec",
+      "source": "25:str_replace_editor: create",
+      "target": "26:python",
+      "key": 0
+    },
+    {
+      "label": "29",
+      "type": "exec",
+      "source": "26:python",
+      "target": "27:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "30",
+      "type": "exec",
+      "source": "27:str_replace_editor: str_replace",
+      "target": "15:set_env",
+      "key": 0
+    },
+    {
+      "label": "32",
+      "type": "exec",
+      "source": "28:str_replace_editor: str_replace",
+      "target": "15:set_env",
+      "key": 0
+    },
+    {
+      "label": "34",
+      "type": "exec",
+      "source": "29:submit",
+      "target": "30:rm",
+      "key": 0
+    },
+    {
+      "label": "35",
+      "type": "exec",
+      "source": "30:rm",
+      "target": "29:submit",
+      "key": 0
+    }
+  ]
+}

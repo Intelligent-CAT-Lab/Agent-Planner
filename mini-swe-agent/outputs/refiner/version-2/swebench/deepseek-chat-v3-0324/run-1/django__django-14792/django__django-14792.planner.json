@@ -1,0 +1,48 @@
+{
+  "summary": {
+    "total_interventions": 1,
+    "monitor_count": 0,
+    "refiner_count": 1,
+    "monitor_total_latency_ms": 0,
+    "refiner_total_latency_ms": 20479.56,
+    "refiner_total_input_tokens": 3848,
+    "refiner_total_output_tokens": 1450,
+    "refiner_total_tokens": 5298,
+    "refiner_total_cost": 0.003862
+  },
+  "interventions": [
+    {
+      "step": 5,
+      "planner_type": "refiner",
+      "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n[Phase=P] Edit django/db/backends/postgresql/operations.py to replace the current naive character-replacement logic in _prepare_tzname_delta with a robust, sign-aware handler and add unit tests that lock the expected behavior:\n- Implement logic that first detects the specific \"Etc/GMT\" pattern (e.g. with a simple pattern/parse: prefix \"Etc/GMT\" followed by an explicit +/- and digits). For that pattern, invert only the numeric sign portion (e.g. \"Etc/GMT-10\" ↔ \"Etc/GMT+10\") by parsing prefix/sign/number and reconstructing the string; do not perform a blind replace that flips multiple characters.\n- Keep the existing behavior for simple offset strings like \"+10\" or \"-10\" (i.e. swap '+' ↔ '-').\n- Leave other timezone name formats (named zones that do not match these patterns) unchanged.\n- Add focused tests in tests/backends/postgresql/test_operations.py to assert _prepare_tzname_delta (or the public call path that uses it) returns the expected mapped values for inputs: \"Etc/GMT-10\", \"Etc/GMT+10\", \"+10\", \"-10\", and a non-matching named zone string. These tests should codify the desired mapping so future changes do not regress.\n- After implementing, run the PostgreSQL backend tests (or the targeted tests) to validate the change.",
+      "latency_ms": 20479.56,
+      "usage": {
+        "input_tokens": 3848,
+        "output_tokens": 1450,
+        "total_tokens": 5298,
+        "cost": 0.003862
+      },
+      "state_summary": {
+        "current_phase": "P",
+        "phase_history": [
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "P"
+        ],
+        "unique_phases": [
+          "L_navigate",
+          "P"
+        ],
+        "rule_triggers": [],
+        "graph_info": {
+          "node_count": 6,
+          "edge_count": 5
+        },
+        "step_count": 6
+      }
+    }
+  ]
+}

@@ -1,0 +1,444 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "django__django-13346",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/json.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/backends/mysql/operations.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_json_in_lookup.py",
+        "file_text": "import os\nimport django\nfrom django.db import models\n\n# Setup Django environment\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'testbed.settings')\ndjango.setup()\n\n# Define a model with JSONField\nclass TestModel(models.Model):\n    data = models.JSONField()\n\n    class Meta:\n        app_label = 'testapp'\n\n# Create test data\nTestModel.objects.create(data={'key': 0})\nTestModel.objects.create(data={'key': 1})\n\n# Perform lookups\nfirst_filter = {'data__key__in': [0]}\nfirst_items = TestModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {first_items.count()}\")\n\nsecond_filter = {'data__key': 0}\nsecond_items = TestModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {second_items.count()}\")"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "4:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_json_in_lookup.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "5:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_json_in_lookup.py",
+        "old_str": "import django\nfrom django.db import models\n\n# Initialize Django\ndjango.setup()\n\n# Define a model with JSONField\nclass OurModel(models.Model):\n    our_field = models.JSONField()\n\n# Create instances with JSON data\nOurModel.objects.create(our_field={\"key\": 0})\nOurModel.objects.create(our_field={\"key\": 1})\n\n# Perform the __in lookup on a key transform\nfirst_filter = {\"our_field__key__in\": [0]}\nfirst_items = OurModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {len(first_items)}\")\n\n# Perform a direct key lookup\nsecond_filter = {\"our_field__key\": 0}\nsecond_items = OurModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {len(second_items)}\")",
+        "new_str": "import os\nimport django\nfrom django.db import models\n\n# Set up Django environment\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"testbed.settings\")\ndjango.setup()\n\n# Define a model with JSONField\nclass OurModel(models.Model):\n    our_field = models.JSONField()\n\n    class Meta:\n        app_label = \"testapp\"\n\n# Create instances with JSON data\nOurModel.objects.create(our_field={\"key\": 0})\nOurModel.objects.create(our_field={\"key\": 1})\n\n# Perform the __in lookup on a key transform\nfirst_filter = {\"our_field__key__in\": [0]}\nfirst_items = OurModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {len(first_items)}\")\n\n# Perform a direct key lookup\nsecond_filter = {\"our_field__key\": 0}\nsecond_items = OurModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {len(second_items)}\")",
+        "edit_status": "failure: not found"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_json_in_lookup.py",
+        "old_str": "import os\nimport django\nfrom django.db import models\n\n# Setup Django environment\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'testbed.settings')\ndjango.setup()\n\n# Define a model with JSONField\nclass TestModel(models.Model):\n    data = models.JSONField()\n\n    class Meta:\n        app_label = 'testapp'\n\n# Create test data\nTestModel.objects.create(data={'key': 0})\nTestModel.objects.create(data={'key': 1})\n\n# Perform lookups\nfirst_filter = {'data__key__in': [0]}\nfirst_items = TestModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {first_items.count()}\")\n\nsecond_filter = {'data__key': 0}\nsecond_items = TestModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {second_items.count()}\")",
+        "new_str": "import os\nimport django\nfrom django.db import models\n\n# Set up Django environment\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"testbed.settings\")\ndjango.setup()\n\n# Define a model with JSONField\nclass OurModel(models.Model):\n    our_field = models.JSONField()\n\n    class Meta:\n        app_label = \"testapp\"\n\n# Create instances with JSON data\nOurModel.objects.create(our_field={\"key\": 0})\nOurModel.objects.create(our_field={\"key\": 1})\n\n# Perform the __in lookup on a key transform\nfirst_filter = {\"our_field__key__in\": [0]}\nfirst_items = OurModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {first_items.count()}\")\n\n# Perform a direct key lookup\nsecond_filter = {\"our_field__key\": 0}\nsecond_items = OurModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {second_items.count()}\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce_json_in_lookup.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        7,
+        9
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "8:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_json_in_lookup.py",
+        "old_str": "import os\nimport django\nfrom django.db import models\n\n# Set up Django environment\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"testbed.settings\")\ndjango.setup()\n\n# Define a model with JSONField\nclass OurModel(models.Model):\n    our_field = models.JSONField()\n\n    class Meta:\n        app_label = \"testapp\"\n\n# Create instances with JSON data\nOurModel.objects.create(our_field={\"key\": 0})\nOurModel.objects.create(our_field={\"key\": 1})\n\n# Perform the __in lookup on a key transform\nfirst_filter = {\"our_field__key__in\": [0]}\nfirst_items = OurModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {first_items.count()}\")\n\n# Perform a direct key lookup\nsecond_filter = {\"our_field__key\": 0}\nsecond_items = OurModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {second_items.count()}\")",
+        "new_str": "import os\nimport sys\nimport django\nfrom django.db import models\n\n# Add the /testbed directory to the Python path\nsys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\n# Set up Django environment\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"testbed.settings\")\ndjango.setup()\n\n# Define a model with JSONField\nclass OurModel(models.Model):\n    our_field = models.JSONField()\n\n    class Meta:\n        app_label = \"testapp\"\n\n# Create instances with JSON data\nOurModel.objects.create(our_field={\"key\": 0})\nOurModel.objects.create(our_field={\"key\": 1})\n\n# Perform the __in lookup on a key transform\nfirst_filter = {\"our_field__key__in\": [0]}\nfirst_items = OurModel.objects.filter(**first_filter)\nprint(f\"__in lookup count: {first_items.count()}\")\n\n# Perform a direct key lookup\nsecond_filter = {\"our_field__key\": 0}\nsecond_items = OurModel.objects.filter(**second_filter)\nprint(f\"Direct lookup count: {second_items.count()}\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/settings.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "10:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/fields/json.py",
+        "old_str": "class KeyTransformGte(KeyTransformNumericLookupMixin, lookups.GreaterThanOrEqual):\n    pass\n\n\nKeyTransform.register_lookup(KeyTransformExact)\nKeyTransform.register_lookup(KeyTransformIExact)\nKeyTransform.register_lookup(KeyTransformIsNull)\nKeyTransform.register_lookup(KeyTransformIContains)\nKeyTransform.register_lookup(KeyTransformStartsWith)\nKeyTransform.register_lookup(KeyTransformIStartsWith)\nKeyTransform.register_lookup(KeyTransformEndsWith)\nKeyTransform.register_lookup(KeyTransformIEndsWith)\nKeyTransform.register_lookup(KeyTransformRegex)\nKeyTransform.register_lookup(KeyTransformIRegex)\n\nKeyTransform.register_lookup(KeyTransformLt)\nKeyTransform.register_lookup(KeyTransformLte)\nKeyTransform.register_lookup(KeyTransformGt)\nKeyTransform.register_lookup(KeyTransformGte)",
+        "new_str": "class KeyTransformGte(KeyTransformNumericLookupMixin, lookups.GreaterThanOrEqual):\n    pass\n\n\nclass KeyTransformIn(lookups.In):\n    def process_lhs(self, compiler, connection):\n        lhs, lhs_params = super().process_lhs(compiler, connection)\n        if connection.vendor in ('mysql', 'oracle', 'sqlite'):\n            # For these backends, we need to ensure the JSON value is properly extracted\n            return \"JSON_EXTRACT(%s, %%s)\" % lhs, lhs_params + (self.lhs.key_name,)\n        return lhs, lhs_params\n\n    def process_rhs(self, compiler, connection):\n        rhs, rhs_params = super().process_rhs(compiler, connection)\n        if not connection.features.has_native_json_field:\n            rhs_params = [json.loads(value) if isinstance(value, str) else value for value in rhs_params]\n        return rhs, rhs_params\n\n\nKeyTransform.register_lookup(KeyTransformExact)\nKeyTransform.register_lookup(KeyTransformIExact)\nKeyTransform.register_lookup(KeyTransformIsNull)\nKeyTransform.register_lookup(KeyTransformIContains)\nKeyTransform.register_lookup(KeyTransformStartsWith)\nKeyTransform.register_lookup(KeyTransformIStartsWith)\nKeyTransform.register_lookup(KeyTransformEndsWith)\nKeyTransform.register_lookup(KeyTransformIEndsWith)\nKeyTransform.register_lookup(KeyTransformRegex)\nKeyTransform.register_lookup(KeyTransformIRegex)\n\nKeyTransform.register_lookup(KeyTransformLt)\nKeyTransform.register_lookup(KeyTransformLte)\nKeyTransform.register_lookup(KeyTransformGt)\nKeyTransform.register_lookup(KeyTransformGte)\nKeyTransform.register_lookup(KeyTransformIn)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "11:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        12,
+        16
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "12:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        13,
+        17
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "13:submit"
+    },
+    {
+      "label": "str_replace_editor: undo_edit",
+      "args": {
+        "path": "/testbed/reproduce_json_in_lookup.py"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "undo_edit",
+      "id": "14:str_replace_editor: undo_edit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_json_in_lookup.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "15:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "10:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:python",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:python",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "8:python",
+      "target": "10:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:str_replace_editor: view",
+      "target": "11:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "11:str_replace_editor: str_replace",
+      "target": "12:think",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "12:think",
+      "target": "13:submit",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "12:think",
+      "target": "13:submit",
+      "key": 1
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "13:submit",
+      "target": "14:str_replace_editor: undo_edit",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "14:str_replace_editor: undo_edit",
+      "target": "15:rm",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "15:rm",
+      "target": "12:think",
+      "key": 0
+    }
+  ]
+}

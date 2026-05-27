@@ -1,0 +1,71 @@
+{
+  "rate_limit": {
+    "enabled": false,
+    "min_gap": 5
+  },
+  "trigger_on_success_only": true,
+  "rules": {
+    "plan_compliance": {
+      "intended_plan": ["L_navigate", "L_reproduce", "P", "V_newly_generated_test"],
+      "ending_flags": [
+        "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT",
+        "submit"
+      ],
+      "phase_names": {
+        "L_navigate": "navigation",
+        "L_reproduce": "reproducing",
+        "P": "patching",
+        "V": "testing",
+        "V_regression_test": "running relevant tests to avoid regressions",
+        "V_newly_generated_test": "testing"
+      },
+      "message": "Plan compliance violation: {violation}. Expected to {expected}. Skipped phases: {skipped}. Follow the intended workflow to ensure thorough problem solving."
+    },
+    "phase_transitions": {
+      "transition_L_P": {
+        "message": "Phase change: LOCALIZATION → PATCH. Make focused edits based on the failing behavior you observed, and remember to run tests afterwards to validate the patch.",
+        "threshold": 1
+      },
+      "transition_P_V": {
+        "message": "Phase change: PATCH → VALIDATION. Use the test results to confirm whether your recent code change fixed the issue or introduced new problems.",
+        "threshold": 1
+      }
+    },
+    "strategy_shifts": {
+      "shift_L_V": {
+        "message": "LOCALIZATION → VALIDATION. If the failure is well understood, consider making a small, targeted change before running more tests. If the error has been resolved, terminate the process.",
+        "threshold": null
+      },
+      "shift_V_L": {
+        "message": "VALIDATION → LOCALIZATION. Let the test results narrow your search: inspect code that is directly related to the failing tests before exploring unrelated parts of the repo.",
+        "threshold": null
+      },
+      "shift_V_P": {
+        "message": "Strategy backtrack: VALIDATION → PATCH. Use the test output to make a small, focused edit that directly addresses the failing behavior.",
+        "threshold": null
+      },
+      "shift_P_L": {
+        "message": "Strategy backtrack: PATCH → LOCALIZATION. If the patch failed, inspect the edited lines and make a targeted correction. If the patch succeeded, check whether tests validated it. No tests run → run a focused test; Tests failing → use the failures to guide which files or functions to inspect next.",
+        "threshold": null
+      }
+    },
+    "dwell_times": {
+      "dwell_L_navigate": {
+        "message": "You may get stuck in navigation. Search for the relevant code only. Run tests to localize the bug, if necessary.",
+        "threshold": 6
+      },
+      "dwell_L_reproduce": {
+        "message": "Long reproducing process. Skip if the issue is unable to reproduce.",
+        "threshold": 6
+      },
+      "dwell_P": {
+        "message": "Long patching process. If continuous edit fails, inspect the exact edit location to make targeted patch or change editing method. If edit succeeds, validate with tests to avoid over-editing.",
+        "threshold": 6
+      },
+      "dwell_V": {
+        "message": "Long validation process. If no further error is detected, submit the patch. Otherwise, use the test results to guide the localization and patch generation.",
+        "threshold": 6
+      }
+    }
+  }
+}

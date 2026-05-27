@@ -1,0 +1,369 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "django__django-11099",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "i": "validator"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "0:find"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/contrib/auth/validators.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        1,
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_username_validator.py",
+        "file_text": "from django.contrib.auth.validators import ASCIIUsernameValidator, UnicodeUsernameValidator\n\ndef test_validators():\n    ascii_validator = ASCIIUsernameValidator()\n    unicode_validator = UnicodeUsernameValidator()\n    \n    # Test valid username\n    valid_username = \"test.user123\"\n    print(f\"Testing valid username '{valid_username}':\")\n    print(f\"ASCII validator: {'PASS' if ascii_validator.valid(valid_username) else 'FAIL'}\")\n    print(f\"Unicode validator: {'PASS' if unicode_validator.valid(valid_username) else 'FAIL'}\")\n    \n    # Test username with trailing newline\n    invalid_username = \"test.user123\\n\"\n    print(f\"\\nTesting invalid username with trailing newline '{invalid_username!r}':\")\n    print(f\"ASCII validator: {'PASS' if ascii_validator.valid(invalid_username) else 'FAIL'}\")\n    print(f\"Unicode validator: {'PASS' if unicode_validator.valid(invalid_username) else 'FAIL'}\")\n\nif __name__ == \"__main__\":\n    test_validators()"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "2:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce_username_validator.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization",
+        "validation"
+      ],
+      "step_indices": [
+        3,
+        6,
+        13
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "3:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_username_validator.py",
+        "old_str": "def test_validators():\n    ascii_validator = ASCIIUsernameValidator()\n    unicode_validator = UnicodeUsernameValidator()\n    \n    # Test valid username\n    valid_username = \"test.user123\"\n    print(f\"Testing valid username '{valid_username}':\")\n    print(f\"ASCII validator: {'PASS' if ascii_validator.valid(valid_username) else 'FAIL'}\")\n    print(f\"Unicode validator: {'PASS' if unicode_validator.valid(valid_username) else 'FAIL'}\")\n    \n    # Test username with trailing newline\n    invalid_username = \"test.user123\\n\"\n    print(f\"\\nTesting invalid username with trailing newline '{invalid_username!r}':\")\n    print(f\"ASCII validator: {'PASS' if ascii_validator.valid(invalid_username) else 'FAIL'}\")\n    print(f\"Unicode validator: {'PASS' if unicode_validator.valid(invalid_username) else 'FAIL'}\")",
+        "new_str": "def test_validators():\n    ascii_validator = ASCIIUsernameValidator()\n    unicode_validator = UnicodeUsernameValidator()\n    \n    # Test valid username\n    valid_username = \"test.user123\"\n    print(f\"Testing valid username '{valid_username}':\")\n    try:\n        ascii_validator(valid_username)\n        print(\"ASCII validator: PASS\")\n    except validators.ValidationError:\n        print(\"ASCII validator: FAIL\")\n    \n    try:\n        unicode_validator(valid_username)\n        print(\"Unicode validator: PASS\")\n    except validators.ValidationError:\n        print(\"Unicode validator: FAIL\")\n    \n    # Test username with trailing newline\n    invalid_username = \"test.user123\\n\"\n    print(f\"\\nTesting invalid username with trailing newline '{invalid_username!r}':\")\n    try:\n        ascii_validator(invalid_username)\n        print(\"ASCII validator: FAIL (should have rejected)\\n\")\n    except validators.ValidationError:\n        print(\"ASCII validator: PASS (correctly rejected)\\n\")\n    \n    try:\n        unicode_validator(invalid_username)\n        print(\"Unicode validator: FAIL (should have rejected)\")\n    except validators.ValidationError:\n        print(\"Unicode validator: PASS (correctly rejected)\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "4:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_username_validator.py",
+        "old_str": "from django.contrib.auth.validators import ASCIIUsernameValidator, UnicodeUsernameValidator",
+        "new_str": "from django.contrib.auth.validators import ASCIIUsernameValidator, UnicodeUsernameValidator\nfrom django.core import validators",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/contrib/auth/validators.py",
+        "old_str": "    regex = r'^[\\[w.@+-]+$'",
+        "new_str": "    regex = r'\\A[\\w.@+-]+\\Z'",
+        "edit_status": "failure: not found"
+      },
+      "flags": {},
+      "phases": [
+        "patch",
+        "patch"
+      ],
+      "step_indices": [
+        7,
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/contrib/auth/validators.py",
+        "old_str": "    regex = r'^[\\w.@+-]+$'",
+        "new_str": "    regex = r'\\A[\\w.@+-]+\\Z'",
+        "edit_status": "failure: multiple occurrences"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/contrib/auth/validators.py",
+        "old_str": "@deconstructible\nclass ASCIIUsernameValidator(validators.RegexValidator):\n    regex = r'^[\\w.@+-]+$'\n    message = _(\n        'Enter a valid username. This value may contain only English letters, '\n        'numbers, and @/./+/-/_ characters.'\n    )\n    flags = re.ASCII",
+        "new_str": "@deconstructible\nclass ASCIIUsernameValidator(validators.RegexValidator):\n    regex = r'\\A[\\w.@+-]+\\Z'\n    message = _(\n        'Enter a valid username. This value may contain only English letters, '\n        'numbers, and @/./+/-/_ characters.'\n    )\n    flags = re.ASCII",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/contrib/auth/validators.py",
+        "old_str": "@deconstructible\nclass UnicodeUsernameValidator(validators.RegexValidator):\n    regex = r'^[\\w.@+-]+$'\n    message = _(\n        'Enter a valid username. This value may contain only letters, '\n        'numbers, and @/./+/-/_ characters.'\n    )\n    flags = 0",
+        "new_str": "@deconstructible\nclass UnicodeUsernameValidator(validators.RegexValidator):\n    regex = r'\\A[\\w.@+-]+\\Z'\n    message = _(\n        'Enter a valid username. This value may contain only letters, '\n        'numbers, and @/./+/-/_ characters.'\n    )\n    flags = 0",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        14,
+        16
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "10:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_username_validator.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "11:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:find",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: create",
+      "target": "3:python",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:python",
+      "target": "4:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "3:python",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "3:python",
+      "target": "10:submit",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: str_replace",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "3:python",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "3:python",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "10:submit",
+      "target": "11:rm",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "11:rm",
+      "target": "10:submit",
+      "key": 0
+    }
+  ]
+}

@@ -1,0 +1,432 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "pylint-dev__pylint-7277",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/pylint/__init__.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "file_text": "import sys\nimport runpy\n\n# Add a custom path at the start of sys.path\nsys.path.insert(0, \"something\")\n\n# Print initial sys.path\nprint(\"Initial sys.path:\", sys.path)\n\n# Run pylint\nrunpy.run_module('pylint', run_name=\"__main__\", alter_sys=True)\n\n# Print final sys.path\nprint(\"Final sys.path:\", sys.path)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "2:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        3,
+        6,
+        8,
+        10,
+        12
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "3:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation"
+      ],
+      "step_indices": [
+        3,
+        6
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "4:python"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "5:think"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/pylint/__init__.py",
+        "old_str": "    sys.path.pop(0)\n    env_pythonpath = os.environ.get(\"PYTHONPATH\", \"\")\n    cwd = os.getcwd()\n    if env_pythonpath.startswith(\":\") and env_pythonpath not in (f\":{cwd}\", \":.\"):\n        sys.path.pop(0)\n    elif env_pythonpath.endswith(\":\") and env_pythonpath not in (f\"{cwd}:\", \".:\"):\n        sys.path.pop(1)",
+        "new_str": "    cwd = os.getcwd()\n    first_path = sys.path[0]\n    if first_path not in (\"\", \".\", cwd):\n        sys.path.pop(0)\n    env_pythonpath = os.environ.get(\"PYTHONPATH\", \"\")\n    if env_pythonpath.startswith(\":\") and env_pythonpath not in (f\":{cwd}\", \":.\"):\n        sys.path.pop(0)\n    elif env_pythonpath.endswith(\":\") and env_pythonpath not in (f\"{cwd}:\", \".:\"):\n        sys.path.pop(1)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_empty.py",
+        "file_text": "import sys\nimport runpy\n\n# Add empty string at the start of sys.path\nsys.path.insert(0, \"\")\n\n# Print initial sys.path\nprint(\"Initial sys.path:\", sys.path)\n\n# Run pylint\nrunpy.run_module('pylint', run_name=\"__main__\", alter_sys=True)\n\n# Print final sys.path\nprint(\"Final sys.path:\", sys.path)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "7:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_empty.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "8:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_dot.py",
+        "file_text": "import sys\nimport runpy\n\n# Add current directory at the start of sys.path\nsys.path.insert(0, \".\")\n\n# Print initial sys.path\nprint(\"Initial sys.path:\", sys.path)\n\n# Run pylint\nrunpy.run_module('pylint', run_name=\"__main__\", alter_sys=True)\n\n# Print final sys.path\nprint(\"Final sys.path:\", sys.path)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "9:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_dot.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "10:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_cwd.py",
+        "file_text": "import sys\nimport runpy\nimport os\n\n# Add current working directory at the start of sys.path\nsys.path.insert(0, os.getcwd())\n\n# Print initial sys.path\nprint(\"Initial sys.path:\", sys.path)\n\n# Run pylint\nrunpy.run_module('pylint', run_name=\"__main__\", alter_sys=True)\n\n# Print final sys.path\nprint(\"Final sys.path:\", sys.path)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "11:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_cwd.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "12:python"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        13,
+        15
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "13:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce.py",
+        "/testbed/test_cwd.py",
+        "/testbed/test_dot.py",
+        "/testbed/test_empty.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "14:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: create",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "4:python",
+      "key": 1
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "10:python",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "12:python",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:python",
+      "target": "5:think",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "4:python",
+      "target": "7:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:think",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: create",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:python",
+      "target": "9:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: create",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:python",
+      "target": "11:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "11:str_replace_editor: create",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "12:python",
+      "target": "13:submit",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "13:submit",
+      "target": "14:rm",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "14:rm",
+      "target": "13:submit",
+      "key": 0
+    }
+  ]
+}

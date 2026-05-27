@@ -1,0 +1,601 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "scikit-learn__scikit-learn-25232",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "i": "impute"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "0:find"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sklearn/impute/_base.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "file_text": "import numpy as np\nfrom sklearn.experimental import enable_iterative_imputer\nfrom sklearn.impute import IterativeImputer\n\n# Create sample data with missing values\nX = [[1, 2, np.nan], [4, np.nan, 6], [np.nan, 5, 9]]\n\n# Try to use IterativeImputer with constant initial strategy and custom fill_value\ntry:\n    imp = IterativeImputer(initial_strategy=\"constant\", fill_value=999)\n    X_imputed = imp.fit_transform(X)\n    print(\"Success! Imputed values:\", X_imputed)\nexcept TypeError as e:\n    print(\"Error:\", e)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        4,
+        13,
+        15
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "4:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "old_str": "    _parameter_constraints: dict = {\n        **_BaseImputer._parameter_constraints,\n        \"estimator\": [None, HasMethods([\"fit\", \"predict\"])],\n        \"sample_posterior\": [\"boolean\"],\n        \"max_iter\": [Interval(Integral, 0, None, closed=\"left\")],\n        \"tol\": [Interval(Real, 0, None, closed=\"left\")],\n        \"n_nearest_features\": [None, Interval(Integral, 1, None, closed=\"left\")],\n        \"initial_strategy\": [\n            StrOptions({\"mean\", \"median\", \"most_frequent\", \"constant\"})\n        ],\n        \"imputation_order\": [\n            StrOptions({\"ascending\", \"descending\", \"roman\", \"arabic\", \"random\"})\n        ],\n        \"skip_complete\": [\"boolean\"],\n        \"min_value\": [None, Interval(Real, None, None, closed=\"both\"), \"array-like\"],\n        \"max_value\": [None, Interval(Real, None, None, closed=\"both\"), \"array-like\"],\n        \"verbose\": [\"verbose\"],\n        \"random_state\": [\"random_state\"],\n    }",
+        "new_str": "    _parameter_constraints: dict = {\n        **_BaseImputer._parameter_constraints,\n        \"estimator\": [None, HasMethods([\"fit\", \"predict\"])],\n        \"sample_posterior\": [\"boolean\"],\n        \"max_iter\": [Interval(Integral, 0, None, closed=\"left\")],\n        \"tol\": [Interval(Real, 0, None, closed=\"left\")],\n        \"n_nearest_features\": [None, Interval(Integral, 1, None, closed=\"left\")],\n        \"initial_strategy\": [\n            StrOptions({\"mean\", \"median\", \"most_frequent\", \"constant\"})\n        ],\n        \"imputation_order\": [\n            StrOptions({\"ascending\", \"descending\", \"roman\", \"arabic\", \"random\"})\n        ],\n        \"skip_complete\": [\"boolean\"],\n        \"min_value\": [None, Interval(Real, None, None, closed=\"both\"), \"array-like\"],\n        \"max_value\": [None, Interval(Real, None, None, closed=\"both\"), \"array-like\"],\n        \"verbose\": [\"verbose\"],\n        \"random_state\": [\"random_state\"],\n        \"fill_value\": \"no_validation\",  # any object is valid\n    }",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "old_str": "    def __init__(\n        self,\n        estimator=None,\n        *,\n        missing_values=np.nan,\n        sample_posterior=False,\n        max_iter=10,\n        tol=1e-3,\n        n_nearest_features=None,\n        initial_strategy=\"mean\",\n        imputation_order=\"ascending\",\n        skip_complete=False,\n        min_value=-np.inf,\n        max_value=np.inf,\n        verbose=0,\n        random_state=None,\n        add_indicator=False,\n        keep_empty_features=False,\n    ):",
+        "new_str": "    def __init__(\n        self,\n        estimator=None,\n        *,\n        missing_values=np.nan,\n        sample_posterior=False,\n        max_iter=10,\n        tol=1e-3,\n        n_nearest_features=None,\n        initial_strategy=\"mean\",\n        imputation_order=\"ascending\",\n        skip_complete=False,\n        min_value=-np.inf,\n        max_value=np.inf,\n        verbose=0,\n        random_state=None,\n        add_indicator=False,\n        keep_empty_features=False,\n        fill_value=None,\n    ):",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "old_str": "    def _initial_imputation(self, X, in_fit=False):\n        \"\"\"Initial imputation of missing values.\n\n        Parameters\n        ----------\n        X : {array-like, sparse matrix} of shape (n_samples, n_features)\n            The data to complete.\n        in_fit : bool, default=False\n            Whether we are in a fit or transform step.\n\n        Returns\n        -------\n        X_filled : {array-like, sparse matrix} of shape (n_samples, n_features)\n            Array with missing values filled in.\n        \"\"\"\n        if self.initial_strategy == \"constant\":\n            fill_value = 0\n        else:\n            fill_value = None\n\n        self.initial_imputer_ = SimpleImputer(\n            missing_values=self.missing_values,\n            strategy=self.initial_strategy,\n            fill_value=fill_value,\n            copy=False,\n            add_indicator=False,\n            keep_empty_features=self.keep_empty_features,\n        )",
+        "new_str": "    def _initial_imputation(self, X, in_fit=False):\n        \"\"\"Initial imputation of missing values.\n\n        Parameters\n        ----------\n        X : {array-like, sparse matrix} of shape (n_samples, n_features)\n            The data to complete.\n        in_fit : bool, default=False\n            Whether we are in a fit or transform step.\n\n        Returns\n        -------\n        X_filled : {array-like, sparse matrix} of shape (n_samples, n_features)\n            Array with missing values filled in.\n        \"\"\"\n        if self.initial_strategy == \"constant\":\n            fill_value = self.fill_value if self.fill_value is not None else 0\n        else:\n            fill_value = None\n\n        self.initial_imputer_ = SimpleImputer(\n            missing_values=self.missing_values,\n            strategy=self.initial_strategy,\n            fill_value=fill_value,\n            copy=False,\n            add_indicator=False,\n            keep_empty_features=self.keep_empty_features,\n        )",
+        "edit_status": "failure: not found"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "view_range": [
+          565,
+          580
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "8:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "view_range": [
+          580,
+          600
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "9:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "view_range": [
+          600,
+          620
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "10:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "view_range": [
+          620,
+          640
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "11:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "old_str": "            self.initial_imputer_ = SimpleImputer(\n                missing_values=self.missing_values,\n                strategy=self.initial_strategy,\n                keep_empty_features=self.keep_empty_features,\n            )",
+        "new_str": "            if self.initial_strategy == \"constant\":\n                fill_value = self.fill_value if self.fill_value is not None else 0\n            else:\n                fill_value = None\n\n            self.initial_imputer_ = SimpleImputer(\n                missing_values=self.missing_values,\n                strategy=self.initial_strategy,\n                fill_value=fill_value,\n                keep_empty_features=self.keep_empty_features,\n            )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sklearn/impute/_iterative.py",
+        "old_str": "        super().__init__(\n            missing_values=missing_values,\n            add_indicator=add_indicator,\n            keep_empty_features=keep_empty_features,\n        )",
+        "new_str": "        super().__init__(\n            missing_values=missing_values,\n            add_indicator=add_indicator,\n            keep_empty_features=keep_empty_features,\n        )\n        self.fill_value = fill_value",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "13:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_edge_cases.py",
+        "file_text": "import numpy as np\nfrom sklearn.experimental import enable_iterative_imputer\nfrom sklearn.impute import IterativeImputer\n\n# Test 1: np.nan as fill_value\nprint(\"Test 1: np.nan as fill_value\")\nX1 = [[1, 2, np.nan], [4, np.nan, 6], [np.nan, 5, 9]]\nimp1 = IterativeImputer(initial_strategy=\"constant\", fill_value=np.nan)\nX1_imputed = imp1.fit_transform(X1)\nprint(\"Success! Imputed values:\\n\", X1_imputed)\n\n# Test 2: String data\nprint(\"\\nTest 2: String data\")\nX2 = [['a', 'b', None], ['d', None, 'f'], [None, 'e', 'g']]\nimp2 = IterativeImputer(initial_strategy=\"constant\", fill_value=\"missing\")\nX2_imputed = imp2.fit_transform(X2)\nprint(\"Success! Imputed values:\\n\", X2_imputed)\n\n# Test 3: All missing values\nprint(\"\\nTest 3: All missing values\")\nX3 = [[np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]\nimp3 = IterativeImputer(initial_strategy=\"constant\", fill_value=0, keep_empty_features=True)\nX3_imputed = imp3.fit_transform(X3)\nprint(\"Success! Imputed values:\\n\", X3_imputed)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        16
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "14:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_edge_cases.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        17,
+        21
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "15:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_edge_cases.py",
+        "file_text": "import numpy as np\nfrom sklearn.experimental import enable_iterative_imputer\nfrom sklearn.impute import IterativeImputer\n\n# Test 1: np.nan as fill_value\nprint(\"Test 1: np.nan as fill_value\")\nX1 = [[1, 2, np.nan], [4, np.nan, 6], [np.nan, 5, 9]]\nimp1 = IterativeImputer(initial_strategy=\"constant\", fill_value=np.nan)\nX1_imputed = imp1.fit_transform(X1)\nprint(\"Success! Imputed values:\\n\", X1_imputed)\n\n# Test 2: All missing values (numeric)\nprint(\"\\nTest 2: All missing values (numeric)\")\nX2 = [[np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]\nimp2 = IterativeImputer(initial_strategy=\"constant\", fill_value=0, keep_empty_features=True)\nX2_imputed = imp2.fit_transform(X2)\nprint(\"Success! Imputed values:\\n\", X2_imputed)\n\n# Test 3: Mixed missing values with different fill values\nprint(\"\\nTest 3: Mixed missing values with different fill values\")\nX3 = [[1, np.nan, 3], [np.nan, 5, np.nan], [7, 9, np.nan]]\nimp3 = IterativeImputer(initial_strategy=\"constant\", fill_value=-1)\nX3_imputed = imp3.fit_transform(X3)\nprint(\"Success! Imputed values:\\n\", X3_imputed)"
+      },
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        18,
+        20
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "16:str_replace_editor: create"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_edge_cases.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        19
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "17:rm"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        22,
+        24
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "18:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce.py",
+        "/testbed/test_edge_cases.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        23
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "19:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:find",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "8:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "9:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "10:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:python",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "4:python",
+      "target": "13:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "4:python",
+      "target": "14:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "8:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:str_replace_editor: view",
+      "target": "9:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: view",
+      "target": "10:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:str_replace_editor: view",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "11:str_replace_editor: view",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "13:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "14:str_replace_editor: create",
+      "target": "15:python",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "15:python",
+      "target": "16:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "15:python",
+      "target": "18:submit",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "16:str_replace_editor: create",
+      "target": "17:rm",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "16:str_replace_editor: create",
+      "target": "15:python",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "17:rm",
+      "target": "16:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "18:submit",
+      "target": "19:rm",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "19:rm",
+      "target": "18:submit",
+      "key": 0
+    }
+  ]
+}

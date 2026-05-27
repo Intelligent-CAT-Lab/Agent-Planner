@@ -1,0 +1,561 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "sympy__sympy-19495",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/sets"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/sets/conditionset.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "file_text": "from sympy import symbols, Abs, Rational, solveset_real, imageset, Lambda, S, ConditionSet, Interval, Contains\n\n# Reproduce the issue from the PR\ny = symbols('y')\n\n# Case 1: FiniteSet substitution\nresult1 = solveset_real(Abs(x) - y, x)\nprint(\"Case 1 (FiniteSet substitution):\")\nprint(result1)\nprint(result1.subs(y, Rational(1, 3)))\n\n# Case 2: ImageSet substitution\nimg_set = imageset(Lambda(n, 2*n*S.Pi + S.asin(y)), S.Integers)\ncond_set = ConditionSet(x, Contains(y, Interval(-1, 1)), img_set)\nprint(\"\\nCase 2 (ImageSet substitution):\")\nprint(cond_set)\nprint(cond_set.subs(y, Rational(1, 3)))  # This should not produce a strange result\nprint(cond_set.xreplace({y: Rational(1, 3)}))  # Expected output\nprint(cond_set.subs({y: Rational(1, 3)}, simultaneous=True))  # Expected output"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce_issue.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization",
+        "localization",
+        "localization",
+        "localization",
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        4,
+        7,
+        9,
+        11,
+        13,
+        15,
+        17,
+        19,
+        24,
+        26
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "4:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "old_str": "from sympy import symbols, Abs, Rational, solveset_real, imageset, Lambda, S, ConditionSet, Interval, Contains",
+        "new_str": "from sympy import symbols, Abs, Rational, imageset, Lambda, S, ConditionSet, Interval, Contains\nfrom sympy.solvers.solveset import solveset_real",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "old_str": "# Reproduce the issue from the PR\ny = symbols('y')",
+        "new_str": "# Reproduce the issue from the PR\nx, y = symbols('x y')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "old_str": "# Reproduce the issue from the PR\nx, y = symbols('x y')",
+        "new_str": "# Reproduce the issue from the PR\nx, y, n = symbols('x y n')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "old_str": "from sympy import symbols, Abs, Rational, imageset, Lambda, S, ConditionSet, Interval, Contains\nfrom sympy.solvers.solveset import solveset_real",
+        "new_str": "from sympy import symbols, Abs, Rational, imageset, Lambda, S, ConditionSet, Interval, Contains\nfrom sympy.solvers.solveset import solveset_real\nfrom sympy.functions.elementary.trigonometric import asin",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "old_str": "img_set = imageset(Lambda(n, 2*n*S.Pi + S.asin(y)), S.Integers)",
+        "new_str": "img_set = imageset(Lambda(n, 2*n*S.Pi + asin(y)), S.Integers)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/sets/conditionset.py",
+        "old_str": "def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        return self.func(self.sym, cond, base)",
+        "new_str": "def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        # Ensure the substitution does not interfere with the bound variable\n        if isinstance(base, Set) and old not in (sym,):\n            return self.func(sym, cond, base)\n        return self.func(self.sym, cond, base)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "10:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/sets/conditionset.py",
+        "old_str": "    def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        # Ensure the substitution does not interfere with the bound variable\n        if isinstance(base, Set) and old not in (sym,):\n            return self.func(sym, cond, base)\n        return self.func(self.sym, cond, base)",
+        "new_str": "    def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        # Ensure the substitution does not interfere with the bound variable\n        if isinstance(base, Set) and old not in (sym,):\n            return self.func(sym, cond, base)\n        # Handle ImageSet substitution correctly\n        if isinstance(base, Set) and hasattr(base, 'lamda') and old in base.lamda.variables:\n            return self.func(sym, cond, base)\n        return self.func(self.sym, cond, base)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        16
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "11:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/sets/conditionset.py",
+        "old_str": "    def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        # Ensure the substitution does not interfere with the bound variable\n        if isinstance(base, Set) and old not in (sym,):\n            return self.func(sym, cond, base)\n        # Handle ImageSet substitution correctly\n        if isinstance(base, Set) and hasattr(base, 'lamda') and old in base.lamda.variables:\n            return self.func(sym, cond, base)\n        return self.func(self.sym, cond, base)",
+        "new_str": "    def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        # Only substitute in the base_set if old is not the bound variable\n        if old != sym:\n            base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        return self.func(sym, cond, base)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        18
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/sets/conditionset.py",
+        "old_str": "    def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        # Only substitute in the base_set if old is not the bound variable\n        if old != sym:\n            base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        return self.func(sym, cond, base)",
+        "new_str": "    def _eval_subs(self, old, new):\n        if not isinstance(self.sym, Expr):\n            # Don't do anything with the equation set syntax;\n            # that should go away, eventually.\n            return self\n        sym, cond, base = self.args\n        if old == sym:\n            # we try to be as lenient as possible to allow\n            # the dummy symbol to be changed\n            base = base.subs(old, new)\n            if isinstance(new, Symbol):\n                # if the assumptions don't match, the cond\n                # might evaluate or change\n                if (new.assumptions0 == old.assumptions0 or\n                        len(new.assumptions0) == 1 and\n                        old.is_commutative == new.is_commutative):\n                    if base != self.base_set:\n                        # it will be aggravating to have the dummy\n                        # symbol change if you are trying to target\n                        # the base set so if the base set is changed\n                        # leave the dummy symbol alone -- a second\n                        # subs will be needed to change the dummy\n                        return self.func(sym, cond, base)\n                    else:\n                        return self.func(new, cond.subs(old, new), base)\n                raise ValueError(filldedent('''\n                    A dummy symbol can only be\n                    replaced with a symbol having the same\n                    assumptions or one having a single assumption\n                    having the same commutativity.\n                '''))\n            # don't target cond: it is there to tell how\n            # the base set should be filtered and if new is not in\n            # the base set then this substitution is ignored\n            return self.func(sym, cond, base)\n        cond = self.condition.subs(old, new)\n        # Handle ImageSet substitution separately\n        if hasattr(base, 'lamda') and old in base.lamda.variables:\n            base = base.subs(old, new)\n        elif old != sym:\n            base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        return self.func(sym, cond, base)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch",
+        "patch"
+      ],
+      "step_indices": [
+        20,
+        25
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "13:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        21,
+        27
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "14:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        22,
+        28
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "15:submit"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/sets/conditionset.py",
+        "old_str": "        cond = self.condition.subs(old, new)\n        # Handle ImageSet substitution separately\n        if hasattr(base, 'lamda') and old in base.lamda.variables:\n            base = base.subs(old, new)\n        elif old != sym:\n            base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        return self.func(sym, cond, base)",
+        "new_str": "        cond = self.condition.subs(old, new)\n        # Only substitute in the base_set if old is not the bound variable\n        if old != sym:\n            base = self.base_set.subs(old, new)\n        if cond is S.true:\n            return ConditionSet(new, Contains(new, base), base)\n        return self.func(sym, cond, base)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        23
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "16:str_replace_editor: str_replace"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:python",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "4:python",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "4:python",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "4:python",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "4:python",
+      "target": "10:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "4:python",
+      "target": "11:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "4:python",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "4:python",
+      "target": "13:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "25",
+      "type": "exec",
+      "source": "4:python",
+      "target": "13:str_replace_editor: str_replace",
+      "key": 1
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "4:python",
+      "target": "14:think",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "10:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "11:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "13:str_replace_editor: str_replace",
+      "target": "14:think",
+      "key": 0
+    },
+    {
+      "label": "26",
+      "type": "exec",
+      "source": "13:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "14:think",
+      "target": "15:submit",
+      "key": 0
+    },
+    {
+      "label": "28",
+      "type": "exec",
+      "source": "14:think",
+      "target": "15:submit",
+      "key": 1
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "15:submit",
+      "target": "16:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "16:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    }
+  ]
+}

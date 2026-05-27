@@ -1,0 +1,39 @@
+{
+    "rate_limit": {
+      "enabled": false,
+      "min_gap": 1
+    },
+    "trigger_on_success_only": false,
+    "rules": {
+      "plan_compliance": {
+        "intended_plan": ["L_navigate", "P", "V"],
+        "ending_flags": [
+          "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT",
+          "submit"
+        ],
+        "phase_names": {
+          "L_navigate": "navigation",
+          "L_reproduce": "reproducing",
+          "P": "patching",
+          "V": "testing",
+          "V_regression_test": "running relevant tests to avoid regressions",
+          "V_newly_generated_test": "testing"
+        },
+        "message": "Plan compliance violation: {violation}. Expected to {expected}. Skipped phases: {skipped}. Follow the instructions to ensure thorough problem solving.",
+        "block_execution": true,
+        "per_violation_type_threshold": 1
+      }
+    },
+    "meta_data": {
+      "agent": {
+        "SWE-agent": {
+          "tool_configs": [
+            "SWE-agent/tools/edit_anthropic/config.yaml",
+            "SWE-agent/tools/review_on_submit_m/config.yaml",
+            "SWE-agent/tools/registry/config.yaml"
+          ]
+        }
+      }
+    }
+  }
+  

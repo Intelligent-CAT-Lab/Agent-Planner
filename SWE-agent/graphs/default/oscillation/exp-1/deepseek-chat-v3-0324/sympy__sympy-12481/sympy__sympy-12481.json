@@ -1,0 +1,312 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "sympy__sympy-12481",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/combinatorics"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/combinatorics/permutations.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_permutation.py",
+        "file_text": "from sympy.combinatorics import Permutation\n\n# Test case from PR description\ntry:\n    p = Permutation([[0, 1], [0, 1]])\n    print(\"Success:\", p)\nexcept ValueError as e:\n    print(\"Error:\", e)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_permutation.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation"
+      ],
+      "step_indices": [
+        4,
+        8
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "4:python"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/sympy/combinatorics/permutations.py"
+      ],
+      "flags": {
+        "n": "there were repeated elements"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "5:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sympy/combinatorics/permutations.py",
+        "view_range": [
+          890,
+          910
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "6:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sympy/combinatorics/permutations.py",
+        "old_str": "        temp = flatten(args)\n        if has_dups(temp):\n            if is_cycle:\n                raise ValueError('there were repeated elements; to resolve '\n                'cycles use Cycle%s.' % ''.join([str(tuple(c)) for c in args]))\n            else:\n                raise ValueError('there were repeated elements.')\n        temp = set(temp)",
+        "new_str": "        temp = flatten(args)\n        if not is_cycle and has_dups(temp):\n            raise ValueError('there were repeated elements.')\n        temp = set(temp)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "8:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        10,
+        12
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "9:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_permutation.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "10:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:python",
+      "target": "5:grep",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "4:python",
+      "target": "8:think",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:grep",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: view",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "8:think",
+      "target": "9:submit",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "9:submit",
+      "target": "10:rm",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:rm",
+      "target": "9:submit",
+      "key": 0
+    }
+  ]
+}

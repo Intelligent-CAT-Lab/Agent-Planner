@@ -1,0 +1,75 @@
+{
+  "summary": {
+    "total_interventions": 2,
+    "monitor_count": 1,
+    "refiner_count": 1,
+    "monitor_total_latency_ms": 6.3,
+    "refiner_total_latency_ms": 16025.5,
+    "refiner_total_input_tokens": 4462,
+    "refiner_total_output_tokens": 1075,
+    "refiner_total_tokens": 5537,
+    "refiner_total_cost": 0.003266
+  },
+  "interventions": [
+    {
+      "step": 5,
+      "planner_type": "refiner",
+      "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n[Phase=L_navigate] Open and inspect the Query implementation in django/db/models/sql/query.py (the Query class that backs queryset.query) to find its pickling/unpickling logic (__getstate__/__setstate__, __reduce__ or similar) and the exact attributes that are saved/restored. Specifically, identify which internal flags/attributes record \"values()/values_list() mode\" (e.g., select columns, annotation maps, any values-specific markers or select_fields) and check whether those attributes are preserved during unpickling. Then cross-reference that with the iterator/iterable selection logic in django/db/models/query.py (ModelIterable vs ValuesIterable) to determine which missing or corrupted restored attribute would cause an unpickled query to be treated as a model-query (returning model instances) instead of returning dicts. This will localize the missing state to fix in the pickling path.",
+      "latency_ms": 16025.5,
+      "usage": {
+        "input_tokens": 4462,
+        "output_tokens": 1075,
+        "total_tokens": 5537,
+        "cost": 0.0032655
+      },
+      "state_summary": {
+        "current_phase": "L_navigate",
+        "phase_history": [
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate"
+        ],
+        "unique_phases": [
+          "L_navigate"
+        ],
+        "rule_triggers": [
+          {
+            "rule_id": "dwell_L_navigate",
+            "message": "You may get stuck in navigation. Search for the relevant code only. Run tests to localize the bug, if necessary.",
+            "step_index": 5,
+            "metadata": {
+              "phase": "L_navigate",
+              "threshold": 6,
+              "dwell_count": 6
+            }
+          },
+          {
+            "rule_id": "dwell_L_navigate",
+            "message": "You may get stuck in navigation. Search for the relevant code only. Run tests to localize the bug, if necessary.",
+            "step_index": 5,
+            "metadata": {
+              "phase": "L_navigate",
+              "threshold": 6,
+              "dwell_count": 7
+            }
+          }
+        ],
+        "graph_info": {
+          "node_count": 7,
+          "edge_count": 6
+        },
+        "step_count": 6
+      }
+    },
+    {
+      "step": 10,
+      "planner_type": "monitor",
+      "content": "You may get stuck in navigation. Search for the relevant code only. Run tests to localize the bug, if necessary.",
+      "latency_ms": 6.3
+    }
+  ]
+}

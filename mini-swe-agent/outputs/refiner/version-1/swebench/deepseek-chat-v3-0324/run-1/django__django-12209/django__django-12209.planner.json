@@ -1,0 +1,120 @@
+{
+  "summary": {
+    "total_interventions": 3,
+    "monitor_count": 1,
+    "refiner_count": 2,
+    "monitor_total_latency_ms": 2.11,
+    "refiner_total_latency_ms": 37377.55,
+    "refiner_total_input_tokens": 12659,
+    "refiner_total_output_tokens": 1796,
+    "refiner_total_tokens": 14455,
+    "refiner_total_cost": 0.006123
+  },
+  "interventions": [
+    {
+      "step": 5,
+      "planner_type": "refiner",
+      "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n[Phase=L_navigate] Inspect the code paths that actually decide INSERT vs UPDATE during save: open and read Model.save_base (and any helpers it calls, e.g. _do_insert/_do_update or _save_table), plus the places that initialize/affect self._state.adding (Model.__init__, deserialization code, and any logic that sets adding based on the primary key). Focus on the exact conditional used to choose insert vs update (is it self._state.adding, presence of a primary key, or something else?) and how defaults for PK fields (callables like uuid4) are applied (Field.get_default / __init__ / pre_save). Identify where an explicit pk assignment after instantiation would flip (or not flip) the add/update decision. This will localize the behavior change described in the issue.",
+      "latency_ms": 17997.92,
+      "usage": {
+        "input_tokens": 3786,
+        "output_tokens": 881,
+        "total_tokens": 4667,
+        "cost": 0.0027085
+      },
+      "state_summary": {
+        "current_phase": "L_navigate",
+        "phase_history": [
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate"
+        ],
+        "unique_phases": [
+          "L_navigate"
+        ],
+        "rule_triggers": [
+          {
+            "rule_id": "dwell_L_navigate",
+            "message": "You may get stuck in navigation. Search for the relevant code only. Run tests to localize the bug, if necessary.",
+            "step_index": -1,
+            "metadata": {
+              "phase": "L_navigate",
+              "threshold": 6,
+              "dwell_count": 6
+            }
+          }
+        ],
+        "graph_info": {
+          "node_count": 6,
+          "edge_count": 5
+        },
+        "step_count": 6
+      }
+    },
+    {
+      "step": 10,
+      "planner_type": "monitor",
+      "content": "Plan compliance violation: skipped from expected phase to patching. Expected to complete reproducing first. Skipped phases: reproducing. Follow the instructions to ensure thorough problem solving.",
+      "latency_ms": 2.11
+    },
+    {
+      "step": 16,
+      "planner_type": "refiner",
+      "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n[Phase=L_reproduce] Replace the ad-hoc use of django.conf.global_settings in the reproduction attempt with a proper minimal Django settings module and re-run the reproduction inside Django's test framework. Concretely: add a small settings module in the repo that declares at minimum SECRET_KEY, DATABASES (sqlite :memory:), and INSTALLED_APPS (include 'django.contrib.auth', 'django.contrib.contenttypes' and/or the test app that will contain the Sample model), ensure any mutually-exclusive defaults (e.g. PASSWORD_RESET_TIMEOUT* settings) are set to avoid configuration errors, and then move the reproduce logic into a Django TestCase/TransactionTestCase so Django's test runner creates the DB and isolates the environment. This will let you reliably reproduce whether saving an instance with an explicit PK and a defaulted PK field triggers an UPDATE or a second INSERT and collect precise exceptions/SQL to inspect _save_table behavior. Keep the test minimal and focused (create s0, then create s1 with same pk and call save(), assert expected DB outcome or capture the exception).",
+      "latency_ms": 19379.63,
+      "usage": {
+        "input_tokens": 8873,
+        "output_tokens": 915,
+        "total_tokens": 9788,
+        "cost": 0.00341465
+      },
+      "state_summary": {
+        "current_phase": "L_reproduce",
+        "phase_history": [
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_reproduce",
+          "L_reproduce",
+          "L_reproduce",
+          "L_reproduce",
+          "L_reproduce",
+          "L_reproduce"
+        ],
+        "unique_phases": [
+          "L_navigate",
+          "L_reproduce"
+        ],
+        "rule_triggers": [
+          {
+            "rule_id": "dwell_L_reproduce",
+            "message": "Long reproducing process. Skip if the issue is unable to reproduce.",
+            "step_index": -1,
+            "metadata": {
+              "phase": "L_reproduce",
+              "threshold": 6,
+              "dwell_count": 6
+            }
+          }
+        ],
+        "graph_info": {
+          "node_count": 16,
+          "edge_count": 17
+        },
+        "step_count": 16
+      }
+    }
+  ]
+}

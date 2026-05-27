@@ -1,0 +1,383 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "pytest-dev__pytest-10051",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/src/_pytest/logging.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/src/_pytest/logging.py",
+        "view_range": [
+          388,
+          399
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/src/_pytest/logging.py",
+        "view_range": [
+          441,
+          444
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/src/_pytest/logging.py",
+        "view_range": [
+          710,
+          714
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "file_text": "import logging\n\ndef test(caplog) -> None:\n    def verify_consistency() -> None:\n        assert caplog.get_records(\"call\") == caplog.records\n\n    verify_consistency()\n    logging.warning(\"test\")\n    verify_consistency()\n    caplog.clear()\n    verify_consistency()  # fails: assert [<LogRecord: ...y, 8, \"test\">] == []"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "5:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        6,
+        8,
+        10
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "6:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce.py"
+      ],
+      "flags": {
+        "m": "pytest",
+        "v": true
+      },
+      "phases": [
+        "localization",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        6,
+        8,
+        10
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "7:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/src/_pytest/logging.py",
+        "old_str": "    def clear(self) -> None:\n        \"\"\"Reset the list of log records and the captured log text.\"\"\"\n        self.handler.reset()",
+        "new_str": "    def clear(self) -> None:\n        \"\"\"Reset the list of log records and the captured log text.\"\"\"\n        self.handler.reset()\n        # Also clear the records in the stash to keep them in sync\n        when = self.handler._when\n        if when is not None:\n            self._item.stash[caplog_records_key][when] = []",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/src/_pytest/logging.py",
+        "old_str": "    def clear(self) -> None:\n        \"\"\"Reset the list of log records and the captured log text.\"\"\"\n        self.handler.reset()\n        # Also clear the records in the stash to keep them in sync\n        when = self.handler._when\n        if when is not None:\n            self._item.stash[caplog_records_key][when] = []",
+        "new_str": "    def clear(self) -> None:\n        \"\"\"Reset the list of log records and the captured log text.\"\"\"\n        self.handler.reset()\n        # Also clear the records in the stash to keep them in sync\n        # We clear all phases since we don't know which one is active\n        for when in [\"setup\", \"call\", \"teardown\"]:\n            self._item.stash[caplog_records_key][when] = []",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        11,
+        13
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "10:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "11:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: create",
+      "target": "6:cd",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:cd",
+      "target": "7:python",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "6:cd",
+      "target": "7:python",
+      "key": 1
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "6:cd",
+      "target": "7:python",
+      "key": 2
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:python",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "7:python",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "7:python",
+      "target": "10:submit",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "6:cd",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "6:cd",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:submit",
+      "target": "11:rm",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "11:rm",
+      "target": "10:submit",
+      "key": 0
+    }
+  ]
+}

@@ -1,0 +1,669 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "django__django-11964",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        1,
+        6,
+        11,
+        23,
+        27
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "1:think"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/enums.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "view_range": [
+          968,
+          1000
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "view_range": [
+          1000,
+          1100
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "5:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "old_str": "    def to_python(self, value):\n        if isinstance(value, str) or value is None:\n            return value\n        return str(value)",
+        "new_str": "    def to_python(self, value):\n        if isinstance(value, str) or value is None:\n            return value\n        if hasattr(value, 'value'):  # Check if it's an enum value\n            return str(value.value)\n        return str(value)",
+        "edit_status": "failure: multiple occurrences"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "old_str": "    def to_python(self, value):\n        if isinstance(value, str) or value is None:\n            return value\n        return str(value)\n\n    def get_prep_value(self, value):\n        value = super().get_prep_value(value)\n        return self.to_python(value)",
+        "new_str": "    def to_python(self, value):\n        if isinstance(value, str) or value is None:\n            return value\n        if hasattr(value, 'value'):  # Check if it's an enum value\n            return str(value.value)\n        return str(value)\n\n    def get_prep_value(self, value):\n        value = super().get_prep_value(value)\n        return self.to_python(value)",
+        "edit_status": "failure: multiple occurrences"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "old_str": "    def to_python(self, value):\n        if isinstance(value, str) or value is None:\n            return value\n        return str(value)\n\n    def get_prep_value(self, value):\n        value = super().get_prep_value(value)\n        return self.to_python(value)",
+        "new_str": "    def to_python(self, value):\n        if isinstance(value, str) or value is None:\n            return value\n        if hasattr(value, 'value'):  # Handle enum values\n            return value.value\n        return str(value)\n\n    def get_prep_value(self, value):\n        value = super().get_prep_value(value)\n        if hasattr(value, 'value'):  # Handle enum values\n            return value.value\n        return self.to_python(value)",
+        "edit_status": "failure: multiple occurrences"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/fields/__init__.py",
+        "old_str": "    def get_prep_value(self, value):\n        \"\"\"Perform preliminary non-db specific value checks and conversions.\"\"\"\n        if isinstance(value, Promise):\n            value = value._proxy____cast()\n        return value",
+        "new_str": "    def get_prep_value(self, value):\n        \"\"\"Perform preliminary non-db specific value checks and conversions.\"\"\"\n        if isinstance(value, Promise):\n            value = value._proxy____cast()\n        if hasattr(value, 'value'):  # Handle enum values\n            return value.value\n        return value",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        12,
+        14
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "10:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_enum_choices.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "11:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_enum_choices.py",
+        "file_text": "from django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\nclass MyChoice(models.TextChoices):\n    FIRST_CHOICE = \"first\", _(\"The first choice, it is\")\n    SECOND_CHOICE = \"second\", _(\"The second choice, it is\")\n\nclass MyObject(models.Model):\n    my_str_value = models.CharField(max_length=10, choices=MyChoice.choices)\n\n# Test the behavior\nif __name__ == \"__main__\":\n    # Create an instance with an enum value\n    obj = MyObject(my_str_value=MyChoice.FIRST_CHOICE)\n    print(f\"Value after creation (should be 'first'): {obj.my_str_value}\")\n\n    # Verify the value is the underlying string\n    assert str(obj.my_str_value) == \"first\", f\"Expected 'first', got {obj.my_str_value}\"\n    print(\"Test passed!\")"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "12:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [],
+      "flags": {
+        "c": "import django; django.setup(); import test_enum_choices"
+      },
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "13:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_enum_choices.py",
+        "old_str": "from django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\nclass MyChoice(models.TextChoices):\n    FIRST_CHOICE = \"first\", _(\"The first choice, it is\")\n    SECOND_CHOICE = \"second\", _(\"The second choice, it is\")\n\nclass MyObject(models.Model):\n    my_str_value = models.CharField(max_length=10, choices=MyChoice.choices)\n\n# Test the behavior\nif __name__ == \"__main__\":\n    # Create an instance with an enum value\n    obj = MyObject(my_str_value=MyChoice.FIRST_CHOICE)\n    print(f\"Value after creation (should be 'first'): {obj.my_str_value}\")\n\n    # Verify the value is the underlying string\n    assert str(obj.my_str_value) == \"first\", f\"Expected 'first', got {obj.my_str_value}\"\n    print(\"Test passed!\")",
+        "new_str": "import os\nimport django\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\n# Configure Django settings\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_settings')\ndjango.setup()\n\n# Define settings\nfrom django.conf import settings\nsettings.configure(\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n)\n\nclass MyChoice(models.TextChoices):\n    FIRST_CHOICE = \"first\", _(\"The first choice, it is\")\n    SECOND_CHOICE = \"second\", _(\"The second choice, it is\")\n\nclass MyObject(models.Model):\n    my_str_value = models.CharField(max_length=10, choices=MyChoice.choices)\n\n# Create the database tables\nfrom django.db import connection\nconnection.creation.create_test_db()\n\n# Test the behavior\nif __name__ == \"__main__\":\n    # Create an instance with an enum value\n    obj = MyObject(my_str_value=MyChoice.FIRST_CHOICE)\n    print(f\"Value after creation (should be 'first'): {obj.my_str_value}\")\n\n    # Verify the value is the underlying string\n    assert str(obj.my_str_value) == \"first\", f\"Expected 'first', got {obj.my_str_value}\"\n    print(\"Test passed!\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "14:str_replace_editor: str_replace"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_enum_choices.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        16,
+        18,
+        20,
+        22
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "15:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_enum_choices.py",
+        "old_str": "import os\nimport django\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\n\n# Configure Django settings\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_settings')\ndjango.setup()\n\n# Define settings\nfrom django.conf import settings\nsettings.configure(\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n)",
+        "new_str": "import os\nimport django\nfrom django.db import models\nfrom django.utils.translation import gettext_lazy as _\nfrom django.conf import settings\n\n# Configure Django settings inline\nsettings.configure(\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n)\ndjango.setup()",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "16:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_enum_choices.py",
+        "old_str": "class MyObject(models.Model):\n    my_str_value = models.CharField(max_length=10, choices=MyChoice.choices)\n\n# Create the database tables\nfrom django.db import connection\nconnection.creation.create_test_db()",
+        "new_str": "class MyObject(models.Model):\n    my_str_value = models.CharField(max_length=10, choices=MyChoice.choices)\n\n    class Meta:\n        app_label = 'test_app'  # Add an explicit app_label\n\n# Create the database tables\nfrom django.db import connection\nwith connection.schema_editor() as editor:\n    editor.create_model(MyObject)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        19
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "17:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/test_enum_choices.py",
+        "old_str": "    # Verify the value is the underlying string\n    assert str(obj.my_str_value) == \"first\", f\"Expected 'first', got {obj.my_str_value}\"\n    print(\"Test passed!\")",
+        "new_str": "    # Verify the value is the underlying string\n    assert obj.my_str_value == \"first\", f\"Expected 'first', got {obj.my_str_value}\"\n    print(\"Test passed!\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        21
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "18:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        24,
+        28
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "19:submit"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_enum_choices.py",
+        "file_text": ""
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        25
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "20:str_replace_editor: create"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_enum_choices.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        26
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "21:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:think",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:think",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "1:think",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "1:think",
+      "target": "10:cd",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "1:think",
+      "target": "19:submit",
+      "key": 0
+    },
+    {
+      "label": "28",
+      "type": "exec",
+      "source": "1:think",
+      "target": "19:submit",
+      "key": 1
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "5:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: view",
+      "target": "1:think",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "1:think",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:cd",
+      "target": "11:python",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "10:cd",
+      "target": "13:python",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "11:python",
+      "target": "12:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "12:str_replace_editor: create",
+      "target": "10:cd",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "13:python",
+      "target": "14:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "14:str_replace_editor: str_replace",
+      "target": "15:python",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "15:python",
+      "target": "16:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "15:python",
+      "target": "17:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "15:python",
+      "target": "18:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "15:python",
+      "target": "1:think",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "16:str_replace_editor: str_replace",
+      "target": "15:python",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "17:str_replace_editor: str_replace",
+      "target": "15:python",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "18:str_replace_editor: str_replace",
+      "target": "15:python",
+      "key": 0
+    },
+    {
+      "label": "25",
+      "type": "exec",
+      "source": "19:submit",
+      "target": "20:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "26",
+      "type": "exec",
+      "source": "20:str_replace_editor: create",
+      "target": "21:rm",
+      "key": 0
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "21:rm",
+      "target": "1:think",
+      "key": 0
+    }
+  ]
+}

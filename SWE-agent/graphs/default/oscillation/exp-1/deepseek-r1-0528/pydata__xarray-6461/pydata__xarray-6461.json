@@ -1,0 +1,264 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "pydata__xarray-6461",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "file_text": "import xarray as xr\n\n# This should reproduce the error\ndata = xr.where(xr.DataArray([1, 2, 3]) > 0, 1, 0)\nprint(data)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "0:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        1,
+        6
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "1:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation"
+      ],
+      "step_indices": [
+        1,
+        6
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "2:python"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "view_range": [
+          1743,
+          1844
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    if keep_attrs is True:\n        # keep the attributes of x, the second parameter, by default to\n        # be consistent with the `where` method of `DataArray` and `Dataset`\n        keep_attrs = lambda attrs, context: attrs[1]",
+        "new_str": "    if keep_attrs is True:\n        # keep the attributes of x, the second parameter, by default to\n        # be consistent with the `where` method of `DataArray` and `Dataset`\n        # but only if x is not a scalar\n        keep_attrs = lambda attrs, context: attrs[1] if len(attrs) > 1 else {}",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "old_str": "import xarray as xr\n\n# This should reproduce the error\ndata = xr.where(xr.DataArray([1, 2, 3]) > 0, 1, 0)\nprint(data)",
+        "new_str": "import xarray as xr\n\n# This should reproduce the error\ndata = xr.where(xr.DataArray([1, 2, 3]) > 0, 1, 0, keep_attrs=True)\nprint(data)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        7,
+        9
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "7:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "8:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: create",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "2:python",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "2:python",
+      "target": "7:submit",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:submit",
+      "target": "8:rm",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:rm",
+      "target": "7:submit",
+      "key": 0
+    }
+  ]
+}

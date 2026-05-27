@@ -1,0 +1,301 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "django__django-15375",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/query.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/query.py",
+        "view_range": [
+          398,
+          432
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/sql/query.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/db/models/sql/query.py",
+        "view_range": [
+          421,
+          511
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/db/models/sql/query.py",
+        "old_str": "                if expression.is_summary:\n                    expression, col_cnt = inner_query.rewrite_cols(expression, col_cnt)\n                    outer_query.annotations[alias] = expression.relabeled_clone(relabels)\n                    del inner_query.annotations[alias]\n                    annotation_select_mask.remove(alias)",
+        "new_str": "                if expression.is_summary or expression.contains_aggregate:\n                    expression, col_cnt = inner_query.rewrite_cols(expression, col_cnt)\n                    outer_query.annotations[alias] = expression.relabeled_clone(relabels)\n                    del inner_query.annotations[alias]\n                    annotation_select_mask.remove(alias)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "4:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_bug.py",
+        "file_text": "import os\nimport django\nfrom django.db import models\nfrom django.db.models import F, Sum\nfrom django.conf import settings\n\n# Set up a minimal Django environment\nsettings.configure(\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=[],\n)\n\ndjango.setup()\n\n# Define a minimal model\nclass Book(models.Model):\n    id = models.AutoField(primary_key=True)\n\n    class Meta:\n        app_label = 'test'\n\n# Create the table in the in-memory database\nfrom django.db import connection\nwith connection.schema_editor() as editor:\n    editor.create_model(Book)\n\n# Add some data\nBook.objects.bulk_create([Book() for _ in range(5)])\n\n# Try the query that caused the issue\ntry:\n    # This should not crash\n    result = Book.objects.annotate(idx=F(\"id\")).aggregate(Sum(\"id\", default=0))\n    print(\"Success! Result:\", result)\nexcept Exception as e:\n    print(\"Failure! Error:\", e)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "5:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "6:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_bug.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "7:python"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/reproduce_bug.py"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "8:str_replace_editor: view"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        8,
+        10
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "9:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_bug.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "10:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: str_replace",
+      "target": "5:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: create",
+      "target": "6:cd",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:cd",
+      "target": "7:python",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:python",
+      "target": "8:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:str_replace_editor: view",
+      "target": "9:submit",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "9:submit",
+      "target": "10:rm",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "10:rm",
+      "target": "9:submit",
+      "key": 0
+    }
+  ]
+}

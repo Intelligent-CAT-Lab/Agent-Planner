@@ -1,0 +1,652 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "astropy__astropy-13453",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "i": "html"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "0:find"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "view_range": [
+          342,
+          456
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "view_range": [
+          458,
+          477
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "file_text": "from astropy.table import Table\nfrom io import StringIO\n\n# generate table\nt = Table([(1.23875234858e-24, 3.2348748432e-15), (2, 4)], names=('a', 'b'))\ntc = t.copy()  # copy table\n\n# print HTML table with \"a\" column formatted to show 2 decimal places\nwith StringIO() as sp:\n    tc.write(sp, format=\"html\", formats={\"a\": lambda x: f\"{x:.2e}\"})\n    print(\"HTML output:\")\n    print(sp.getvalue())\n\n# Compare with CSV output\nwith StringIO() as sp:\n    tc.write(sp, format=\"csv\", formats={\"a\": lambda x: f\"{x:.2e}\"})\n    print(\"\\nCSV output:\")\n    print(sp.getvalue())"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "4:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        5,
+        10,
+        12,
+        14,
+        16,
+        25
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "5:python"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/core.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "6:str_replace_editor: view"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/astropy/io/ascii/core.py"
+      ],
+      "flags": {
+        "n": "format"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "7:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "view_range": [
+          445,
+          453
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "8:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "    def fill_values(self, col, col_str_iters):\n        \"\"\"\n        Return an iterator of the values with replacements based on fill_values\n        \"\"\"\n        # check if the col is a masked column and has fill values\n        is_masked_column = hasattr(col, 'mask')\n        has_fill_values = hasattr(col, 'fill_values')\n\n        for idx, col_str in enumerate(col_str_iters):\n            if is_masked_column and has_fill_values:\n                if col.mask[idx]:\n                    yield col.fill_values[core.masked]\n                    continue\n\n            if has_fill_values:\n                if col_str in col.fill_values:\n                    yield col.fill_values[col_str]\n                    continue\n\n            yield col_str",
+        "new_str": "    def fill_values(self, col, col_str_iters):\n        \"\"\"\n        Return an iterator of the values with replacements based on fill_values\n        and apply any column-specific formatting.\n        \"\"\"\n        # check if the col is a masked column and has fill values\n        is_masked_column = hasattr(col, 'mask')\n        has_fill_values = hasattr(col, 'fill_values')\n        has_format = hasattr(col, 'format') and col.format is not None\n\n        for idx, col_str in enumerate(col_str_iters):\n            if is_masked_column and has_fill_values:\n                if col.mask[idx]:\n                    yield col.fill_values[core.masked]\n                    continue\n\n            if has_fill_values:\n                if col_str in col.fill_values:\n                    yield col.fill_values[col_str]\n                    continue\n\n            # Apply column format if it exists\n            if has_format:\n                try:\n                    # Handle both callable and string formats\n                    if callable(col.format):\n                        yield col.format(col_str)\n                    else:\n                        yield format(float(col_str), col.format)\n                except (ValueError, TypeError):\n                    # If formatting fails, fall back to original string\n                    yield col_str\n            else:\n                yield col_str",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "    def write(self, table):\n        \"\"\"\n        Return data in ``table`` converted to HTML as a list of strings.\n        \"\"\"\n        # Check that table has only 1-d or 2-d columns. Above that fails.\n        self._check_multidim_table(table)\n\n        cols = list(table.columns.values())\n\n        self.data.header.cols = cols\n\n        if isinstance(self.data.fill_values, tuple):\n            self.data.fill_values = [self.data.fill_values]\n\n        self.data._set_fill_values(cols)\n\n        lines = []",
+        "new_str": "    def write(self, table):\n        \"\"\"\n        Return data in ``table`` converted to HTML as a list of strings.\n        \"\"\"\n        # Check that table has only 1-d or 2-d columns. Above that fails.\n        self._check_multidim_table(table)\n\n        cols = list(table.columns.values())\n\n        self.data.header.cols = cols\n\n        if isinstance(self.data.fill_values, tuple):\n            self.data.fill_values = [self.data.fill_values]\n\n        # Set column formats before setting fill values\n        self.data._set_col_formats()\n        self.data._set_fill_values(cols)\n\n        lines = []",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "10:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "    def write(self, table):\n        \"\"\"\n        Return data in ``table`` converted to HTML as a list of strings.\n        \"\"\"\n        # Check that table has only 1-d or 2-d columns. Above that fails.\n        self._check_multidim_table(table)\n\n        cols = list(table.columns.values())\n\n        self.data.header.cols = cols\n\n        if isinstance(self.data.fill_values, tuple):\n            self.data.fill_values = [self.data.fill_values]\n\n        # Set column formats before setting fill values\n        self.data._set_col_formats()\n        self.data._set_fill_values(cols)\n\n        lines = []",
+        "new_str": "    def write(self, table):\n        \"\"\"\n        Return data in ``table`` converted to HTML as a list of strings.\n        \"\"\"\n        # Check that table has only 1-d or 2-d columns. Above that fails.\n        self._check_multidim_table(table)\n\n        cols = list(table.columns.values())\n\n        self.data.header.cols = cols\n\n        if isinstance(self.data.fill_values, tuple):\n            self.data.fill_values = [self.data.fill_values]\n\n        # Set column formats and fill values\n        self.data._set_fill_values(cols)\n        self.data._set_col_formats()\n\n        lines = []",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "11:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "    def write(self, table):\n        \"\"\"\n        Return data in ``table`` converted to HTML as a list of strings.\n        \"\"\"\n        # Check that table has only 1-d or 2-d columns. Above that fails.\n        self._check_multidim_table(table)\n\n        cols = list(table.columns.values())\n\n        self.data.header.cols = cols\n\n        if isinstance(self.data.fill_values, tuple):\n            self.data.fill_values = [self.data.fill_values]\n\n        # Set column formats and fill values\n        self.data._set_fill_values(cols)\n        self.data._set_col_formats()\n\n        lines = []",
+        "new_str": "    def write(self, table):\n        \"\"\"\n        Return data in ``table`` converted to HTML as a list of strings.\n        \"\"\"\n        # Check that table has only 1-d or 2-d columns. Above that fails.\n        self._check_multidim_table(table)\n\n        cols = list(table.columns.values())\n\n        self.data.header.cols = cols\n        self.data.cols = cols  # Set cols on data object too\n\n        if isinstance(self.data.fill_values, tuple):\n            self.data.fill_values = [self.data.fill_values]\n\n        # Set column formats and fill values\n        self.data._set_col_formats()\n        self.data._set_fill_values(cols)\n\n        lines = []",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/edge_cases.py",
+        "file_text": "from astropy.table import Table\nfrom io import StringIO\n\n# Test case 1: Mixed formats\nt1 = Table([\n    [(1.23875234858e-24, 3.2348748432e-15), (2, 4)],\n    [(1.23875234858e-24, 3.2348748432e-15), (2, 4)]\n], names=('a', 'b'))\n\nprint(\"Test case 1: Mixed formats\")\nwith StringIO() as sp:\n    t1.write(sp, format=\"html\", formats={\n        \"a\": lambda x: f\"{x:.2e}\",\n        \"b\": lambda x: f\"{x:.1f}\"\n    })\n    print(sp.getvalue())\n\n# Test case 2: String format\nprint(\"\\nTest case 2: String format\")\nt2 = Table([\n    [\"hello\", \"world\"],\n    [\"foo\", \"bar\"]\n], names=('a', 'b'))\n\nwith StringIO() as sp:\n    t2.write(sp, format=\"html\", formats={\n        \"a\": lambda x: x.upper(),\n        \"b\": lambda x: x[::-1]  # reverse string\n    })\n    print(sp.getvalue())\n\n# Test case 3: Invalid format\nprint(\"\\nTest case 3: Invalid format\")\nt3 = Table([\n    [1, 2],\n    [3, 4]\n], names=('a', 'b'))\n\nwith StringIO() as sp:\n    t3.write(sp, format=\"html\", formats={\n        \"a\": lambda x: \"invalid\",  # Should fall back to original value\n        \"b\": lambda x: x  # Identity function\n    })\n    print(sp.getvalue())"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "13:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/edge_cases.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        18,
+        22,
+        24
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "14:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "    def fill_values(self, col, col_str_iters):\n        \"\"\"\n        Return an iterator of the values with replacements based on fill_values\n        and apply any column-specific formatting.\n        \"\"\"\n        # check if the col is a masked column and has fill values\n        is_masked_column = hasattr(col, 'mask')\n        has_fill_values = hasattr(col, 'fill_values')\n        has_format = hasattr(col, 'format') and col.format is not None\n\n        for idx, col_str in enumerate(col_str_iters):\n            if is_masked_column and has_fill_values:\n                if col.mask[idx]:\n                    yield col.fill_values[core.masked]\n                    continue\n\n            if has_fill_values:\n                if col_str in col.fill_values:\n                    yield col.fill_values[col_str]\n                    continue\n\n            # Apply column format if it exists\n            if has_format:\n                try:\n                    # Handle both callable and string formats\n                    if callable(col.format):\n                        yield col.format(col_str)\n                    else:\n                        yield format(float(col_str), col.format)\n                except (ValueError, TypeError):\n                    # If formatting fails, fall back to original string\n                    yield col_str\n            else:\n                yield col_str",
+        "new_str": "    def fill_values(self, col, col_str_iters):\n        \"\"\"\n        Return an iterator of the values with replacements based on fill_values\n        and apply any column-specific formatting.\n        \"\"\"\n        # check if the col is a masked column and has fill values\n        is_masked_column = hasattr(col, 'mask')\n        has_fill_values = hasattr(col, 'fill_values')\n        has_format = hasattr(col, 'format') and col.format is not None\n\n        for idx, col_str in enumerate(col_str_iters):\n            if is_masked_column and has_fill_values:\n                if col.mask[idx]:\n                    yield col.fill_values[core.masked]\n                    continue\n\n            if has_fill_values:\n                if col_str in col.fill_values:\n                    yield col.fill_values[col_str]\n                    continue\n\n            # Apply column format if it exists\n            if has_format:\n                try:\n                    # Handle both callable and string formats\n                    if callable(col.format):\n                        formatted = col.format(col_str)\n                        # Ensure the format function returns a string\n                        if not isinstance(formatted, str):\n                            raise TypeError(\"Format function must return a string\")\n                        yield formatted\n                    else:\n                        # For string formats, try to convert to float first\n                        try:\n                            yield format(float(col_str), col.format)\n                        except (ValueError, TypeError):\n                            # If float conversion fails, try the format directly\n                            yield format(col_str, col.format)\n                except (ValueError, TypeError):\n                    # If formatting fails, fall back to original string\n                    yield col_str\n            else:\n                yield col_str",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        19
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "15:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "                                # Split up multicolumns into separate columns\n                                new_col = Column([el[i] for el in col])\n\n                                new_col_iter_str_vals = self.fill_values(\n                                    col, new_col.info.iter_str_vals())\n                                col_str_iters.append(new_col_iter_str_vals)\n                                new_cols_escaped.append(col_escaped)\n                                new_cols.append(new_col)",
+        "new_str": "                                # Split up multicolumns into separate columns\n                                new_col = Column([el[i] for el in col])\n\n                                # For multi-dimensional columns, we need to apply the format to each element\n                                if hasattr(col, 'format') and col.format is not None:\n                                    new_col.info.format = col.format\n\n                                new_col_iter_str_vals = self.fill_values(\n                                    new_col, new_col.info.iter_str_vals())\n                                col_str_iters.append(new_col_iter_str_vals)\n                                new_cols_escaped.append(col_escaped)\n                                new_cols.append(new_col)",
+        "edit_status": "failure: not found"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        20
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "16:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/astropy/io/ascii/html.py",
+        "old_str": "                                    # Split up multicolumns into separate columns\n                                    new_col = Column([el[i] for el in col])\n\n                                    new_col_iter_str_vals = self.fill_values(\n                                        col, new_col.info.iter_str_vals())\n                                    col_str_iters.append(new_col_iter_str_vals)\n                                    new_cols_escaped.append(col_escaped)\n                                    new_cols.append(new_col)",
+        "new_str": "                                    # Split up multicolumns into separate columns\n                                    new_col = Column([el[i] for el in col])\n\n                                    # For multi-dimensional columns, we need to apply the format to each element\n                                    if hasattr(col, 'format') and col.format is not None:\n                                        new_col.info.format = col.format\n\n                                    new_col_iter_str_vals = self.fill_values(\n                                        new_col, new_col.info.iter_str_vals())\n                                    col_str_iters.append(new_col_iter_str_vals)\n                                    new_cols_escaped.append(col_escaped)\n                                    new_cols.append(new_col)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        21
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "17:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/edge_cases.py",
+        "old_str": "# Test case 3: Invalid format\nprint(\"\\nTest case 3: Invalid format\")\nt3 = Table([\n    [1, 2],\n    [3, 4]\n], names=('a', 'b'))\n\nwith StringIO() as sp:\n    t3.write(sp, format=\"html\", formats={\n        \"a\": lambda x: \"invalid\",  # Should fall back to original value\n        \"b\": lambda x: x  # Identity function\n    })\n    print(sp.getvalue())",
+        "new_str": "# Test case 3: Invalid format\nprint(\"\\nTest case 3: Invalid format\")\nt3 = Table([\n    [1, 2],\n    [3, 4]\n], names=('a', 'b'))\n\nwith StringIO() as sp:\n    t3.write(sp, format=\"html\", formats={\n        \"a\": \".1f\",  # Float format\n        \"b\": \".0f\"   # Integer format\n    })\n    print(sp.getvalue())",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        23
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "18:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        26,
+        28
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "19:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce.py",
+        "/testbed/edge_cases.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        27
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "20:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:find",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "8:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: create",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:python",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "5:python",
+      "target": "10:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "5:python",
+      "target": "11:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "5:python",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "5:python",
+      "target": "13:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "26",
+      "type": "exec",
+      "source": "5:python",
+      "target": "19:submit",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: view",
+      "target": "7:grep",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:grep",
+      "target": "8:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:str_replace_editor: view",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:str_replace_editor: str_replace",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "11:str_replace_editor: str_replace",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "13:str_replace_editor: create",
+      "target": "14:python",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "14:python",
+      "target": "15:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "14:python",
+      "target": "18:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "25",
+      "type": "exec",
+      "source": "14:python",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "15:str_replace_editor: str_replace",
+      "target": "16:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "16:str_replace_editor: str_replace",
+      "target": "17:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "17:str_replace_editor: str_replace",
+      "target": "14:python",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "18:str_replace_editor: str_replace",
+      "target": "14:python",
+      "key": 0
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "19:submit",
+      "target": "20:rm",
+      "key": 0
+    },
+    {
+      "label": "28",
+      "type": "exec",
+      "source": "20:rm",
+      "target": "19:submit",
+      "key": 0
+    }
+  ]
+}

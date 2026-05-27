@@ -1,0 +1,274 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "django__django-11848",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/utils/http.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/utils/http.py",
+        "view_range": [
+          158,
+          191
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        2,
+        4
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "2:think"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/utils/http.py",
+        "old_str": "        year = int(m.group('year'))\n        if year < 100:\n            if year < 70:\n                year += 2000\n            else:\n                year += 1900",
+        "new_str": "        year = int(m.group('year'))\n        if year < 100:\n            # Get current UTC time\n            now = datetime.datetime.utcnow()\n            current_year = now.year\n            \n            # Calculate base year (current century)\n            base_year = current_year - (current_year % 100)\n            candidate = base_year + year\n            \n            # Adjust if more than 50 years in the future (RFC 7231)\n            if candidate > current_year + 50:\n                candidate -= 100\n            \n            year = candidate",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "3:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_parse_http_date.py",
+        "file_text": "import datetime\nfrom django.utils.http import parse_http_date\n\ndef test_parse_http_date():\n    \"\"\"Test the parse_http_date function with various date formats.\"\"\"\n    # Get current year for reference\n    current_year = datetime.datetime.utcnow().year\n    \n    # Test cases\n    test_cases = [\n        # RFC1123 format\n        (\"Wed, 21 Oct 2015 07:28:00 GMT\", 1445412480),\n        \n        # RFC850 format with two-digit years\n        (\"Wednesday, 21-Oct-15 07:28:00 GMT\", 1445412480),  # Within 50 years\n        (f\"Wednesday, 21-Oct-{(current_year % 100) + 51} 07:28:00 GMT\",  # 51 years in future\n         datetime.datetime(current_year - 49, 10, 21, 7, 28, 0).timestamp()),\n        (f\"Wednesday, 21-Oct-{(current_year % 100) + 50} 07:28:00 GMT\",  # Exactly 50 years in future\n         datetime.datetime(current_year + 50, 10, 21, 7, 28, 0).timestamp()),\n        \n        # ASCTIME format\n        (\"Wed Oct 21 07:28:00 2015\", 1445412480),\n    ]\n    \n    # Run tests\n    for date_str, expected in test_cases:\n        try:\n            result = parse_http_date(date_str)\n            assert result == expected, f\"Failed for {date_str}: expected {expected}, got {result}\"\n            print(f\"\u2713 Passed: {date_str}\")\n        except Exception as e:\n            print(f\"\u2717 Failed for {date_str}: {str(e)}\")\n\nif __name__ == \"__main__\":\n    test_parse_http_date()"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "4:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "5:cd"
+    },
+    {
+      "label": "set_env",
+      "args": [
+        "PYTHONPATH=/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "set_env",
+      "subcommand": "",
+      "id": "6:set_env"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_parse_http_date.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "7:python"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        7,
+        9
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "8:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_parse_http_date.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "9:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:think",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:think",
+      "target": "3:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "2:think",
+      "target": "4:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: str_replace",
+      "target": "2:think",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "4:str_replace_editor: create",
+      "target": "5:cd",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:cd",
+      "target": "6:set_env",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:set_env",
+      "target": "7:python",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:python",
+      "target": "8:submit",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:submit",
+      "target": "9:rm",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "9:rm",
+      "target": "8:submit",
+      "key": 0
+    }
+  ]
+}

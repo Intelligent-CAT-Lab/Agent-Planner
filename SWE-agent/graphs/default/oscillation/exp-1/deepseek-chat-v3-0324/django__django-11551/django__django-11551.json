@@ -1,0 +1,153 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "django__django-11551",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/contrib/admin/checks.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/contrib/admin/checks.py",
+        "view_range": [
+          718,
+          749
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/contrib/admin/checks.py",
+        "old_str": "    def _check_list_display_item(self, obj, item, label):\n        if callable(item):\n            return []\n        elif hasattr(obj, item):\n            return []\n        elif hasattr(obj.model, item):\n            try:\n                field = obj.model._meta.get_field(item)\n            except FieldDoesNotExist:\n                return []\n            else:\n                if isinstance(field, models.ManyToManyField):\n                    return [\n                        checks.Error(\n                            \"The value of '%s' must not be a ManyToManyField.\" % label,\n                            obj=obj.__class__,\n                            id='admin.E109',\n                        )\n                    ]\n                return []\n        else:\n            return [\n                checks.Error(\n                    \"The value of '%s' refers to '%s', which is not a callable, \"\n                    \"an attribute of '%s', or an attribute or method on '%s.%s'.\" % (\n                        label, item, obj.__class__.__name__,\n                        obj.model._meta.app_label, obj.model._meta.object_name,\n                    ),\n                    obj=obj.__class__,\n                    id='admin.E108',\n                )\n            ]",
+        "new_str": "    def _check_list_display_item(self, obj, item, label):\n        if callable(item):\n            return []\n        elif hasattr(obj, item):\n            return []\n        else:\n            try:\n                field = obj.model._meta.get_field(item)\n            except FieldDoesNotExist:\n                try:\n                    field = getattr(obj.model, item)\n                except AttributeError:\n                    return [\n                        checks.Error(\n                            \"The value of '%s' refers to '%s', which is not a callable, \"\n                            \"an attribute of '%s', or an attribute or method on '%s.%s'.\" % (\n                                label, item, obj.__class__.__name__,\n                                obj.model._meta.app_label, obj.model._meta.object_name,\n                            ),\n                            obj=obj.__class__,\n                            id='admin.E108',\n                        )\n                    ]\n            if isinstance(field, models.ManyToManyField):\n                return [\n                    checks.Error(\n                        \"The value of '%s' must not be a ManyToManyField.\" % label,\n                        obj=obj.__class__,\n                        id='admin.E109',\n                    )\n                ]\n            return []",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "2:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        3,
+        5
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "3:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        4,
+        6
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "4:submit"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: str_replace",
+      "target": "3:think",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:think",
+      "target": "4:submit",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "3:think",
+      "target": "4:submit",
+      "key": 1
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:submit",
+      "target": "3:think",
+      "key": 0
+    }
+  ]
+}

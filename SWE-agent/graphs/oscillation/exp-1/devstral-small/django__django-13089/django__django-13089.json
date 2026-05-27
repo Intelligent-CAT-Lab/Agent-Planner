@@ -1,0 +1,305 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "django__django-13089",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/cache/backends/db.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "file_text": "import os\nimport django\nfrom django.core.cache import caches\nfrom django.conf import settings\n\n# Configure Django settings\nsettings.configure(\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    CACHES={\n        'default': {\n            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',\n            'LOCATION': 'cache_table',\n            'OPTIONS': {\n                'MAX_ENTRIES': 100,\n                'CULL_FREQUENCY': 2,  # Force culling to happen\n            }\n        }\n    }\n)\n\ndjango.setup()\n\n# Create tables\nfrom django.db import connection\nconnection.cursor().execute(\"\"\"\nCREATE TABLE cache_table (\n    cache_key text,\n    value text,\n    expires datetime\n)\n\"\"\")\n\n# Get cache instance\ncache = caches['default']\n\n# Add many items to force culling\nfor i in range(101):  # Exceed MAX_ENTRIES\n    cache.set(f'key_{i}', f'value_{i}')\n\nprint(\"Test completed successfully if no error occurred\")"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "2:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        3,
+        5,
+        7
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "3:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        3,
+        5,
+        7
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "4:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "old_str": "import os\nimport django\nfrom django.core.cache import caches\nfrom django.conf import settings\n\n# Configure Django settings\nsettings.configure(\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    CACHES={\n        'default': {\n            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',\n            'LOCATION': 'cache_table',\n            'OPTIONS': {\n                'MAX_ENTRIES': 100,\n                'CULL_FREQUENCY': 2,  # Force culling to happen\n            }\n        }\n    }\n)\n\ndjango.setup()\n\n# Create tables\nfrom django.db import connection\nconnection.cursor().execute(\"\"\"\nCREATE TABLE cache_table (\n    cache_key text,\n    value text,\n    expires datetime\n)\n\"\"\")\n\n# Get cache instance\ncache = caches['default']\n\n# Add many items to force culling\nfor i in range(101):  # Exceed MAX_ENTRIES\n    cache.set(f'key_{i}', f'value_{i}')\n\nprint(\"Test completed successfully if no error occurred\")",
+        "new_str": "import os\nimport django\nfrom django.core.cache import caches\nfrom django.conf import settings\nfrom django.utils import timezone\nfrom datetime import timedelta\n\n# Configure Django settings\nsettings.configure(\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    CACHES={\n        'default': {\n            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',\n            'LOCATION': 'cache_table',\n            'OPTIONS': {\n                'MAX_ENTRIES': 100,\n                'CULL_FREQUENCY': 2,  # Force culling to happen\n            }\n        }\n    }\n)\n\ndjango.setup()\n\n# Create tables\nfrom django.db import connection\nconnection.cursor().execute(\"\"\"\nCREATE TABLE cache_table (\n    cache_key text,\n    value text,\n    expires datetime\n)\n\"\"\")\n\n# Get cache instance\ncache = caches['default']\n\n# Add a single item with a far future expiration\ncache.set('key_1', 'value_1', timeout=3600)\n\n# Manually delete all rows to create an empty table\nwith connection.cursor() as cursor:\n    cursor.execute('DELETE FROM cache_table')\n\n# Try to add another item - this should trigger culling on an empty table\ncache.set('key_2', 'value_2')\n\nprint(\"Test completed successfully if no error occurred\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "old_str": "import os\nimport django\nfrom django.core.cache import caches\nfrom django.conf import settings\nfrom django.utils import timezone\nfrom datetime import timedelta\n\n# Configure Django settings\nsettings.configure(\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    CACHES={\n        'default': {\n            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',\n            'LOCATION': 'cache_table',\n            'OPTIONS': {\n                'MAX_ENTRIES': 100,\n                'CULL_FREQUENCY': 2,  # Force culling to happen\n            }\n        }\n    }\n)\n\ndjango.setup()\n\n# Create tables\nfrom django.db import connection\nconnection.cursor().execute(\"\"\"\nCREATE TABLE cache_table (\n    cache_key text,\n    value text,\n    expires datetime\n)\n\"\"\")\n\n# Get cache instance\ncache = caches['default']\n\n# Add a single item with a far future expiration\ncache.set('key_1', 'value_1', timeout=3600)\n\n# Manually delete all rows to create an empty table\nwith connection.cursor() as cursor:\n    cursor.execute('DELETE FROM cache_table')\n\n# Try to add another item - this should trigger culling on an empty table\ncache.set('key_2', 'value_2')\n\nprint(\"Test completed successfully if no error occurred\")",
+        "new_str": "import os\nimport django\nfrom django.core.cache import caches\nfrom django.conf import settings\nfrom django.utils import timezone\nfrom datetime import timedelta\n\n# Configure Django settings\nsettings.configure(\n    INSTALLED_APPS=[\n        'django.contrib.contenttypes',\n        'django.contrib.auth',\n    ],\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    CACHES={\n        'default': {\n            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',\n            'LOCATION': 'cache_table',\n            'OPTIONS': {\n                'MAX_ENTRIES': 100,\n                'CULL_FREQUENCY': 2,  # Force culling to happen\n            }\n        }\n    }\n)\n\ndjango.setup()\n\n# Create tables\nfrom django.db import connection\nconnection.cursor().execute(\"\"\"\nCREATE TABLE cache_table (\n    cache_key text,\n    value text,\n    expires datetime\n)\n\"\"\")\n\n# Get cache instance\ncache = caches['default']\n\n# Add many items to force culling\nfor i in range(101):  # Exceed MAX_ENTRIES\n    cache.set(f'key_{i}', f'value_{i}')\n\n# Now let's manually create a scenario where cache_key_culling_sql() returns no rows\n# by deleting all but one row and making sure that row has a very high cache_key\nwith connection.cursor() as cursor:\n    # Get the current max cache_key\n    cursor.execute('SELECT MAX(cache_key) FROM cache_table')\n    max_key = cursor.fetchone()[0]\n    \n    # Delete all rows except one with a very high cache_key\n    cursor.execute('DELETE FROM cache_table WHERE cache_key != ?', [max_key])\n    \n    # Update the remaining row to have a very high cache_key\n    cursor.execute('UPDATE cache_table SET cache_key = ? WHERE cache_key = ?', \n                  ['z' * 100, max_key])\n\n# Try to add another item - this should trigger culling and hit the bug\ncache.set('new_key', 'new_value')\n\nprint(\"Test completed successfully if no error occurred\")",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/core/cache/backends/db.py",
+        "old_str": "                cursor.execute(\n                    connection.ops.cache_key_culling_sql() % table,\n                    [cull_num])\n                cursor.execute(\"DELETE FROM %s \"\n                               \"WHERE cache_key < %%s\" % table,\n                               [cursor.fetchone()[0]])",
+        "new_str": "                cursor.execute(\n                    connection.ops.cache_key_culling_sql() % table,\n                    [cull_num])\n                row = cursor.fetchone()\n                if row is not None:\n                    cursor.execute(\"DELETE FROM %s \"\n                                   \"WHERE cache_key < %%s\" % table,\n                                   [row[0]])",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        9,
+        11
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "8:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "9:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: create",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "4:python",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "4:python",
+      "key": 1
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "3:cd",
+      "target": "4:python",
+      "key": 2
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:python",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "4:python",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "4:python",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "3:cd",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "8:submit",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "8:submit",
+      "target": "9:rm",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "9:rm",
+      "target": "8:submit",
+      "key": 0
+    }
+  ]
+}

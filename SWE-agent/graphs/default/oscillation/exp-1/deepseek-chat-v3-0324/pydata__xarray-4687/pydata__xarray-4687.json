@@ -1,0 +1,568 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "pydata__xarray-4687",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "view_range": [
+          1731,
+          1820
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n    )",
+        "new_str": "    # Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "4:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_where_attributes.py",
+        "file_text": "import numpy as np\nimport xarray as xr\n\n# Test case from PR description\ndata = xr.DataArray(np.ones([10, 10], dtype=np.int8))\ndata.attrs[\"attr_1\"] = \"test1\"\ndata.attrs[\"attr_2\"] = \"test2\"\n\ndata2 = xr.where(data == 1, 5, 0)\n\nprint(\"Attributes of data2:\", data2.attrs)\nprint(\"Dtype of data2:\", data2.dtype)"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "5:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "6:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_where_attributes.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "7:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "# alignment for three arguments is complicated, so don't support it yet\n    # Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "new_str": "# alignment for three arguments is complicated, so don't support it yet\n    # Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    \n    # Determine the input DataArray to copy attributes and dtype from\n    input_da = x if isinstance(x, (DataArray, Variable)) else y if isinstance(y, (DataArray, Variable)) else None\n    \n    # Apply the where operation\n    result = apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )\n    \n    # Explicitly copy attributes and set dtype if input is a DataArray or Variable\n    if input_da is not None:\n        if hasattr(result, \"attrs\"):\n            result.attrs.update(input_da.attrs)\n        if hasattr(result, \"dtype\"):\n            result = result.astype(input_da.dtype)\n    \n    return result",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/test_where_attributes.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        8,
+        10,
+        12,
+        14,
+        16,
+        18
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "9:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "from __future__ import annotations\n\nimport functools\nimport itertools\nimport operator\nimport warnings\nfrom collections import Counter\nfrom typing import (\n    TYPE_CHECKING,\n    AbstractSet,\n    Any,\n    Callable,\n    Dict,\n    Hashable,\n    Iterable,\n    List,\n    Mapping,\n    Optional,\n    Sequence,\n    Tuple,\n    Union,\n)\n\nimport numpy as np\n\nfrom . import dtypes, duck_array_ops, utils\nfrom .alignment import align, deep_align\nfrom .merge import merge_attrs, merge_coordinates_without_align\nfrom .options import OPTIONS, _get_keep_attrs\nfrom .pycompat import is_duck_dask_array\nfrom .utils import is_dict_like\nfrom .variable import Variable",
+        "new_str": "from __future__ import annotations\n\nimport functools\nimport itertools\nimport operator\nimport warnings\nfrom collections import Counter\nfrom typing import (\n    TYPE_CHECKING,\n    AbstractSet,\n    Any,\n    Callable,\n    Dict,\n    Hashable,\n    Iterable,\n    List,\n    Mapping,\n    Optional,\n    Sequence,\n    Tuple,\n    Union,\n)\n\nimport numpy as np\n\nfrom . import dtypes, duck_array_ops, utils\nfrom .alignment import align, deep_align\nfrom .merge import merge_attrs, merge_coordinates_without_align\nfrom .options import OPTIONS, _get_keep_attrs\nfrom .pycompat import is_duck_dask_array\nfrom .utils import is_dict_like\nfrom .variable import Variable\nfrom .dataarray import DataArray",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "10:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "# Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    \n    # Determine the input DataArray to copy attributes and dtype from\n    input_da = x if isinstance(x, (DataArray, Variable)) else y if isinstance(y, (DataArray, Variable)) else None\n    \n    # Apply the where operation\n    result = apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )\n    \n    # Explicitly copy attributes and set dtype if input is a DataArray or Variable\n    if input_da is not None:\n        if hasattr(result, \"attrs\"):\n            result.attrs.update(input_da.attrs)\n        if hasattr(result, \"dtype\"):\n            result = result.astype(input_da.dtype)\n    \n    return result",
+        "new_str": "# Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    \n    # Determine the input Variable to copy attributes and dtype from\n    input_var = x if isinstance(x, Variable) else y if isinstance(y, Variable) else None\n    \n    # Apply the where operation\n    result = apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )\n    \n    # Explicitly copy attributes and set dtype if input is a Variable\n    if input_var is not None:\n        if hasattr(result, \"attrs\"):\n            result.attrs.update(input_var.attrs)\n        if hasattr(result, \"dtype\"):\n            result = result.astype(input_var.dtype)\n    \n    return result",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "11:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    # Determine the input Variable to copy attributes and dtype from\n    input_var = x if isinstance(x, Variable) else y if isinstance(y, Variable) else None\n    \n    # Apply the where operation\n    result = apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )\n    \n    # Explicitly copy attributes and set dtype if input is a Variable\n    if input_var is not None:\n        if hasattr(result, \"attrs\"):\n            result.attrs.update(input_var.attrs)\n        if hasattr(result, \"dtype\"):\n            result = result.astype(input_var.dtype)\n    \n    return result",
+        "new_str": "    # Apply the where operation\n    result = apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )\n    \n    # Explicitly copy attributes and set dtype if input has attributes or dtype\n    if hasattr(x, \"attrs\") and hasattr(result, \"attrs\"):\n        result.attrs.update(x.attrs)\n    elif hasattr(y, \"attrs\") and hasattr(result, \"attrs\"):\n        result.attrs.update(y.attrs)\n    \n    if hasattr(x, \"dtype\") and hasattr(result, \"dtype\"):\n        result = result.astype(x.dtype)\n    elif hasattr(y, \"dtype\") and hasattr(result, \"dtype\"):\n        result = result.astype(y.dtype)\n    \n    return result",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    # Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    \n    # Apply the where operation\n    result = apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )\n    \n    # Explicitly copy attributes and set dtype if input has attributes or dtype\n    if hasattr(x, \"attrs\") and hasattr(result, \"attrs\"):\n        result.attrs.update(x.attrs)\n    elif hasattr(y, \"attrs\") and hasattr(result, \"attrs\"):\n        result.attrs.update(y.attrs)\n    \n    if hasattr(x, \"dtype\") and hasattr(result, \"dtype\"):\n        result = result.astype(x.dtype)\n    elif hasattr(y, \"dtype\") and hasattr(result, \"dtype\"):\n        result = result.astype(y.dtype)\n    \n    return result",
+        "new_str": "    # Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    \n    # Apply the where operation\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "13:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    \"\"\"\n    # alignment for three arguments is complicated, so don't support it yet\n    # Preserve attributes and dtype\n    keep_attrs = _get_keep_attrs(default=True)\n    \n    # Apply the where operation\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=keep_attrs,\n    )",
+        "new_str": "    \"\"\"\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=True,\n    )",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "14:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/computation.py",
+        "old_str": "    \"\"\"\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=True,\n    )",
+        "new_str": "    \"\"\"\n    # alignment for three arguments is complicated, so don't support it yet\n    return apply_ufunc(\n        duck_array_ops.where,\n        cond,\n        x,\n        y,\n        join=\"exact\",\n        dataset_join=\"exact\",\n        dask=\"allowed\",\n        keep_attrs=True,\n    )",
+        "edit_status": "failure: no change"
+      },
+      "flags": {},
+      "phases": [
+        "patch",
+        "patch"
+      ],
+      "step_indices": [
+        19,
+        22
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "15:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        20
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "16:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        21,
+        24
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "17:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/test_where_attributes.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        23
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "18:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: str_replace",
+      "target": "5:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: create",
+      "target": "6:cd",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:cd",
+      "target": "7:python",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:python",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "9:python",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "9:python",
+      "target": "10:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "9:python",
+      "target": "11:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "9:python",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "9:python",
+      "target": "13:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "9:python",
+      "target": "14:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "9:python",
+      "target": "15:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "10:str_replace_editor: str_replace",
+      "target": "9:python",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "11:str_replace_editor: str_replace",
+      "target": "9:python",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "9:python",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "13:str_replace_editor: str_replace",
+      "target": "9:python",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "14:str_replace_editor: str_replace",
+      "target": "9:python",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "15:str_replace_editor: str_replace",
+      "target": "16:think",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "15:str_replace_editor: str_replace",
+      "target": "18:rm",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "16:think",
+      "target": "17:submit",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "17:submit",
+      "target": "15:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "18:rm",
+      "target": "17:submit",
+      "key": 0
+    }
+  ]
+}

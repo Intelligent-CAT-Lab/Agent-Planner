@@ -1,0 +1,490 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "django__django-16938",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/core/serializers/python.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/core/serializers/python.py",
+        "old_str": "            else:\n\n                def m2m_value(value):\n                    return self._value_from_field(value, value._meta.pk)\n\n                def queryset_iterator(obj, field):\n                    return getattr(obj, field.name).only(\"pk\").iterator()\n\n            m2m_iter = getattr(obj, \"_prefetched_objects_cache\", {}).get(\n                field.name,\n                queryset_iterator(obj, field),\n            )\n            self._current[field.name] = [m2m_value(related) for related in m2m_iter]",
+        "new_str": "            else:\n\n                def m2m_value(value):\n                    return self._value_from_field(value, value._meta.pk)\n\n                def queryset_iterator(obj, field):\n                    # Get all concrete field names except the primary key\n                    model = field.remote_field.model\n                    deferred_fields = [f.name for f in model._meta.concrete_fields if f.name != model._meta.pk.name]\n                    return getattr(obj, field.name).defer(*deferred_fields).iterator()\n\n            m2m_iter = getattr(obj, \"_prefetched_objects_cache\", {}).get(\n                field.name,\n                queryset_iterator(obj, field),\n            )\n            self._current[field.name] = [m2m_value(related) for related in m2m_iter]",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "2:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_serialize_bug.py",
+        "file_text": "import os\nimport django\nfrom django.conf import settings\n\n# Set up a minimal settings\nsettings.configure(\n    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=[],\n)\n\ndjango.setup()\n\nfrom django.db import models\nfrom django.core import serializers\n\n# Define the models as in the PR description\nclass TestTagManager(models.Manager):\n    def get_queryset(self):\n        qs = super().get_queryset()\n        qs = qs.select_related(\"master\")  # follow master when retrieving object by default\n        return qs\n\nclass TestTagMaster(models.Model):\n    name = models.CharField(max_length=120)\n\nclass TestTag(models.Model):\n    # Uncomment the line below to set a default manager that doesn't use select_related (workaround)\n    # default = models.Manager()\n    objects = TestTagManager()\n    name = models.CharField(max_length=120)\n    master = models.ForeignKey(TestTagMaster, on_delete=models.SET_NULL, null=True)\n\nclass Test(models.Model):\n    name = models.CharField(max_length=120)\n    tags = models.ManyToManyField(TestTag, blank=True)\n\n# Create the tables\nfrom django.db import connection\nwith connection.schema_editor() as editor:\n    editor.create_model(TestTagMaster)\n    editor.create_model(TestTag)\n    editor.create_model(Test)\n\n# Create objects\ntag_master = TestTagMaster.objects.create(name=\"master\")\ntag = TestTag.objects.create(name=\"tag\", master=tag_master)\ntest = Test.objects.create(name=\"test\")\ntest.tags.add(tag)\ntest.save()\n\n# Try to serialize\ntry:\n    serialized = serializers.serialize(\"json\", [test])\n    print(\"Serialization successful!\")\nexcept Exception as e:\n    print(f\"Serialization failed: {e}\")"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        4,
+        6,
+        9,
+        12,
+        14,
+        15
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "4:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_serialize_bug.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        4,
+        6,
+        9,
+        12,
+        14,
+        15
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "5:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_serialize_bug.py",
+        "old_str": "    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=[],",
+        "new_str": "    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth'],",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_serialize_bug.py",
+        "old_str": "class TestTagMaster(models.Model):\n    name = models.CharField(max_length=120)\n\nclass TestTag(models.Model):\n    # Uncomment the line below to set a default manager that doesn't use select_related (workaround)\n    # default = models.Manager()\n    objects = TestTagManager()\n    name = models.CharField(max_length=120)\n    master = models.ForeignKey(TestTagMaster, on_delete=models.SET_NULL, null=True)\n\nclass Test(models.Model):\n    name = models.CharField(max_length=120)\n    tags = models.ManyToManyField(TestTag, blank=True)",
+        "new_str": "class TestTagMaster(models.Model):\n    name = models.CharField(max_length=120)\n    \n    class Meta:\n        app_label = 'test_app'\n\nclass TestTag(models.Model):\n    # Uncomment the line below to set a default manager that doesn't use select_related (workaround)\n    # default = models.Manager()\n    objects = TestTagManager()\n    name = models.CharField(max_length=120)\n    master = models.ForeignKey(TestTagMaster, on_delete=models.SET_NULL, null=True)\n    \n    class Meta:\n        app_label = 'test_app'\n\nclass Test(models.Model):\n    name = models.CharField(max_length=120)\n    tags = models.ManyToManyField(TestTag, blank=True)\n    \n    class Meta:\n        app_label = 'test_app'",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "7:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce_serialize_bug.py",
+        "old_str": "    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth'],",
+        "new_str": "    DATABASES={\n        'default': {\n            'ENGINE': 'django.db.backends.sqlite3',\n            'NAME': ':memory:',\n        }\n    },\n    INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth', 'test_app'],",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "8:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_app/__init__.py",
+        "file_text": ""
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "9:str_replace_editor: create"
+    },
+    {
+      "label": "mkdir",
+      "args": [],
+      "flags": {
+        "p": "/testbed/test_app"
+      },
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "",
+      "command": "mkdir",
+      "subcommand": "",
+      "id": "10:mkdir"
+    },
+    {
+      "label": "touch",
+      "args": [
+        "/testbed/test_app/__init__.py"
+      ],
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "",
+      "command": "touch",
+      "subcommand": "",
+      "id": "11:touch"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/core/serializers/python.py",
+        "old_str": "            else:\n\n                def m2m_value(value):\n                    return self._value_from_field(value, value._meta.pk)\n\n                def queryset_iterator(obj, field):\n                    # Get all concrete field names except the primary key\n                    model = field.remote_field.model\n                    deferred_fields = [f.name for f in model._meta.concrete_fields if f.name != model._meta.pk.name]\n                    return getattr(obj, field.name).defer(*deferred_fields).iterator()\n\n            m2m_iter = getattr(obj, \"_prefetched_objects_cache\", {}).get(\n                field.name,\n                queryset_iterator(obj, field),\n            )\n            self._current[field.name] = [m2m_value(related) for related in m2m_iter]",
+        "new_str": "            else:\n\n                def m2m_value(value):\n                    return self._value_from_field(value, value._meta.pk)\n\n                def queryset_iterator(obj, field):\n                    # Use the base manager to avoid custom manager's select_related\n                    # and only fetch the primary key\n                    return field.remote_field.model._base_manager.using(obj._state.db).filter(\n                        pk__in=getattr(obj, field.name).values_list('pk', flat=True)\n                    ).iterator()\n\n            m2m_iter = getattr(obj, \"_prefetched_objects_cache\", {}).get(\n                field.name,\n                queryset_iterator(obj, field),\n            )\n            self._current[field.name] = [m2m_value(related) for related in m2m_iter]",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        16,
+        18
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "13:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_serialize_bug.py",
+        "/testbed/test_app"
+      ],
+      "flags": {
+        "r": true,
+        "f": true
+      },
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "14:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: str_replace",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 1
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 2
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 3
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 4
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 5
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:python",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "5:python",
+      "target": "7:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "5:python",
+      "target": "9:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "5:python",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "5:python",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "5:python",
+      "target": "13:submit",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: str_replace",
+      "target": "8:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:str_replace_editor: str_replace",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "9:str_replace_editor: create",
+      "target": "10:mkdir",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:mkdir",
+      "target": "11:touch",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "11:touch",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "13:submit",
+      "target": "14:rm",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "14:rm",
+      "target": "13:submit",
+      "key": 0
+    }
+  ]
+}

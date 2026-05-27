@@ -1,0 +1,1190 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "sphinx-doc__sphinx-8459",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sphinx/ext/autodoc"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sphinx/ext/autodoc/typehints.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sphinx/util/typing.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/sphinx/util/typing.py",
+        "view_range": [
+          278,
+          301
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sphinx/util/typing.py",
+        "old_str": "def stringify(annotation: Any) -> str:\n    \"\"\"Stringify type annotation object.\"\"\"\n    if isinstance(annotation, str):\n        if annotation.startswith(\"'\") and annotation.endswith(\"'\"):\n            # might be a double Forward-ref'ed type.  Go unquoting.\n            return annotation[1:-1]\n        else:\n            return annotation\n    elif isinstance(annotation, TypeVar):\n        return annotation.__name__\n    elif not annotation:\n        return repr(annotation)\n    elif annotation is NoneType:\n        return 'None'\n    elif (getattr(annotation, '__module__', None) == 'builtins' and\n          hasattr(annotation, '__qualname__')):\n        return annotation.__qualname__\n    elif annotation is Ellipsis:\n        return '...'\n\n    if sys.version_info >= (3, 7):  # py37+\n        return _stringify_py37(annotation)\n    else:\n        return _stringify_py36(annotation)",
+        "new_str": "def stringify(annotation: Any, type_aliases: Dict[str, str] = None) -> str:\n    \"\"\"Stringify type annotation object.\"\"\"\n    if isinstance(annotation, str):\n        if annotation.startswith(\"'\") and annotation.endswith(\"'\"):\n            # might be a double Forward-ref'ed type.  Go unquoting.\n            annotation = annotation[1:-1]\n        if type_aliases and annotation in type_aliases:\n            return type_aliases[annotation]\n        return annotation\n    elif isinstance(annotation, TypeVar):\n        return annotation.__name__\n    elif not annotation:\n        return repr(annotation)\n    elif annotation is NoneType:\n        return 'None'\n    elif (getattr(annotation, '__module__', None) == 'builtins' and\n          hasattr(annotation, '__qualname__')):\n        return annotation.__qualname__\n    elif annotation is Ellipsis:\n        return '...'\n\n    if sys.version_info >= (3, 7):  # py37+\n        return _stringify_py37(annotation)\n    else:\n        return _stringify_py36(annotation)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/sphinx/ext/autodoc/typehints.py",
+        "old_str": "def record_typehints(app: Sphinx, objtype: str, name: str, obj: Any,\n                     options: Dict, args: str, retann: str) -> None:\n    \"\"\"Record type hints to env object.\"\"\"\n    try:\n        if callable(obj):\n            annotations = app.env.temp_data.setdefault('annotations', {})\n            annotation = annotations.setdefault(name, OrderedDict())\n            sig = inspect.signature(obj)\n            for param in sig.parameters.values():\n                if param.annotation is not param.empty:\n                    annotation[param.name] = typing.stringify(param.annotation)\n            if sig.return_annotation is not sig.empty:\n                annotation['return'] = typing.stringify(sig.return_annotation)\n    except (TypeError, ValueError):\n        pass",
+        "new_str": "def record_typehints(app: Sphinx, objtype: str, name: str, obj: Any,\n                     options: Dict, args: str, retann: str) -> None:\n    \"\"\"Record type hints to env object.\"\"\"\n    try:\n        if callable(obj):\n            annotations = app.env.temp_data.setdefault('annotations', {})\n            annotation = annotations.setdefault(name, OrderedDict())\n            sig = inspect.signature(obj)\n            type_aliases = getattr(app.config, 'autodoc_type_aliases', {})\n            for param in sig.parameters.values():\n                if param.annotation is not param.empty:\n                    annotation[param.name] = typing.stringify(param.annotation, type_aliases)\n            if sig.return_annotation is not sig.empty:\n                annotation['return'] = typing.stringify(sig.return_annotation, type_aliases)\n    except (TypeError, ValueError):\n        pass",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "6:str_replace_editor: str_replace"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed/doc"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        7,
+        12,
+        15,
+        21,
+        23,
+        27,
+        31,
+        33,
+        35,
+        38,
+        41,
+        45
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "7:cd"
+    },
+    {
+      "label": "make",
+      "args": [
+        "html"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        7,
+        12,
+        15,
+        21,
+        23,
+        27,
+        31,
+        33,
+        35,
+        38,
+        41,
+        45
+      ],
+      "tool": "",
+      "command": "make",
+      "subcommand": "",
+      "id": "8:make"
+    },
+    {
+      "label": "ls",
+      "args": [
+        "/testbed/doc/_build/html"
+      ],
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        8
+      ],
+      "tool": "",
+      "command": "ls",
+      "subcommand": "",
+      "id": "9:ls"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/doc/_build/html"
+      ],
+      "flags": {
+        "r": "sphinx_doc"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "10:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/doc/conf.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "11:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/conf.py",
+        "old_str": "extensions = ['sphinx.ext.autodoc', 'sphinx.ext.doctest', 'sphinx.ext.todo',\n              'sphinx.ext.autosummary', 'sphinx.ext.extlinks',\n              'sphinx.ext.intersphinx',\n              'sphinx.ext.viewcode', 'sphinx.ext.inheritance_diagram']",
+        "new_str": "extensions = ['sphinx.ext.autodoc', 'sphinx.ext.doctest', 'sphinx.ext.todo',\n              'sphinx.ext.autosummary', 'sphinx.ext.extlinks',\n              'sphinx.ext.intersphinx',\n              'sphinx.ext.viewcode', 'sphinx.ext.inheritance_diagram']\n\nautodoc_typehints = 'description'\nautodoc_type_aliases = {\n    'JSONObject': 'types.JSONObject',\n}",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/doc/_build/html"
+      ],
+      "flags": {
+        "r": "types.py"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        13
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "13:grep"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/doc/modules.rst",
+        "file_text": ".. automodule:: types\n   :members:\n   :undoc-members:\n   :show-inheritance:"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "14:str_replace_editor: create"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/index.rst",
+        "old_str": "Welcome to Sphinx's documentation!\n==================================\n\n.. toctree::\n   :maxdepth: 2\n   :caption: Contents:\n\n   contents\n   develop\n   development/index\n   examples\n   extdev/index\n   faq\n   glossary\n   internals/index\n   latex\n   man/index\n   templating\n   usage/index",
+        "new_str": "Welcome to Sphinx's documentation!\n==================================\n\n.. toctree::\n   :maxdepth: 2\n   :caption: Contents:\n\n   contents\n   develop\n   development/index\n   examples\n   extdev/index\n   faq\n   glossary\n   internals/index\n   latex\n   man/index\n   templating\n   usage/index\n   modules",
+        "edit_status": "failure: unknown"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        16
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "15:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/contents.rst",
+        "old_str": ".. toctree::\n   :maxdepth: 2\n\n   develop\n   development/index\n   examples\n   extdev/index\n   faq\n   glossary\n   internals/index\n   latex\n   man/index\n   templating\n   usage/index",
+        "new_str": ".. toctree::\n   :maxdepth: 2\n\n   develop\n   development/index\n   examples\n   extdev/index\n   faq\n   glossary\n   internals/index\n   latex\n   man/index\n   templating\n   usage/index\n   modules",
+        "edit_status": "failure: not found"
+      },
+      "flags": {},
+      "phases": [
+        "patch",
+        "patch"
+      ],
+      "step_indices": [
+        17,
+        18
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "16:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/doc/contents.rst"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        19
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "17:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/contents.rst",
+        "old_str": ".. toctree::\n   :maxdepth: 2\n\n   usage/index\n   development/index\n   man/index\n\n   templating\n   latex\n   extdev/index\n\n   internals/index\n\n   faq\n   glossary\n   changes\n   examples",
+        "new_str": ".. toctree::\n   :maxdepth: 2\n\n   usage/index\n   development/index\n   man/index\n\n   templating\n   latex\n   extdev/index\n\n   internals/index\n\n   faq\n   glossary\n   changes\n   examples\n   modules",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        20
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "18:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/modules.rst",
+        "old_str": ".. automodule:: types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "new_str": "Modules\n=======\n\n.. automodule:: types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        22
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "19:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/doc/_build/html/modules.html"
+      },
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization"
+      ],
+      "step_indices": [
+        24,
+        28
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "20:str_replace_editor: view"
+    },
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "types.py",
+        "grep",
+        "{}",
+        ";"
+      ],
+      "flags": {
+        "n": true,
+        "a": true,
+        "m": true,
+        "e": true,
+        "x": true,
+        "c": true,
+        "l": "sphinx_doc"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        25
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "21:find"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/types.py",
+        "file_text": "from __future__ import annotations\n\nfrom typing import Any, Dict\n\nJSONObject = Dict[str, Any]\n\n\ndef sphinx_doc(data: JSONObject) -> JSONObject:\n    \"\"\"Does it work.\n\n    Args:\n        data: Does it args.\n\n    Returns:\n        Does it work in return.\n    \"\"\"\n    return {}"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        26
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "22:str_replace_editor: create"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/doc/modules.rst"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        29
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "23:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/modules.rst",
+        "old_str": "Modules\n=======\n\n.. automodule:: types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "new_str": "Modules\n=======\n\n.. automodule:: testbed.types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        30
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "24:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/__init__.py",
+        "file_text": "# This file makes the /testbed directory a Python package."
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        32
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "25:str_replace_editor: create"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/conf.py",
+        "old_str": "import re\n\nimport sphinx",
+        "new_str": "import re\nimport sys\nimport os\nsys.path.insert(0, os.path.abspath('../'))\n\nimport sphinx",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        34
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "26:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/doc/conf.py",
+        "view_range": [
+          1,
+          20
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        36
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "27:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/modules.rst",
+        "old_str": "Modules\n=======\n\n.. automodule:: testbed.types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "new_str": "Modules\n=======\n\n.. automodule:: types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        37
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "28:str_replace_editor: str_replace"
+    },
+    {
+      "label": "mv",
+      "args": [
+        "/testbed/types.py",
+        "/testbed/custom_types.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        39
+      ],
+      "tool": "",
+      "command": "mv",
+      "subcommand": "",
+      "id": "29:mv"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/modules.rst",
+        "old_str": "Modules\n=======\n\n.. automodule:: types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "new_str": "Modules\n=======\n\n.. automodule:: custom_types\n   :members:\n   :undoc-members:\n   :show-inheritance:",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        40
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "30:str_replace_editor: str_replace"
+    },
+    {
+      "label": "grep",
+      "args": [
+        "/testbed/doc/_build/html/modules.html"
+      ],
+      "flags": {
+        "n": "sphinx_doc"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        42
+      ],
+      "tool": "",
+      "command": "grep",
+      "subcommand": "",
+      "id": "31:grep"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/doc/_build/html/modules.html",
+        "view_range": [
+          129,
+          150
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        43
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "32:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/doc/conf.py",
+        "old_str": "autodoc_typehints = 'description'\nautodoc_type_aliases = {\n    'JSONObject': 'types.JSONObject',\n}",
+        "new_str": "autodoc_typehints = 'description'\nautodoc_type_aliases = {\n    'JSONObject': 'custom_types.JSONObject',\n}",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        44
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "33:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        46
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "34:think"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "17:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "20:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "23:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "6:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 1
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 2
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 3
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 4
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 5
+    },
+    {
+      "label": "31",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 6
+    },
+    {
+      "label": "33",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 7
+    },
+    {
+      "label": "35",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 8
+    },
+    {
+      "label": "38",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 9
+    },
+    {
+      "label": "41",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 10
+    },
+    {
+      "label": "45",
+      "type": "exec",
+      "source": "7:cd",
+      "target": "8:make",
+      "key": 11
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:make",
+      "target": "9:ls",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "8:make",
+      "target": "13:grep",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "8:make",
+      "target": "15:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "22",
+      "type": "exec",
+      "source": "8:make",
+      "target": "19:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "24",
+      "type": "exec",
+      "source": "8:make",
+      "target": "20:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "28",
+      "type": "exec",
+      "source": "8:make",
+      "target": "20:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "32",
+      "type": "exec",
+      "source": "8:make",
+      "target": "25:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "34",
+      "type": "exec",
+      "source": "8:make",
+      "target": "26:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "36",
+      "type": "exec",
+      "source": "8:make",
+      "target": "27:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "39",
+      "type": "exec",
+      "source": "8:make",
+      "target": "29:mv",
+      "key": 0
+    },
+    {
+      "label": "42",
+      "type": "exec",
+      "source": "8:make",
+      "target": "31:grep",
+      "key": 0
+    },
+    {
+      "label": "46",
+      "type": "exec",
+      "source": "8:make",
+      "target": "34:think",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "9:ls",
+      "target": "10:grep",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "10:grep",
+      "target": "11:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "11:str_replace_editor: view",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "11:str_replace_editor: view",
+      "target": "27:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "13:grep",
+      "target": "14:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "14:str_replace_editor: create",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "15:str_replace_editor: str_replace",
+      "target": "16:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "16:str_replace_editor: str_replace",
+      "target": "16:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "16:str_replace_editor: str_replace",
+      "target": "17:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "17:str_replace_editor: view",
+      "target": "18:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "18:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "23",
+      "type": "exec",
+      "source": "19:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "25",
+      "type": "exec",
+      "source": "20:str_replace_editor: view",
+      "target": "21:find",
+      "key": 0
+    },
+    {
+      "label": "29",
+      "type": "exec",
+      "source": "20:str_replace_editor: view",
+      "target": "23:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "20:str_replace_editor: view",
+      "target": "32:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "26",
+      "type": "exec",
+      "source": "21:find",
+      "target": "22:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "27",
+      "type": "exec",
+      "source": "22:str_replace_editor: create",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "30",
+      "type": "exec",
+      "source": "23:str_replace_editor: view",
+      "target": "24:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "31",
+      "type": "exec",
+      "source": "24:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "33",
+      "type": "exec",
+      "source": "25:str_replace_editor: create",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "35",
+      "type": "exec",
+      "source": "26:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "37",
+      "type": "exec",
+      "source": "27:str_replace_editor: view",
+      "target": "28:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "38",
+      "type": "exec",
+      "source": "28:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "40",
+      "type": "exec",
+      "source": "29:mv",
+      "target": "30:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "41",
+      "type": "exec",
+      "source": "30:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    },
+    {
+      "label": "43",
+      "type": "exec",
+      "source": "31:grep",
+      "target": "32:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "44",
+      "type": "exec",
+      "source": "32:str_replace_editor: view",
+      "target": "33:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "45",
+      "type": "exec",
+      "source": "33:str_replace_editor: str_replace",
+      "target": "7:cd",
+      "key": 0
+    }
+  ]
+}

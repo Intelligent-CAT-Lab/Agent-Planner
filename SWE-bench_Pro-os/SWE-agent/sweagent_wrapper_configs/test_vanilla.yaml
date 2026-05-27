@@ -1,0 +1,18 @@
+output_dir: sweagent_results/test_vanilla
+sweagent_command: |
+  sweagent run-batch \
+    --config config/default.yaml \
+    --output_dir {output_dir} \
+    --num_workers 10 \
+    --random_delay_multiplier 1 \
+    --instances.type file \
+    --instances.path script/sample-data/samples/python/swebench-pro/sampled_instances.yaml \
+    --instances.slice :10 \
+    --instances.shuffle=False \
+    --instances.deployment.type=modal \
+    --instances.deployment.startup_timeout 1800 \
+    --instances.deployment.runtime_timeout 3600 \
+    --agent.model.name openrouter/deepseek/deepseek-chat-v3-0324 \
+    --agent.model.api_base $OPENAI_BASE_URL \
+    --agent.model.api_key $OPENROUTER_API_KEY \
+    --agent.model.per_instance_cost_limit 2.0

@@ -1,0 +1,58 @@
+{
+  "summary": {
+    "total_interventions": 1,
+    "monitor_count": 0,
+    "refiner_count": 1,
+    "monitor_total_latency_ms": 0,
+    "refiner_total_latency_ms": 15954.85,
+    "refiner_total_input_tokens": 7044,
+    "refiner_total_output_tokens": 1111,
+    "refiner_total_tokens": 8155,
+    "refiner_total_cost": 0.003983
+  },
+  "interventions": [
+    {
+      "step": 5,
+      "planner_type": "refiner",
+      "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the code paths that decide which OneToOneField is treated as the parent link: read the full implementation of Options.get_ancestor_link and the ModelBase logic that builds the parent_links mapping (the code that copies/assigns parent link fields during class preparation). Focus on locating the exact condition(s) that pick a parent link when multiple OneToOneFields point to the same ancestor (look for any first-seen/iteration-order dependence, or places that default to a field without checking remote_field.parent_link). While reading, note the exact lines where the ImproperlyConfigured message is raised and capture a concise hypothesis of why declaration order changes the outcome (e.g., code uses insertion order rather than honoring explicit parent_link=True). This will localize the bug and produce a small, targeted change proposal for the next (patch) step.",
+      "latency_ms": 15954.85,
+      "usage": {
+        "input_tokens": 7044,
+        "output_tokens": 1111,
+        "total_tokens": 8155,
+        "cost": 0.003983
+      },
+      "state_summary": {
+        "current_phase": "L_navigate",
+        "phase_history": [
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate",
+          "L_navigate"
+        ],
+        "unique_phases": [
+          "L_navigate"
+        ],
+        "rule_triggers": [
+          {
+            "rule_id": "dwell_L_navigate",
+            "message": "You may get stuck in navigation. Search for the relevant code only. Run tests to localize the bug, if necessary.",
+            "step_index": 5,
+            "metadata": {
+              "phase": "L_navigate",
+              "threshold": 6,
+              "dwell_count": 6
+            }
+          }
+        ],
+        "graph_info": {
+          "node_count": 7,
+          "edge_count": 7
+        },
+        "step_count": 6
+      }
+    }
+  ]
+}

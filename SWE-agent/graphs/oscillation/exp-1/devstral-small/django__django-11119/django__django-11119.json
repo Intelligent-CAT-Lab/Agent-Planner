@@ -1,0 +1,512 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "django__django-11119",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "v": "test"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "0:find"
+    },
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "1:find"
+    },
+    {
+      "label": "find",
+      "args": [
+        "/testbed",
+        "f",
+        "*.py",
+        "|",
+        "grep"
+      ],
+      "flags": {
+        "t": true,
+        "y": true,
+        "p": true,
+        "e": true,
+        "n": true,
+        "a": true,
+        "m": true,
+        "i": "engine"
+      },
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "",
+      "command": "find",
+      "subcommand": "",
+      "id": "2:find"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/template/engine.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/tests/template_tests/test_engine.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/template/base.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "5:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/django/template/context.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "6:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "file_text": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = engine.render_to_string(template_str, context)\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "7:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "localization",
+        "validation",
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        8,
+        10,
+        13,
+        16,
+        18
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "8:python"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "old_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = engine.render_to_string(template_str, context)\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "new_str": "from django.template import Engine, Context\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = template.render(Context(context))\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        9
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "9:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/django/template/engine.py",
+        "old_str": "    def render_to_string(self, template_name, context=None):\n        \"\"\"\n        Render the template specified by template_name with the given context.\n        For use in Django's test suite.\n        \"\"\"\n        if isinstance(template_name, (list, tuple)):\n            t = self.select_template(template_name)\n        else:\n            t = self.get_template(template_name)\n        # Django < 1.8 accepted a Context in `context` even though that's\n        # unintended. Preserve this ability but don't rewrap `context`.\n        if isinstance(context, Context):\n            return t.render(context)\n        else:\n            return t.render(Context(context))",
+        "new_str": "    def render_to_string(self, template_name, context=None):\n        \"\"\"\n        Render the template specified by template_name with the given context.\n        For use in Django's test suite.\n        \"\"\"\n        if isinstance(template_name, (list, tuple)):\n            t = self.select_template(template_name)\n        else:\n            t = self.get_template(template_name)\n        # Django < 1.8 accepted a Context in `context` even though that's\n        # unintended. Preserve this ability but don't rewrap `context`.\n        if isinstance(context, Context):\n            return t.render(context)\n        else:\n            return t.render(Context(context, autoescape=self.autoescape))",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        11
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "10:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "old_str": "from django.template import Engine, Context\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = template.render(Context(context))\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "new_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = engine.render_to_string(template_str, context)\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        12
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "11:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "old_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = engine.render_to_string(template_str, context)\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "new_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = template.render(template.engine.render_to_string(template_str, context))\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        14
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "12:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "old_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = template.render(template.engine.render_to_string(template_str, context))\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "new_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = engine.render_to_string(template_str, context)\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        15
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "13:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/reproduce.py",
+        "old_str": "from django.template import Engine\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = engine.render_to_string(template_str, context)\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "new_str": "from django.template import Engine, Context\n\n# Create an engine with autoescape=False\nengine = Engine(autoescape=False)\n\n# Create a template with HTML content\ntemplate_str = '<p>{{ html_content }}</p>'\ntemplate = engine.from_string(template_str)\n\n# Render with HTML content that should not be escaped\ncontext = {'html_content': '<strong>Hello World!</strong>'}\nresult = template.render(Context(context, autoescape=False))\n\nprint(\"Result:\", result)\nprint(\"\\nExpected (no escaping):\", '<p><strong>Hello World!</strong></p>')\nprint(\"Actual (with escaping):\", '<p>&lt;strong&gt;Hello World!&lt;/strong&gt;</p>')",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        17
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "14:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        19,
+        21
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "15:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        20
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "16:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:find",
+      "target": "1:find",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:find",
+      "target": "2:find",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:find",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: view",
+      "target": "6:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:str_replace_editor: view",
+      "target": "7:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "7:str_replace_editor: create",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "8:python",
+      "target": "9:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "8:python",
+      "target": "10:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "14",
+      "type": "exec",
+      "source": "8:python",
+      "target": "12:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "17",
+      "type": "exec",
+      "source": "8:python",
+      "target": "14:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "19",
+      "type": "exec",
+      "source": "8:python",
+      "target": "15:submit",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:str_replace_editor: str_replace",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "12",
+      "type": "exec",
+      "source": "10:str_replace_editor: str_replace",
+      "target": "11:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "13",
+      "type": "exec",
+      "source": "11:str_replace_editor: str_replace",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "15",
+      "type": "exec",
+      "source": "12:str_replace_editor: str_replace",
+      "target": "13:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "16",
+      "type": "exec",
+      "source": "13:str_replace_editor: str_replace",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "18",
+      "type": "exec",
+      "source": "14:str_replace_editor: str_replace",
+      "target": "8:python",
+      "key": 0
+    },
+    {
+      "label": "20",
+      "type": "exec",
+      "source": "15:submit",
+      "target": "16:rm",
+      "key": 0
+    },
+    {
+      "label": "21",
+      "type": "exec",
+      "source": "16:rm",
+      "target": "15:submit",
+      "key": 0
+    }
+  ]
+}

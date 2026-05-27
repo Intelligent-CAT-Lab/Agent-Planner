@@ -1,0 +1,324 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "pytest-dev__pytest-5262",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/src/_pytest/capture.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "0:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/src/_pytest/capture.py",
+        "view_range": [
+          425,
+          453
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        1
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "1:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/src/_pytest/capture.py",
+        "old_str": "class EncodedFile(object):\n    errors = \"strict\"  # possibly needed by py3 code (issue555)\n\n    def __init__(self, buffer, encoding):\n        self.buffer = buffer\n        self.encoding = encoding\n\n    def write(self, obj):\n        if isinstance(obj, six.text_type):\n            obj = obj.encode(self.encoding, \"replace\")\n        elif _PY3:\n            raise TypeError(\n                \"write() argument must be str, not {}\".format(type(obj).__name__)\n            )\n        self.buffer.write(obj)",
+        "new_str": "class EncodedFile(object):\n    errors = \"strict\"  # possibly needed by py3 code (issue555)\n\n    def __init__(self, buffer, encoding):\n        self.buffer = buffer\n        self.encoding = encoding\n\n    @property\n    def mode(self):\n        \"\"\"The mode of the encoded file, which is the same as the underlying buffer\n        but with the 'b' flag removed since this is a text-oriented wrapper.\"\"\"\n        # Remove 'b' flag from mode to indicate this is a text file\n        return self.buffer.mode.replace('b', '')\n\n    def write(self, obj):\n        if isinstance(obj, six.text_type):\n            obj = obj.encode(self.encoding, \"replace\")\n        elif _PY3:\n            raise TypeError(\n                \"write() argument must be str, not {}\".format(type(obj).__name__)\n            )\n        self.buffer.write(obj)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "2:str_replace_editor: str_replace"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_issue.py",
+        "file_text": "import pytest\nfrom _pytest.capture import EncodedFile\nfrom io import BytesIO\n\ndef test_encoded_file_mode():\n    \"\"\"Test that EncodedFile reports a text mode without 'b' flag.\"\"\"\n    # Create a binary buffer\n    buffer = BytesIO()\n    buffer.mode = 'wb+'  # Simulate binary mode\n    \n    # Create EncodedFile wrapper\n    encoded_file = EncodedFile(buffer, 'utf-8')\n    \n    # Verify mode doesn't contain 'b'\n    assert 'b' not in encoded_file.mode, \\\n        f\"EncodedFile mode should not contain 'b', got '{encoded_file.mode}'\"\n\nif __name__ == \"__main__\":\n    test_encoded_file_mode()\n    print(\"Test passed!\")"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "3:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        4,
+        6,
+        8
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "4:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_issue.py"
+      ],
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "5:python"
+    },
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/test_original_issue.py",
+        "file_text": "import pytest\nimport youtube_dl\n\n# Test case from the PR description\ndef test_youtube_dl_capture():\n    \"\"\"Test that youtube-dl works with pytest's captured output.\"\"\"\n    # This should not raise a TypeError\n    youtube_dl.YoutubeDL().extract_info('http://example.com/')\n\nif __name__ == \"__main__\":\n    test_youtube_dl_capture()\n    print(\"Test passed!\")"
+      },
+      "flags": {},
+      "phases": [
+        "validation"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "6:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "test_original_issue.py"
+      ],
+      "flags": {
+        "m": "pytest",
+        "v": true
+      },
+      "phases": [
+        "validation",
+        "validation"
+      ],
+      "step_indices": [
+        6,
+        8
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "7:python"
+    },
+    {
+      "label": "pip",
+      "args": [
+        "install",
+        "youtube-dl"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        7
+      ],
+      "tool": "",
+      "command": "pip",
+      "subcommand": "",
+      "id": "8:pip"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        9,
+        11
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "9:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_issue.py",
+        "/testbed/test_original_issue.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        10
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "10:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "0:str_replace_editor: view",
+      "target": "1:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:str_replace_editor: view",
+      "target": "2:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: str_replace",
+      "target": "3:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: create",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "5:python",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "7:python",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "4:cd",
+      "target": "7:python",
+      "key": 1
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "5:python",
+      "target": "6:str_replace_editor: create",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "6:str_replace_editor: create",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "7:python",
+      "target": "8:pip",
+      "key": 0
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "7:python",
+      "target": "9:submit",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "8:pip",
+      "target": "4:cd",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "9:submit",
+      "target": "10:rm",
+      "key": 0
+    },
+    {
+      "label": "11",
+      "type": "exec",
+      "source": "10:rm",
+      "target": "9:submit",
+      "key": 0
+    }
+  ]
+}

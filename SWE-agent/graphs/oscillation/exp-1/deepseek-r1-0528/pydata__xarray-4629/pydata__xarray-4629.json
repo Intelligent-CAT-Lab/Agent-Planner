@@ -1,0 +1,207 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "resolved",
+    "instance_name": "pydata__xarray-4629",
+    "debug_difficulty": "<15 min fix"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_attrs_issue.py",
+        "file_text": "import xarray as xr\n\nxds1 = xr.Dataset(attrs={'a':'b'})\nxds2 = xr.Dataset(attrs={'a':'c'})\nprint(f\"a1: {xds1.attrs['a']}, a2: {xds2.attrs['a']}\")\n\nxds3 = xr.merge([xds1, xds2], combine_attrs='override')\nprint(f\"a1: {xds1.attrs['a']}, a2: {xds2.attrs['a']}, a3: {xds3.attrs['a']}\")\n\nxds3.attrs['a'] = 'd'\nprint(f\"a1: {xds1.attrs['a']}, a2: {xds2.attrs['a']}, a3: {xds3.attrs['a']}\")"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "0:str_replace_editor: create"
+    },
+    {
+      "label": "cd",
+      "args": [
+        "/testbed"
+      ],
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        1,
+        4
+      ],
+      "tool": "",
+      "command": "cd",
+      "subcommand": "",
+      "id": "1:cd"
+    },
+    {
+      "label": "python",
+      "args": [
+        "reproduce_attrs_issue.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation"
+      ],
+      "step_indices": [
+        1,
+        4
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "2:python"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/merge.py",
+        "view_range": [
+          500,
+          520
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/merge.py",
+        "old_str": "    elif combine_attrs == \"override\":\n        return variable_attrs[0]",
+        "new_str": "    elif combine_attrs == \"override\":\n        return dict(variable_attrs[0])",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "4:str_replace_editor: str_replace"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        5,
+        7
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "5:submit"
+    },
+    {
+      "label": "rm",
+      "args": [
+        "/testbed/reproduce_attrs_issue.py"
+      ],
+      "flags": {},
+      "phases": [
+        "general"
+      ],
+      "step_indices": [
+        6
+      ],
+      "tool": "",
+      "command": "rm",
+      "subcommand": "",
+      "id": "6:rm"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: create",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "1:cd",
+      "target": "2:python",
+      "key": 1
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "2:python",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "2:python",
+      "target": "5:submit",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "4:str_replace_editor: str_replace",
+      "target": "1:cd",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:submit",
+      "target": "6:rm",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "6:rm",
+      "target": "5:submit",
+      "key": 0
+    }
+  ]
+}

@@ -1,0 +1,241 @@
+{
+  "directed": true,
+  "multigraph": true,
+  "graph": {
+    "resolution_status": "unresolved",
+    "instance_name": "pydata__xarray-6744",
+    "debug_difficulty": "15 min - 1 hour"
+  },
+  "nodes": [
+    {
+      "label": "str_replace_editor: create",
+      "args": {
+        "path": "/testbed/reproduce_error.py",
+        "file_text": "import xarray as xr\nimport numpy as np\n\nmy_data = xr.DataArray(np.arange(1,10), dims=\"x\")\n\n# Option 1: take a center-justified rolling average\nresult1 = my_data.rolling(x=3, center=True).mean().values\nprint(\"Result from direct mean:\", result1)\n\n# Option 2: manually iterate\nmy_data_rolling = my_data.rolling(x=3, center=True)\nresult2 = [window.mean().values.item() for label, window in my_data_rolling]\nprint(\"Result from manual iteration:\", result2)"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        0
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "create",
+      "id": "0:str_replace_editor: create"
+    },
+    {
+      "label": "python",
+      "args": [
+        "/testbed/reproduce_error.py"
+      ],
+      "flags": {},
+      "phases": [
+        "localization",
+        "validation"
+      ],
+      "step_indices": [
+        1,
+        6
+      ],
+      "tool": "",
+      "command": "python",
+      "subcommand": "",
+      "id": "1:python"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        2
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "2:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/rolling.py"
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        3
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "3:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: view",
+      "args": {
+        "path": "/testbed/xarray/core/rolling.py",
+        "view_range": [
+          270,
+          282
+        ]
+      },
+      "flags": {},
+      "phases": [
+        "localization"
+      ],
+      "step_indices": [
+        4
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "view",
+      "id": "4:str_replace_editor: view"
+    },
+    {
+      "label": "str_replace_editor: str_replace",
+      "args": {
+        "path": "/testbed/xarray/core/rolling.py",
+        "old_str": "    def __iter__(self) -> Iterator[tuple[RollingKey, DataArray]]:\n        if self.ndim > 1:\n            raise ValueError(\"__iter__ is only supported for 1d-rolling\")\n        stops = np.arange(1, len(self.window_labels) + 1)\n        starts = stops - int(self.window[0])\n        starts[: int(self.window[0])] = 0\n        for (label, start, stop) in zip(self.window_labels, starts, stops):\n            window = self.obj.isel({self.dim[0]: slice(start, stop)})\n\n            counts = window.count(dim=self.dim[0])\n            window = window.where(counts >= self.min_periods)\n\n            yield (label, window)",
+        "new_str": "    def __iter__(self) -> Iterator[tuple[RollingKey, DataArray]]:\n        if self.ndim > 1:\n            raise ValueError(\"__iter__ is only supported for 1d-rolling\")\n        window_size = int(self.window[0])\n        stops = np.arange(1, len(self.window_labels) + 1)\n        starts = stops - window_size\n        if self.center:\n            shift = window_size // 2\n            starts += shift\n            stops += shift\n            # Ensure indices are within bounds\n            starts = np.maximum(starts, 0)\n            stops = np.minimum(stops, len(self.obj[self.dim[0]]))\n        starts[:window_size] = 0\n        for (label, start, stop) in zip(self.window_labels, starts, stops):\n            window = self.obj.isel({self.dim[0]: slice(start, stop)})\n\n            counts = window.count(dim=self.dim[0])\n            window = window.where(counts >= self.min_periods)\n\n            yield (label, window)",
+        "edit_status": "success"
+      },
+      "flags": {},
+      "phases": [
+        "patch"
+      ],
+      "step_indices": [
+        5
+      ],
+      "tool": "str_replace_editor",
+      "command": "",
+      "subcommand": "str_replace",
+      "id": "5:str_replace_editor: str_replace"
+    },
+    {
+      "label": "think",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        7,
+        9
+      ],
+      "tool": null,
+      "command": null,
+      "subcommand": null,
+      "id": "6:think"
+    },
+    {
+      "label": "submit",
+      "args": {},
+      "flags": {},
+      "phases": [
+        "general",
+        "general"
+      ],
+      "step_indices": [
+        8,
+        10
+      ],
+      "tool": "submit",
+      "command": "",
+      "subcommand": "",
+      "id": "7:submit"
+    }
+  ],
+  "edges": [
+    {
+      "label": "1",
+      "type": "exec",
+      "source": "0:str_replace_editor: create",
+      "target": "1:python",
+      "key": 0
+    },
+    {
+      "label": "2",
+      "type": "exec",
+      "source": "1:python",
+      "target": "2:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "label": "7",
+      "type": "exec",
+      "source": "1:python",
+      "target": "6:think",
+      "key": 0
+    },
+    {
+      "label": "3",
+      "type": "exec",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "2:str_replace_editor: view",
+      "target": "3:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "4",
+      "type": "exec",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 0
+    },
+    {
+      "type": "hier",
+      "source": "3:str_replace_editor: view",
+      "target": "4:str_replace_editor: view",
+      "key": 1
+    },
+    {
+      "label": "5",
+      "type": "exec",
+      "source": "4:str_replace_editor: view",
+      "target": "5:str_replace_editor: str_replace",
+      "key": 0
+    },
+    {
+      "label": "6",
+      "type": "exec",
+      "source": "5:str_replace_editor: str_replace",
+      "target": "1:python",
+      "key": 0
+    },
+    {
+      "label": "8",
+      "type": "exec",
+      "source": "6:think",
+      "target": "7:submit",
+      "key": 0
+    },
+    {
+      "label": "10",
+      "type": "exec",
+      "source": "6:think",
+      "target": "7:submit",
+      "key": 1
+    },
+    {
+      "label": "9",
+      "type": "exec",
+      "source": "7:submit",
+      "target": "6:think",
+      "key": 0
+    }
+  ]
+}

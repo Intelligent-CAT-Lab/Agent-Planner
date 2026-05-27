@@ -1,0 +1,79 @@
+{
+  "rate_limit": {
+    "enabled": false,
+    "min_gap": 1
+  },
+  "trigger_on_success_only": false,
+  "rules": {
+    "plan_compliance": {
+      "intended_plan": ["L_navigate", "P", "V"],
+      "ending_flags": [
+        "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT",
+        "submit"
+      ],
+      "phase_names": {
+        "L_navigate": "navigation",
+        "L_reproduce": "reproducing",
+        "P": "patching",
+        "V": "testing",
+        "V_regression_test": "running relevant tests to avoid regressions",
+        "V_newly_generated_test": "testing"
+      },
+      "message": "Plan compliance violation: {violation}. Expected to {expected}. Skipped phases: {skipped}. Follow the instructions to ensure thorough problem solving.",
+      "block_execution": true,
+      "per_violation_type_threshold": 1
+    },
+    "dwell_times": {
+      "block_execution": false,
+      "dwell_L_navigate": {
+        "message": "You seem to navigate between files and code locations in the past {threshold} steps. You have the following options to explore next, which increases your chance to solve the problem: (1) keep exploring the code base as you do, but focus on the relevant code only; (2) generate and run reproduction tests, as they can help you localize the bug better.",
+        "threshold": 6
+      },
+      "dwell_L_reproduce": {
+        "message": "You are trying to reproduce the bug in that last {threshold} steps. Reproduction test generation can be hard. If you observe that, within a few attempts, you cannot resolve the dependencies to successfully write or run reproduction tests, you may pay more attention to the details in the issue description to locate the bug without reproduction. Alternatively, if you think that you have enough information and localized potential locations of the bug, you may start patching.",
+        "threshold": 6
+      },
+      "dwell_P": {
+        "message": "It seems that you have spent the last {threshold} steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, rethink the edit location or string replacements. (2) Long sequences of edits, specifically if they are not successful, could be due to incorrect localization. You may want to look at related code locations and come up with more effective edits to resolve the patch. (3) Validate changes step by step rather than making multiple changes and validating them later, which helps you determine which changes broke the code.",
+        "threshold": 6
+      },
+      "dwell_V": {
+        "message": "It seems that you have spent the last {threshold} steps validating the changes you have made. Either you are trying to write more tests to be more confident about the patch's correctness, or you cannot execute tests successfully due to dependency or environmental issues. Please reflect on your code execution rather than writing additional tests. If you are confident that the patch is correct, proceed with submission. If you are still not confident after reviewing and reasoning about the fix, you may revisit the patch.",
+        "threshold": 6
+      }
+    },
+    "oscillations": {
+      "block_execution": true,
+      "max_repeats": 5,
+      "max_repeats_rule": {
+        "message": "If you cannot make further progress, stop and exit or submit your patch."
+      },
+      "self_loop": {
+        "message": "It seems that you are repeating action {action} in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
+        "threshold": 2
+      },
+      "two+_node_cycle": {
+        "message": "It seems that you have repeated actions {action 1, action 2, ...} in trajectory steps {X}--{Y}, and now you are revisiting {action 1}. Ensure that you are not repeating the previous actions again. First reason about why you are revisiting and then think about what should be the next proper step. Do not repeat the same action, e.g., reading the same file location, unless you are certain that the outcome will help you better reason about future steps and resolve the issue.",
+        "threshold": 2
+      }
+    },
+    "repeated_action": {
+      "block_execution": false,
+      "repeated_view": {
+        "message": "You have already reviewed this location. If this is to verify a recent edit, focus on the changed lines; otherwise, view a new relevant location or proceed to edit or test.",
+        "threshold": 2
+      }
+    }
+  },
+  "meta_data": {
+    "agent": {
+      "SWE-agent": {
+        "tool_configs": [
+          "SWE-agent/tools/edit_anthropic/config.yaml",
+          "SWE-agent/tools/review_on_submit_m/config.yaml",
+          "SWE-agent/tools/registry/config.yaml"
+        ]
+      }
+    }
+  }
+}
