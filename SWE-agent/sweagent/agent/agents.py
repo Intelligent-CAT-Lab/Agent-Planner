@@ -501,6 +501,7 @@ class DefaultAgent(AbstractAgent):
         # Set in run method
         self._env: SWEEnv | None = None
         self._problem_statement: ProblemStatement | ProblemStatementConfig | None = None
+        self._output_dir: Path | None = None
         self.traj_path: Path | None = None
 
         #: The following three attributes collect the information about how the agent
@@ -653,6 +654,7 @@ class DefaultAgent(AbstractAgent):
 
         self._problem_statement = problem_statement
         self._env = env
+        self._output_dir = output_dir
         iid = self._problem_statement.id
         self.logger.info("Setting up agent for instance %s", iid)
 
@@ -1730,15 +1732,19 @@ class DefaultAgent(AbstractAgent):
 
         # Save planner history if there were interventions
         if self._planner_history:
-            planner_path = self.save_planner_history(output_dir, problem_statement.id)
+            assert self._output_dir is not None
+            assert self._problem_statement is not None
+            planner_path = self.save_planner_history(self._output_dir, self._problem_statement.id)
             if planner_path:
                 self.logger.info("Planner history saved to %s", planner_path)
 
         # Save monitor graph if enabled
         if self._save_monitor_graph and self._plan_monitor:
             try:
-                graph_path = output_dir 
-                self._plan_monitor.save_graph(str(graph_path), problem_statement.id)
+                assert self._output_dir is not None
+                assert self._problem_statement is not None
+                graph_path = self._output_dir
+                self._plan_monitor.save_graph(str(graph_path), self._problem_statement.id)
                 self.logger.info("Monitor graph saved to %s", graph_path)
             except Exception as e:
                 self.logger.warning("Failed to save monitor graph: %s", e)
