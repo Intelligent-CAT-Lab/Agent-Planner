@@ -1,5 +1,5 @@
-CONFIG="default"
-MODEL_NAME="openrouter/deepseek/deepseek-chat-v3-0324"
+CONFIG="refiner"
+MODEL_NAME="openrouter/mistralai/devstral-small"
 MODEL="${MODEL_NAME##*/}"
 DATASET="swebench"
 RUN_ID="${1:-1}"
