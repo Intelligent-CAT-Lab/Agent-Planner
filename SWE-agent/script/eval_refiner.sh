@@ -1,4 +1,5 @@
-CONFIG="default"
+CONFIG="refiner"
+# MODEL_NAME="openrouter/mistralai/devstral-small"
 MODEL_NAME="openrouter/deepseek/deepseek-chat-v3-0324"
 MODEL="${MODEL_NAME##*/}"
 DATASET="swebench"
@@ -10,5 +11,7 @@ PREDICTION_PATH="$OUTPUT_DIR/preds.json"
 python -m swebench.harness.run_evaluation \
     --dataset_name SWE-bench/SWE-bench_Verified \
     --predictions_path "$PREDICTION_PATH" \
-    --run_id "tmp-${CONFIG}-version-${VERSION_ID}-${MODEL}-run-${RUN_ID}" \
+    --run_id "temp-${MODEL}-version-${VERSION_ID}--run-${RUN_ID}" \
     --report_dir "reports"
+
+    # --run_id "tmp-${CONFIG}-version-${VERSION_ID}-${MODEL}-run-${RUN_ID}" \
