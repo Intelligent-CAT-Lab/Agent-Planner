@@ -636,6 +636,22 @@ def get_action_role(
                 # Editing non-test files → patching
                 return "P"
 
+        # If inline code doesn't edit files, treat as test execution/reproduction
+        if code_content:
+            if has_patch:
+                explicit_test_targets = [p for p in paths if _is_test_path(p)]
+                dyn_key = _dynamic_key_for_inline_test(cmd, tokens, paths)
+                if is_heredoc and not dyn_key:
+                    dyn_key = "stdin_heredoc"
+                return _postpatch_validation_kind(
+                    explicit_test_targets,
+                    created_tests=created_tests,
+                    dynamic_key=dyn_key,
+                    created_dynamic_suites=created_dynamic_suites,
+                )
+            else:
+                return "L_reproduce"
+
         if has_patch:
             explicit_test_targets = [p for p in paths if _is_test_path(p)]
             dyn_key = _dynamic_key_for_inline_test(cmd, tokens, paths)
