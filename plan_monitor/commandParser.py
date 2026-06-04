@@ -634,14 +634,21 @@ if __name__ == "__main__":
         for r in result:
             print(r)
 
+#     complex_bash = """
+# for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" | cut -c4-); do
+#     if [ -f "$file" ] && (file "$file" | grep -q "executable" || git check-attr binary "$file" | grep -q "binary: set"); then
+#         git rm -f "$file" 2>/dev/null || rm -f "$file"
+#         echo "Removed: $file"
+#     fi
+# done
+#     """
     complex_bash = """
-for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" | cut -c4-); do
-    if [ -f "$file" ] && (file "$file" | grep -q "executable" || git check-attr binary "$file" | grep -q "binary: set"); then
-        git rm -f "$file" 2>/dev/null || rm -f "$file"
-        echo "Removed: $file"
-    fi
-done
-    """
+    cat > /tmp/repro_timeseries_bug.py <<'PY'\nimport numpy as np\nfrom astropy.time import Time\nfrom
+  astropy.timeseries import TimeSeries\n\n# reproduce misleading exception when removing a required non-time
+  column\n\ntime = Time(np.arange(100000, 100003), format='jd')\nts = TimeSeries(time=time, data={\"flux\": [99.9,
+  99.8, 99.7]})\nts._required_columns = [\"time\", \"flux\"]\nprint('before:', ts.colnames)\ntry:\n
+  ts.remove_column('flux')\nexcept Exception as e:\n    print(type(e).__name__ + ':', e)\nPY
+  """
 
     result = parser.parse(complex_bash)
     print(f"\n>>> Complex Bash:\n{complex_bash}")

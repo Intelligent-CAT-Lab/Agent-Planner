@@ -436,8 +436,8 @@ Examples:
         '--agent',
         type=str,
         choices=['mini-swe-agent', 'SWE-agent'],
-        default='mini-swe-agent',
-        help='Agent type: mini-swe-agent or SWE-agent (default: mini-swe-agent)'
+        default='SWE-agent',
+        help='Agent type: mini-swe-agent or SWE-agent (default: SWE-agent)'
     )
 
     parser.add_argument(
@@ -465,7 +465,7 @@ Examples:
         '--model',
         type=str,
         required=True,
-        help='Model name (e.g., gpt-5-mini, deepseek-chat-v3-0324)'
+        help='Model name (e.g., gpt-5.4-mini, deepseek-chat-v3-0324)'
     )
 
     parser.add_argument(

@@ -43,7 +43,7 @@ from typing import Iterable, List, Tuple, Any, Optional, Set, Dict, Union
 # --------------------------- Configurable Heuristics ---------------------------
 
 TEST_HINTS: Tuple[str, ...] = (
-    "test_", "reproduc", "debug", "_test", "/tests/", "/test/",
+    "test_", "repro", "reproduc", "debug", "_test", "/tests/", "/test/",
 )
 
 READONLY_CMDS: Tuple[str, ...] = (
@@ -449,6 +449,104 @@ def _dynamic_key_for_inline_test(
 
     return "inline:<unknown>"
 
+# --------------------------- Complex command analysis ---------------------------
+
+def _classify_complex_command(
+    args: Any,
+    *,
+    has_patch: bool,
+    created_tests: Optional[Set[str]],
+    created_dynamic_suites: Optional[Set[str]],
+) -> str:
+    """
+    Classify a complex_command by analyzing the bash command text.
+    Handles commands with multiple phases (e.g., patch + test execution).
+    """
+    # Extract bash command text
+    bash_text = ""
+    if isinstance(args, (list, tuple)) and args:
+        bash_text = str(args[0])
+    elif isinstance(args, str):
+        bash_text = args
+
+    if not bash_text:
+        return "general"
+
+    bash_lower = bash_text.lower()
+    tokens = bash_text.split()
+
+    # Extract ALL paths
+    all_paths = _extract_paths_generic(tokens)
+
+    # Separate: files being EDITED vs files being EXECUTED/REFERENCED
+    # Python heredoc edits (via Path().write_text, open('w'), etc.)
+    python_heredoc_edits: List[str] = []
+    if 'python' in bash_lower and '<<' in bash_text:
+        for heredoc_match in re.finditer(r"<<['\"]?(\w+)['\"]?\s*\n(.*?)\n\1", bash_text, re.DOTALL):
+            heredoc_content = heredoc_match.group(2)
+            edited_files = _extract_edited_files_from_python_code(heredoc_content)
+            python_heredoc_edits.extend(edited_files)
+
+    # Shell redirection edits (cat > file, echo > file, etc.)
+    shell_redirected_files: List[str] = []
+    if any(op in bash_text for op in ['>', '>>']):
+        # Extract files after > or >>
+        for match in re.finditer(r'>\s*([^\s;&|]+)', bash_text):
+            shell_redirected_files.append(match.group(1).strip())
+
+    # Combined edited files
+    edited_files = python_heredoc_edits + shell_redirected_files
+
+    # Check if editing test vs non-test files
+    edited_test_files = [f for f in edited_files if _is_test_path(f)]
+    edited_nontest_files = [f for f in edited_files if f and not _is_test_path(f)]
+
+    # Check if any test-related activity (editing OR executing tests)
+    test_related = _is_test_related(all_paths) or any(hint in bash_lower for hint in TEST_HINTS)
+
+    # Detect inline test execution (python heredoc without file writes)
+    is_inline_test_exec = (
+        'python' in bash_lower and
+        '<<' in bash_text and
+        not python_heredoc_edits
+    )
+
+    # Classification logic with priority: P > V_/L_reproduce
+    # If BOTH patching non-test files AND test activity exist, prioritize P
+    if edited_nontest_files:
+        # Editing non-test files = patching (P takes priority)
+        if edited_test_files:
+            _record_created_tests(edited_test_files, created_tests)
+        return "P"
+
+    elif is_inline_test_exec:
+        # Inline test execution (python - <<PY with test code)
+        if has_patch:
+            dyn_key = "stdin_heredoc"
+            if created_dynamic_suites is not None:
+                created_dynamic_suites.add(dyn_key)
+            return "V_newly_generated_test"
+        else:
+            return "L_reproduce"
+
+    elif edited_test_files or test_related:
+        # Test-related activity (creating/editing/executing tests)
+        if edited_test_files:
+            _record_created_tests(edited_test_files, created_tests)
+
+        if has_patch:
+            return _postpatch_validation_kind(
+                edited_test_files if edited_test_files else all_paths,
+                created_tests=created_tests,
+                dynamic_key=None,
+                created_dynamic_suites=created_dynamic_suites,
+            )
+        else:
+            return "L_reproduce"
+
+    else:
+        return "general"
+
 # --------------------------- Post-patch validation decision ---------------------------
 
 def _postpatch_validation_kind(
@@ -518,6 +616,15 @@ def get_action_role(
 
     has_patch = _has_prior_patch(prev_roles)
     test_related = _is_test_related(paths)
+
+    # 0) Handle complex_command by analyzing the bash command text
+    if cmd == "complex_command":
+        return _classify_complex_command(
+            args,
+            has_patch=has_patch,
+            created_tests=created_tests,
+            created_dynamic_suites=created_dynamic_suites,
+        )
 
     # 1) str_replace_editor
     if is_sre:

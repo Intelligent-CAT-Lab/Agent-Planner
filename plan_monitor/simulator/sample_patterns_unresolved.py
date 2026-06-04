@@ -238,8 +238,8 @@ Examples:
     parser.add_argument(
         '--agent',
         type=str,
-        default='mini-swe-agent',
-        help='Agent name (default: mini-swe-agent)'
+        default='SWE-agent',
+        help='Agent name (default: SWE-agent)'
     )
     parser.add_argument(
         '--dataset',
