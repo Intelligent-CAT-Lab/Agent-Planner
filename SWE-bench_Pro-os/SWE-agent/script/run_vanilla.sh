@@ -7,7 +7,7 @@ RUN_ID="${1:-1}"
 START_IDX="${2:-}"
 END_IDX="${3:-}"
 
-MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
+MODEL="openrouter/mistralai/devstral-small"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="default"
 DATASET="swebench-pro"

