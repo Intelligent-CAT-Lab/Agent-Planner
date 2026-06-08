@@ -7,7 +7,7 @@ RUN_ID="${1:-1}"
 START_IDX="${2:-}"
 END_IDX="${3:-}"
 
-MODEL="openrouter/mistralai/devstral-small"
+MODEL="openrouter/openai/gpt-5.4-mini"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="refiner"
 VERSION_ID="5"

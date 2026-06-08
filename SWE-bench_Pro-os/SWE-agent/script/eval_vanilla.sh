@@ -4,9 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_ID="${1:-1}"
 
-MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
+# MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 # MODEL="openrouter/anthropic/claude-sonnet-4"
-# MODEL="openai/gpt-5-mini"
+# MODEL="openrouter/openai/gpt-5.4-mini"
+MODEL="openrouter/minimax/minimax-m2.5"
 MODEL_NAME="${MODEL##*/}"
 SAMPLE_APPROACH="python"
 CONFIG="default"

