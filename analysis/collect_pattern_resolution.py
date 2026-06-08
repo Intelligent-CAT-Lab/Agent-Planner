@@ -352,27 +352,16 @@ def load_run_data(agent_dir: Path, config: str, dataset: str, model: str, run_id
         if not traj_file.exists():
             continue
 
-        # Process trajectory for patterns (from vanilla trajectory analysis)
+        # Process trajectory for patterns (offline trajectory analysis)
+        # Patterns are detected by scanning the actual step-by-step trajectory,
+        # NOT from planner.json (which contains runtime intervention triggers)
         traj_result = process_trajectory(traj_file)
 
         # Initialize cost with executor cost from trajectory
         total_cost = traj_result['cost']
 
-        # For monitor/refiner configs, override patterns from planner.json if available
+        # For monitor/refiner configs, add planner cost if available
         if config in ['monitor', 'refiner'] and planner_file.exists():
-            if config == 'monitor':
-                planner_patterns = extract_monitor_patterns(planner_file)
-            else:  # refiner
-                planner_patterns = extract_refiner_patterns(planner_file)
-
-            # Merge: use planner patterns if they exist, otherwise use trajectory patterns
-            merged_patterns = traj_result['patterns'].copy()
-            for pattern_key, has_pattern in planner_patterns.items():
-                if has_pattern:
-                    merged_patterns[pattern_key] = True
-
-            traj_result['patterns'] = merged_patterns
-
             # Add planner cost (refiner_total_cost from planner.json)
             planner_cost = extract_planner_cost(planner_file)
             total_cost += planner_cost
