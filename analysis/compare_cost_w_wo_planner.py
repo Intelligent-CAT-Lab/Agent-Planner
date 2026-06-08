@@ -1,19 +1,34 @@
 """
-Compare the number of trajectory steps and cost (for refiner: executor agent cost from .traj + refiner cost from .planner.json)
+Compare the number of trajectory steps and cost between vanilla and monitor/refiner configs.
+Executor agent cost from .traj + planner cost from .planner.json
 Latency from the .planner.json
+
 Example usage:
 python analysis/compare_cost_w_wo_planner.py --dataset swebench --agent SWE-agent --model deepseek-chat-v3-0324 --config refiner --version 5 --run_id 1 --reproducible
-Input args: --agent (default to SWE-agent),, --config (default to refiner), --version (default to 5), --run_id (default to 1)
-When --dataset is swebench, the agent dir is PROJECT_DIR/SWE-agent; when --dataset is swebench-pro, the agent dir is PROJECT_DIR/SWE-bench_Pro-os/SWE-agent.
-The default traj can be found under: {agent_dir}/trajectories/{config}(set to default)/{dataset}/{model}/; when --reproducible is set, discover the available runs under this folder, otherwise, find the trajs under 1/.
-The config traj can be found under {agent_dir}/trajectories/{config}/(version-{version_id})(this is included when the config is refiner)/{dataset}/{model}/run-{run_id}/.
-Executor agent steps and cost (from .traj):
-    cost = data.get("info", {}).get("model_stats", {}).get("instance_cost", 0)
-    api_calls = data.get("info", {}).get("model_stats", {}).get("api_calls", 0)
-Refiner cost and latency (from .planner.json):
-    refiner_cost = data.get("summary", {}).get("refiner_total_cost", 0)
-    latency = data.get("summary", {}).get("monitor_total_latency_ms", 0) + data.get("summary", {}).get("refiner_total_latency_ms", 0)
-Analyze the trigger distribution (from .planner.json) and present the results (include the triggering type/frequency, rule type (when empty, the rule is actually "plan_compliance"), and monitor/refiner time breakdown ) appropriately.
+python analysis/compare_cost_w_wo_planner.py --dataset swebench --agent SWE-agent --model deepseek-chat-v3-0324 --config monitor --run_id 1 --reproducible
+
+Input args:
+  --agent (default: SWE-agent)
+  --config (default: both monitor and refiner)
+  --version (default: 5, only for refiner config)
+  --run_id (default: 1)
+  --reproducible (flag: discover available vanilla runs)
+
+When --dataset is swebench, agent dir is PROJECT_DIR/SWE-agent
+When --dataset is swebench-pro, agent dir is PROJECT_DIR/SWE-bench_Pro-os/SWE-agent
+
+Vanilla traj path: {agent_dir}/trajectories/default/{dataset}/{model}/run-{X}/
+  - When --reproducible is set, discovers all available runs
+  - Otherwise defaults to run-1
+
+Config traj path:
+  - Refiner: {agent_dir}/trajectories/refiner/version-{version}/{dataset}/{model}/run-{run_id}/
+  - Monitor: {agent_dir}/trajectories/monitor/{dataset}/{model}/run-{run_id}/
+
+Data extracted:
+  From .traj: instance_cost, api_calls
+  From .planner.json: refiner_total_cost, monitor_total_latency_ms, refiner_total_latency_ms, interventions
+  Trigger distribution: type (monitor/refiner), rule_id (plan_compliance if empty for refiner)
 """
 import json
 import argparse
@@ -224,14 +239,18 @@ def compute_averages(data: list) -> dict:
 
 
 def analyze_trigger_distribution(data: list) -> dict:
-    """Analyze trigger distribution from planner data."""
-    trigger_counter = Counter()
+    """Analyze trigger distribution from planner data, separated by monitor/refiner."""
+    # Separate counters for monitor and refiner
+    monitor_rule_counter = Counter()
+    refiner_rule_counter = Counter()
     type_counter = Counter()
 
     total_monitor_latency = 0
     total_refiner_latency = 0
     instances_with_triggers = 0
     total_trigger_count = 0
+    monitor_trigger_count = 0
+    refiner_trigger_count = 0
 
     for instance in data:
         if instance['total_interventions'] > 0:
@@ -246,19 +265,27 @@ def analyze_trigger_distribution(data: list) -> dict:
             rule_id = trigger['rule_id']
 
             type_counter[trigger_type] += 1
-            trigger_counter[rule_id] += 1
 
-    # Calculate average triggers per instance
+            if trigger_type == 'monitor':
+                monitor_rule_counter[rule_id] += 1
+                monitor_trigger_count += 1
+            elif trigger_type == 'refiner':
+                refiner_rule_counter[rule_id] += 1
+                refiner_trigger_count += 1
+
     avg_triggers_per_instance = total_trigger_count / len(data) if len(data) > 0 else 0
     avg_triggers_per_triggered_instance = total_trigger_count / instances_with_triggers if instances_with_triggers > 0 else 0
 
     return {
-        'trigger_distribution': dict(trigger_counter),
+        'monitor_rule_distribution': dict(monitor_rule_counter),
+        'refiner_rule_distribution': dict(refiner_rule_counter),
         'type_distribution': dict(type_counter),
         'instances_with_triggers': instances_with_triggers,
         'total_instances': len(data),
         'trigger_rate': (instances_with_triggers / len(data) * 100) if len(data) > 0 else 0,
         'total_trigger_count': total_trigger_count,
+        'monitor_trigger_count': monitor_trigger_count,
+        'refiner_trigger_count': refiner_trigger_count,
         'avg_triggers_per_instance': avg_triggers_per_instance,
         'avg_triggers_per_triggered_instance': avg_triggers_per_triggered_instance,
         'total_monitor_latency_ms': total_monitor_latency,
@@ -360,7 +387,7 @@ def print_cost_comparison(report: dict):
 
 
 def print_trigger_analysis(config_data: list, config_name: str, model: str, version: str, run_id: int):
-    """Print trigger analysis (same for all vanilla comparisons)."""
+    """Print trigger analysis with monitor/refiner separation."""
     config_avg = compute_averages(config_data)
     trigger_stats = analyze_trigger_distribution(config_data)
 
@@ -376,8 +403,11 @@ def print_trigger_analysis(config_data: list, config_name: str, model: str, vers
     # Latency
     print(f"\nLatency:")
     print(f"  Average Total:       {config_avg['avg_latency_ms']:.2f} ms")
-    print(f"  Average Monitor:     {config_avg['avg_monitor_latency_ms']:.2f} ms")
-    print(f"  Average Refiner:     {config_avg['avg_refiner_latency_ms']:.2f} ms")
+    if config_name == 'monitor':
+        print(f"  Average Monitor:     {config_avg['avg_monitor_latency_ms']:.2f} ms")
+    else:
+        print(f"  Average Monitor:     {config_avg['avg_monitor_latency_ms']:.2f} ms")
+        print(f"  Average Refiner:     {config_avg['avg_refiner_latency_ms']:.2f} ms")
 
     # Trigger analysis
     print(f"\nIntervention Statistics:")
@@ -385,12 +415,22 @@ def print_trigger_analysis(config_data: list, config_name: str, model: str, vers
     print(f"  Total Trigger Count:           {trigger_stats['total_trigger_count']}")
     print(f"  Avg Triggers per Instance:     {trigger_stats['avg_triggers_per_instance']:.2f}")
     print(f"  Avg Triggers (triggered only): {trigger_stats['avg_triggers_per_triggered_instance']:.2f}")
-    print(f"  Avg Monitor Count:             {config_avg['avg_monitor_count']:.2f}")
-    print(f"  Avg Refiner Count:             {config_avg['avg_refiner_count']:.2f}")
+
+    if config_name == 'monitor':
+        print(f"  Monitor Trigger Count:         {trigger_stats['monitor_trigger_count']}")
+        print(f"  Avg Monitor Count:             {config_avg['avg_monitor_count']:.2f}")
+    else:
+        print(f"  Monitor Trigger Count:         {trigger_stats['monitor_trigger_count']}")
+        print(f"  Refiner Trigger Count:         {trigger_stats['refiner_trigger_count']}")
+        print(f"  Avg Monitor Count:             {config_avg['avg_monitor_count']:.2f}")
+        print(f"  Avg Refiner Count:             {config_avg['avg_refiner_count']:.2f}")
 
     print(f"\nLatency Breakdown:")
-    print(f"  Monitor: {trigger_stats['total_monitor_latency_ms']:.2f} ms ({trigger_stats['monitor_latency_pct']:.1f}%)")
-    print(f"  Refiner: {trigger_stats['total_refiner_latency_ms']:.2f} ms ({trigger_stats['refiner_latency_pct']:.1f}%)")
+    if config_name == 'monitor':
+        print(f"  Monitor: {trigger_stats['total_monitor_latency_ms']:.2f} ms (100.0%)")
+    else:
+        print(f"  Monitor: {trigger_stats['total_monitor_latency_ms']:.2f} ms ({trigger_stats['monitor_latency_pct']:.1f}%)")
+        print(f"  Refiner: {trigger_stats['total_refiner_latency_ms']:.2f} ms ({trigger_stats['refiner_latency_pct']:.1f}%)")
 
     if trigger_stats['type_distribution']:
         print(f"\nTrigger Type Distribution:")
@@ -399,16 +439,27 @@ def print_trigger_analysis(config_data: list, config_name: str, model: str, vers
             pct = (count / total_triggers * 100) if total_triggers > 0 else 0
             print(f"  {ttype.capitalize()}: {count} ({pct:.1f}%)")
 
-    if trigger_stats['trigger_distribution']:
-        print(f"\nRule Distribution:")
-        sorted_rules = sorted(trigger_stats['trigger_distribution'].items(),
+    # Print rule distribution based on config type
+    if config_name == 'monitor' and trigger_stats['monitor_rule_distribution']:
+        print(f"\nMonitor Rule Distribution:")
+        sorted_rules = sorted(trigger_stats['monitor_rule_distribution'].items(),
                             key=lambda x: x[1], reverse=True)
-        total_rules = sum(trigger_stats['trigger_distribution'].values())
+        total_rules = sum(trigger_stats['monitor_rule_distribution'].values())
         for rule_id, count in sorted_rules[:10]:
             pct = (count / total_rules * 100) if total_rules > 0 else 0
             display_id = rule_id if len(rule_id) <= 60 else rule_id[:57] + '...'
             print(f"  {display_id}: {count} ({pct:.1f}%)")
-
+        if len(sorted_rules) > 10:
+            print(f"  ... and {len(sorted_rules) - 10} more rules")
+    elif config_name == 'refiner' and trigger_stats['refiner_rule_distribution']:
+        print(f"\nRefiner Rule Distribution:")
+        sorted_rules = sorted(trigger_stats['refiner_rule_distribution'].items(),
+                            key=lambda x: x[1], reverse=True)
+        total_rules = sum(trigger_stats['refiner_rule_distribution'].values())
+        for rule_id, count in sorted_rules[:10]:
+            pct = (count / total_rules * 100) if total_rules > 0 else 0
+            display_id = rule_id if len(rule_id) <= 60 else rule_id[:57] + '...'
+            print(f"  {display_id}: {count} ({pct:.1f}%)")
         if len(sorted_rules) > 10:
             print(f"  ... and {len(sorted_rules) - 10} more rules")
 
@@ -459,6 +510,69 @@ def discover_available_runs(agent_dir: Path, dataset: str, model: str) -> list:
     return sorted(available_runs)
 
 
+def process_config(agent_dir: Path, dataset: str, model: str, config: str,
+                   version: str, run_id: int, vanilla_runs: list, script_dir: Path):
+    """Process a single config (monitor or refiner) and compare with vanilla runs."""
+    # Load config data
+    print(f"\nLoading {config} trajectories...")
+    if config == 'refiner' and version:
+        print(f"  Version: {version}, Run: {run_id}")
+    else:
+        print(f"  Run: {run_id}")
+
+    config_data = load_trajectory_data(
+        agent_dir, dataset, model, config,
+        version=version if config == 'refiner' else None,
+        run_id=run_id
+    )
+
+    if not config_data:
+        print(f"  No {config} data found, skipping...")
+        return None
+
+    print(f"  Loaded {len(config_data)} {config} instances")
+
+    # Print trigger analysis once
+    print_trigger_analysis(config_data, config, model, version if config == 'refiner' else None, run_id)
+    trigger_analysis = analyze_trigger_distribution(config_data)
+
+    # Compare each vanilla run with config
+    comparisons = []
+    for vanilla_run in vanilla_runs:
+        print(f"\n{'='*80}")
+        print(f"Processing Vanilla Run {vanilla_run}")
+        print(f"{'='*80}")
+
+        vanilla_data = load_trajectory_data(
+            agent_dir, dataset, model, 'default',
+            runs=[vanilla_run]
+        )
+
+        if not vanilla_data:
+            print(f"  Warning: No data loaded for vanilla run {vanilla_run}, skipping...")
+            continue
+
+        print(f"  Loaded {len(vanilla_data)} vanilla instances from run {vanilla_run}")
+
+        report = generate_comparison_report(
+            vanilla_data, config_data, config, model,
+            version if config == 'refiner' else None,
+            run_id, vanilla_run_id=vanilla_run
+        )
+
+        print_cost_comparison(report)
+        comparisons.append(report)
+
+    # Save combined report
+    if comparisons:
+        output_dir = script_dir / "analysis" / "analysis-results" / "cost"
+        save_combined_report(comparisons, trigger_analysis, config, model,
+                           version if config == 'refiner' else None,
+                           run_id, output_dir)
+
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description='Compare cost and steps between vanilla and planner configs')
     parser.add_argument('--dataset', type=str, default='swebench',
@@ -467,8 +581,8 @@ def main():
                        help='Agent directory name')
     parser.add_argument('--model', type=str, required=True,
                        help='Model name (e.g., deepseek-chat-v3-0324)')
-    parser.add_argument('--config', type=str, default='refiner',
-                       help='Config type (monitor or refiner)')
+    parser.add_argument('--config', type=str, default=None,
+                       help='Config type (monitor or refiner, default: both)')
     parser.add_argument('--version', type=str, default='5',
                        help='Version ID (only for refiner config, default: 5)')
     parser.add_argument('--run_id', type=int, default=1,
@@ -490,76 +604,44 @@ def main():
     if not agent_dir.exists():
         raise FileNotFoundError(f"Agent directory not found: {agent_dir}")
 
-    # Load config data once
-    print(f"Loading {args.config} trajectories...")
-    if args.config == 'refiner' and args.version:
-        print(f"  Version: {args.version}, Run: {args.run_id}")
-    else:
-        print(f"  Run: {args.run_id}")
-    config_data = load_trajectory_data(
-        agent_dir, args.dataset, args.model, args.config,
-        version=args.version, run_id=args.run_id
-    )
-    print(f"Loaded {len(config_data)} {args.config} instances")
-
-    if not config_data:
-        print("\nError: No config data loaded. Please check the paths and file availability.")
-        return
-
-    # Determine vanilla runs to compare
-    print(f"\nLoading vanilla trajectories...")
+    # Discover vanilla runs
+    print("Loading vanilla trajectories...")
     if args.reproducible:
         vanilla_runs = discover_available_runs(agent_dir, args.dataset, args.model)
         if not vanilla_runs:
-            print(f"Warning: No vanilla runs found, falling back to run 1")
+            print("  Warning: No vanilla runs found, falling back to run-1")
             vanilla_runs = [1]
         else:
-            print(f"  Discovered runs: {vanilla_runs}")
+            print(f"  Discovered vanilla runs: {vanilla_runs}")
     else:
         vanilla_runs = [1]
-        print(f"  Using run: 1")
+        print("  Using run-1")
 
-    # Print trigger analysis once (same for all vanilla comparisons)
-    trigger_analysis = None
-    if args.config != 'default':
-        print_trigger_analysis(config_data, args.config, args.model, args.version, args.run_id)
-        trigger_analysis = analyze_trigger_distribution(config_data)
+    # Determine which configs to process
+    if args.config:
+        configs_to_process = [args.config]
+    else:
+        configs_to_process = ['monitor', 'refiner']
 
-    # Compare each vanilla run separately with config
-    comparisons = []
+    # Process each config
+    processed_count = 0
+    for config in configs_to_process:
+        print(f"\n{'#'*80}")
+        print(f"Processing Config: {config.upper()}")
+        print(f"{'#'*80}")
 
-    for vanilla_run in vanilla_runs:
-        print(f"\n{'='*80}")
-        print(f"Processing Vanilla Run {vanilla_run}")
-        print(f"{'='*80}")
-
-        # Load vanilla data for this run
-        vanilla_data = load_trajectory_data(
-            agent_dir, args.dataset, args.model, 'default',
-            runs=[vanilla_run]
+        result = process_config(
+            agent_dir, args.dataset, args.model, config,
+            args.version, args.run_id, vanilla_runs, script_dir
         )
 
-        if not vanilla_data:
-            print(f"Warning: No data loaded for vanilla run {vanilla_run}, skipping...")
-            continue
+        if result:
+            processed_count += 1
 
-        print(f"Loaded {len(vanilla_data)} vanilla instances from run {vanilla_run}")
-
-        # Generate report for this vanilla run vs config
-        report = generate_comparison_report(
-            vanilla_data, config_data, args.config, args.model,
-            args.version, args.run_id, vanilla_run_id=vanilla_run
-        )
-
-        # Print cost comparison only (trigger analysis already printed)
-        print_cost_comparison(report)
-        comparisons.append(report)
-
-    # Save combined report
-    if comparisons:
-        output_dir = script_dir / "analysis" / "analysis-results" / "cost"
-        save_combined_report(comparisons, trigger_analysis, args.config, args.model,
-                           args.version, args.run_id, output_dir)
+    if processed_count == 0:
+        print("\nNo data processed. Please check the paths and file availability.")
+    else:
+        print(f"\n\nProcessed {processed_count} config(s) successfully.")
 
 
 if __name__ == "__main__":

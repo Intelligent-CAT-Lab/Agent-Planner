@@ -1,14 +1,22 @@
 """
-Scan the statistics of resolution outcome, patterns, cost, and steps, and compare the vanilla run (default run-1), vanilla rerun (default run-2), and refiner run.
+Scan the statistics of resolution outcome, patterns, cost, and steps, and compare the vanilla run (default run-1),
+monitor run, and refiner run.
+
 Example output format: refer to Live-Plan Evaluation  - [SWE-agent]-[DS-V3]-[Verified].csv
 Skip if the corresponding method data does not exist and leave the entry blank.
 Collect and compute the report and traj files (refer to plan_monitor/simulator/compute_reproducible_patterns.py)
 1 means true, 0 means false, and empty means data not available.
-For example, for vanilla run-1, for the instance astropy__astropy-12907, the resolution is 1 (resolved), if any pattern exists, then has_issue should be 1, and the corresponding pattern types should be marked as 1, otherwise 0. record the cost and steps from the .traj file.
 
-For the vanilla rerun (default run-2), additionally track the overlapping_issues (compared to run-1) as a list.
-For the refiner run, additionally record the trigger status (whether the planner.json exists).
-save the csv as {agent}-{model}-{dataset}.csv.
+For vanilla run-1: resolution, patterns, cost, steps, lang, unique_phases
+For monitor run: additionally record trigger status (planner.json exists) and overlapping issues
+For refiner run: additionally record trigger status (planner.json exists) and overlapping issues
+
+For monitor triggers, match the intervention content against rules in plan_monitor/config/default_rules.json:
+  - plan_compliance -> plan_violation
+  - oscillations (self_loop, two+_node_cycle) or thought_oscillation -> oscillation
+  - dwell_times (dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V) -> long_stagnation
+  - repeated_action (repeated_view) -> repeated_view
+
 Example usage:
 python analysis/collect_pattern_resolution.py --agent SWE-agent --model deepseek-chat-v3-0324 --dataset swebench
 """
@@ -178,6 +186,137 @@ def process_trajectory(traj_path: Path) -> Dict:
         }
 
 
+def classify_monitor_trigger(content: str) -> str:
+    """
+    Classify monitor trigger content into pattern categories.
+
+    Returns:
+        One of: 'plan_violation', 'oscillation', 'long_stagnation', 'repeated_view', or 'unknown'
+    """
+    content_lower = content.lower()
+
+    # Plan compliance
+    if 'plan compliance' in content_lower or 'skipped phases' in content_lower or 'expected to' in content_lower:
+        return 'plan_violation'
+
+    # Oscillation (self_loop, two+_node_cycle, thought_oscillation)
+    if ('repeating action' in content_lower or
+        'repeated actions' in content_lower or
+        'repeating the same reasoning' in content_lower or
+        'oscillating between' in content_lower or
+        'stuck in a loop' in content_lower):
+        return 'oscillation'
+
+    # Long stagnation (dwell_times)
+    if ('seem to navigate' in content_lower or
+        'trying to reproduce' in content_lower or
+        ('spent the last' in content_lower and ('steps editing' in content_lower or 'steps validating' in content_lower))):
+        return 'long_stagnation'
+
+    # Repeated view
+    if 'already reviewed this location' in content_lower or 'have already reviewed' in content_lower:
+        return 'repeated_view'
+
+    return 'unknown'
+
+
+def extract_monitor_patterns(planner_file: Path) -> Dict[str, bool]:
+    """
+    Extract patterns from monitor planner.json by classifying intervention content.
+
+    Returns:
+        Dict with pattern types as keys and boolean values
+    """
+    patterns = {
+        'plan_violation': False,
+        'oscillation': False,
+        'long_stagnation': False,
+        'repeated_view': False
+    }
+
+    try:
+        with open(planner_file, 'r') as f:
+            data = json.load(f)
+
+        interventions = data.get('interventions', [])
+        for intervention in interventions:
+            if intervention.get('planner_type') == 'monitor':
+                content = intervention.get('content', '')
+                pattern_type = classify_monitor_trigger(content)
+                if pattern_type in patterns:
+                    patterns[pattern_type] = True
+
+    except Exception as e:
+        print(f"Error extracting monitor patterns from {planner_file}: {e}")
+
+    return patterns
+
+
+def extract_refiner_patterns(planner_file: Path) -> Dict[str, bool]:
+    """
+    Extract patterns from refiner planner.json by checking rule_triggers.
+
+    Returns:
+        Dict with pattern types as keys and boolean values
+    """
+    patterns = {
+        'plan_violation': False,
+        'oscillation': False,
+        'long_stagnation': False,
+        'repeated_view': False
+    }
+
+    try:
+        with open(planner_file, 'r') as f:
+            data = json.load(f)
+
+        interventions = data.get('interventions', [])
+        for intervention in interventions:
+            if intervention.get('planner_type') == 'refiner':
+                state_summary = intervention.get('state_summary', {})
+                rule_triggers = state_summary.get('rule_triggers', [])
+
+                if rule_triggers:
+                    last_rule = rule_triggers[-1]
+                    rule_id = last_rule.get('rule_id', 'plan_compliance')
+                    rule_id = rule_id if rule_id else 'plan_compliance'
+                else:
+                    rule_id = 'plan_compliance'
+
+                # Classify rule_id
+                if 'plan_compliance' in rule_id:
+                    patterns['plan_violation'] = True
+                elif 'oscillation' in rule_id or 'cycle' in rule_id:
+                    patterns['oscillation'] = True
+                elif 'dwell' in rule_id:
+                    patterns['long_stagnation'] = True
+                elif 'repeated' in rule_id:
+                    patterns['repeated_view'] = True
+
+    except Exception as e:
+        print(f"Error extracting refiner patterns from {planner_file}: {e}")
+
+    return patterns
+
+
+def extract_planner_cost(planner_file: Path) -> float:
+    """
+    Extract refiner cost from .planner.json.
+
+    Returns:
+        refiner_total_cost (covers both monitor and refiner interventions)
+    """
+    try:
+        with open(planner_file, 'r') as f:
+            data = json.load(f)
+
+        summary = data.get('summary', {})
+        return summary.get('refiner_total_cost', 0.0)
+    except Exception as e:
+        print(f"Error extracting planner cost from {planner_file}: {e}")
+        return 0.0
+
+
 def load_run_data(agent_dir: Path, config: str, dataset: str, model: str, run_id: int, version: str = None) -> Dict[str, Dict]:
     """
     Load data for a single run.
@@ -213,15 +352,37 @@ def load_run_data(agent_dir: Path, config: str, dataset: str, model: str, run_id
         if not traj_file.exists():
             continue
 
-        # Process trajectory
+        # Process trajectory for patterns (from vanilla trajectory analysis)
         traj_result = process_trajectory(traj_file)
+
+        # Initialize cost with executor cost from trajectory
+        total_cost = traj_result['cost']
+
+        # For monitor/refiner configs, override patterns from planner.json if available
+        if config in ['monitor', 'refiner'] and planner_file.exists():
+            if config == 'monitor':
+                planner_patterns = extract_monitor_patterns(planner_file)
+            else:  # refiner
+                planner_patterns = extract_refiner_patterns(planner_file)
+
+            # Merge: use planner patterns if they exist, otherwise use trajectory patterns
+            merged_patterns = traj_result['patterns'].copy()
+            for pattern_key, has_pattern in planner_patterns.items():
+                if has_pattern:
+                    merged_patterns[pattern_key] = True
+
+            traj_result['patterns'] = merged_patterns
+
+            # Add planner cost (refiner_total_cost from planner.json)
+            planner_cost = extract_planner_cost(planner_file)
+            total_cost += planner_cost
 
         data[instance_id] = {
             'resolved': instance_id in resolved_ids,
             'patterns': traj_result['patterns'],
             'lang': traj_result['lang'],
             'unique_phases': traj_result['unique_phases'],
-            'cost': traj_result['cost'],
+            'cost': total_cost,
             'steps': traj_result['steps'],
             'has_planner': planner_file.exists()
         }
@@ -246,18 +407,18 @@ def compute_overlapping_issues(run1_patterns: Dict, run2_patterns: Dict) -> List
 
 def generate_csv(
     vanilla_run1: Dict[str, Dict],
-    vanilla_run2: Dict[str, Dict],
+    monitor_run: Dict[str, Dict],
     refiner_run: Dict[str, Dict],
     output_path: Path
 ):
     """Generate CSV file in the specified format."""
     # Determine which runs have data
     has_vanilla1 = bool(vanilla_run1)
-    has_vanilla2 = bool(vanilla_run2)
+    has_monitor = bool(monitor_run)
     has_refiner = bool(refiner_run)
 
     # Get all instance IDs
-    all_instances = set(vanilla_run1.keys()) | set(vanilla_run2.keys()) | set(refiner_run.keys())
+    all_instances = set(vanilla_run1.keys()) | set(monitor_run.keys()) | set(refiner_run.keys())
 
     if not all_instances:
         print("Warning: No instances found in any run")
@@ -274,18 +435,18 @@ def generate_csv(
         header_row3 = ['']
 
         if has_vanilla1:
-            header_row1.extend(['Vanilla Run', '', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajecotry Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row1.extend(['Vanilla Run', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
             header_row3.extend(['', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
 
-        if has_vanilla2:
-            header_row1.extend(['Vanilla Re-run', '', '', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajecotry Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
-            header_row3.extend(['', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+        if has_monitor:
+            header_row1.extend(['Monitor Run', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
 
         if has_refiner:
             header_row1.extend(['Live-Plan Run', '', '', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajecotry Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
             header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
 
         # Write header rows
@@ -317,10 +478,10 @@ def generate_csv(
                 else:
                     row.extend(['', '', '', '', '', '', '', '', '', ''])
 
-            # Vanilla Run 2 (Re-run)
-            if has_vanilla2:
-                if instance_id in vanilla_run2:
-                    data = vanilla_run2[instance_id]
+            # Monitor Run
+            if has_monitor:
+                if instance_id in monitor_run:
+                    data = monitor_run[instance_id]
                     has_issue = 1 if any(data['patterns'].values()) else 0
 
                     # Compute overlapping issues with run 1
@@ -333,6 +494,7 @@ def generate_csv(
                     overlapping_str = ','.join(overlaps) if overlaps else ''
 
                     row.extend([
+                        1 if data['has_planner'] else 0,  # Trigger status
                         1 if data['resolved'] else 0,
                         has_issue,
                         overlapping_str,
@@ -346,7 +508,7 @@ def generate_csv(
                         data['steps']
                     ])
                 else:
-                    row.extend(['', '', '', '', '', '', '', '', '', '', ''])
+                    row.extend(['', '', '', '', '', '', '', '', '', '', '', ''])
 
             # Refiner Run
             if has_refiner:
@@ -385,13 +547,13 @@ def generate_csv(
     print(f"\nCSV saved to: {output_path}")
 
 
-def print_summary(vanilla_run1: Dict, vanilla_run2: Dict, refiner_run: Dict):
+def print_summary(vanilla_run1: Dict, monitor_run: Dict, refiner_run: Dict):
     """Print summary statistics."""
     print("\n" + "="*80)
     print("SUMMARY STATISTICS")
     print("="*80)
 
-    for name, data in [('Vanilla Run-1', vanilla_run1), ('Vanilla Run-2', vanilla_run2), ('Refiner Run', refiner_run)]:
+    for name, data in [('Vanilla Run-1', vanilla_run1), ('Monitor Run', monitor_run), ('Refiner Run', refiner_run)]:
         if not data:
             print(f"\n[{name}]: No data")
             continue
@@ -409,14 +571,14 @@ def print_summary(vanilla_run1: Dict, vanilla_run2: Dict, refiner_run: Dict):
         print(f"  Avg cost: ${avg_cost:.6f}")
         print(f"  Avg steps: {avg_steps:.1f}")
 
-        if name == 'Refiner Run':
+        if name in ['Monitor Run', 'Refiner Run']:
             with_planner = sum(1 for d in data.values() if d['has_planner'])
             print(f"  With triggers: {with_planner} ({with_planner/total*100:.1f}%)")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Compare resolution outcomes and patterns across vanilla and refiner runs'
+        description='Compare resolution outcomes and patterns across vanilla, monitor, and refiner runs'
     )
     parser.add_argument('--agent', type=str, default='SWE-agent',
                        help='Agent directory name (default: SWE-agent)')
@@ -424,16 +586,16 @@ def main():
                        help='Model name (e.g., deepseek-chat-v3-0324)')
     parser.add_argument('--dataset', type=str, default='swebench',
                        help='Dataset name (default: swebench)')
-    parser.add_argument('--vanilla-run1', type=int, default=1,
-                       help='Vanilla run 1 ID (default: 1)')
-    parser.add_argument('--vanilla-run2', type=int, default=2,
-                       help='Vanilla run 2 (rerun) ID (default: 2)')
+    parser.add_argument('--vanilla-run', type=int, default=1,
+                       help='Vanilla run ID (default: 1)')
+    parser.add_argument('--monitor-run', type=int, default=1,
+                       help='Monitor run ID (default: 1)')
     parser.add_argument('--refiner-run', type=int, default=1,
                        help='Refiner run ID (default: 1)')
     parser.add_argument('--refiner-version', type=str, default='5',
                        help='Refiner version (default: 5)')
     parser.add_argument('--output', type=Path, default=None,
-                       help='Output CSV path (default: analysis/analysis-results/{agent}-{model}-{dataset}.csv)')
+                       help='Output CSV path (default: analysis/analysis-results/comparison/{agent}-{model}-{dataset}.csv)')
 
     args = parser.parse_args()
 
@@ -454,16 +616,16 @@ def main():
     print(f"Dataset: {args.dataset}")
 
     # Load data for each run
-    print(f"\nLoading Vanilla Run {args.vanilla_run1}...")
-    vanilla_run1 = load_run_data(agent_dir, 'default', args.dataset, args.model, args.vanilla_run1)
+    print(f"\nLoading Vanilla Run {args.vanilla_run}...")
+    vanilla_run1 = load_run_data(agent_dir, 'default', args.dataset, args.model, args.vanilla_run)
     print(f"  Loaded {len(vanilla_run1)} instances")
 
-    print(f"\nLoading Vanilla Run {args.vanilla_run2} (rerun)...")
-    vanilla_run2 = load_run_data(agent_dir, 'default', args.dataset, args.model, args.vanilla_run2)
-    if vanilla_run2:
-        print(f"  Loaded {len(vanilla_run2)} instances")
+    print(f"\nLoading Monitor Run {args.monitor_run}...")
+    monitor_run = load_run_data(agent_dir, 'monitor', args.dataset, args.model, args.monitor_run)
+    if monitor_run:
+        print(f"  Loaded {len(monitor_run)} instances")
     else:
-        print(f"  No data found for vanilla run {args.vanilla_run2}")
+        print(f"  No data found for monitor run {args.monitor_run}")
 
     print(f"\nLoading Refiner Run {args.refiner_run} (version-{args.refiner_version})...")
     refiner_run = load_run_data(agent_dir, 'refiner', args.dataset, args.model, args.refiner_run, version=args.refiner_version)
@@ -472,27 +634,26 @@ def main():
     else:
         print(f"  No data found for refiner run {args.refiner_run}")
 
-    if not vanilla_run1 and not vanilla_run2 and not refiner_run:
+    if not vanilla_run1 and not monitor_run and not refiner_run:
         print("\nError: No data loaded for any run. Please check the paths and file availability.")
         return
 
     if not vanilla_run1:
-        print("\nWarning: Vanilla Run 1 has no data. CSV will only contain available runs.")
+        print("\nWarning: Vanilla Run has no data. CSV will only contain available runs.")
 
     # Determine output path
     if args.output:
         output_path = args.output
     else:
         output_dir = script_dir / "analysis" / "analysis-results" / "comparison"
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{args.agent}-{args.model}-{args.dataset}.csv"
 
     # Generate CSV
-    generate_csv(vanilla_run1, vanilla_run2, refiner_run, output_path)
+    generate_csv(vanilla_run1, monitor_run, refiner_run, output_path)
 
     # Print summary
-    print_summary(vanilla_run1, vanilla_run2, refiner_run)
+    print_summary(vanilla_run1, monitor_run, refiner_run)
 
 
 if __name__ == "__main__":
