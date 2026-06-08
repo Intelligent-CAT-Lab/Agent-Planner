@@ -17,9 +17,10 @@
         "dwell_P": 15,
         "dwell_L_reproduce": 1,
         "plan_compliance": 39,
-        "monitor": 3,
+        "monitor_plan_violation": 1,
         "repeated_view": 3,
-        "dwell_L_navigate": 3
+        "dwell_L_navigate": 3,
+        "monitor_oscillation": 2
       },
       "avg_interventions": 1.1466666666666667,
       "avg_monitor_count": 0.04,
@@ -98,28 +99,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2778.26,
               "refiner_total_cost": 0.024124,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 14,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "14:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRe-evaluate the intended password file format and redesign `_parse_content` parsing logic so it reliably extracts the first token as password and any `salt=` / `ident=` key-value tokens thereafter (ignoring duplicates or unrecognized tokens), then verify it yields correct `(password, salt, ident)` for the sample file before proceeding.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -164,28 +150,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3587.99,
               "refiner_total_cost": 0.022185,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "16:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the remaining host-label constructions in the default callback module and identify any spots still using delegated-vars branches or direct `result._host.get_name()` formatting, then plan to consolidate those to use the new `CallbackBase.host_label(result)` consistently.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -230,70 +201,29 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 6125.22,
               "refiner_total_cost": 0.038182,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 13,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the remaining request plumbing functions (fetch_url, url_get, get_url, uri, and the lookup url plugin run method) to identify where `.netrc` usage must be added/forwarded, then plan the specific parameter additions and pass-throughs needed to complete the propagation chain.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 },
                 {
                   "step": 23,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 23,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nLocate the actual `url_get` invocation(s) in `get_url` (the previous replacement failed), inspect the surrounding call signature, and update the call(s) to explicitly pass the `use_netrc` argument so the new parameter is propagated.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 },
                 {
                   "step": 31,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 31,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the `url` lookup plugin’s `run` method to find where it invokes the underlying URL request helper, then add or propagate the `use_netrc` parameter from the plugin’s options into that call so the lookup respects the configured `.netrc` behavior.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -340,38 +270,21 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 4255.48,
               "refiner_total_cost": 0.032013,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "repeated_view"
-                }
-              ],
               "interventions": [
                 {
                   "step": 0,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current implementations of `safe_eval` and `check_type_dict` in `ansible.module_utils.common.validation` and the `AnsibleModule.safe_eval` wrapper in `ansible.module_utils.basic` to understand existing parsing behavior, deprecation patterns, and error messages before planning the required deprecation warnings and deterministic parsing changes.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 },
                 {
                   "step": 28,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "repeated_view",
-                      "message": "You have already reviewed this location. If this is to verify a recent edit, focus on the changed lines; otherwise, view a new relevant location or proceed to edit or test.",
-                      "step_index": 28,
-                      "metadata": {
-                        "command": "cd /app && sed -n '438,470p' lib/ansible/module_utils/common/validation.py",
-                        "occurrence_count": 2,
-                        "phase": "L_navigate"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `check_type_dict` implementation to fix the parsing loop: correct the separator condition back to comma/space (not quote characters), keep quote-handling only for entering/exiting quoted strings, and ensure malformed tokens (like missing `=` or empty values) raise `TypeError` with clear messages; validate this logic before moving on to changelog/deprecation updates.",
+                  "rule_ids": [
+                    "repeated_view"
                   ]
                 }
               ]
@@ -416,28 +329,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1289.02,
               "refiner_total_cost": 0.009872,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 10,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "8:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRemove the temporary reproduction script from the working tree so only the intended plugin change remains, then proceed to resubmit once the diff is clean.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -482,18 +380,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1743.04,
               "refiner_total_cost": 0.004167,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 0,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview how deprecation entries are currently recorded and merged by the deprecation helper and `AnsibleModule` (including any existing `deprecate`/`exit_json` logic) to identify the exact places where date-based handling and ordering must be added or adjusted.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -537,28 +431,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5315.39,
               "refiner_total_cost": 0.019338,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 11,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 11,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the updated autocomplete module for any remaining mutable filter defaults or list-based concatenations (especially any other `fq` definitions or manipulations) to ensure everything now uses immutable tuples and that `direct_get` always forwards a normalized immutable sequence.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -603,28 +482,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1738.54,
               "refiner_total_cost": 0.010918,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "10:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRemove the temporary reproduction script you created (the one under `/tmp`), then rerun the submit step to confirm the change list is clean and ready for review.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -669,18 +533,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 8179.86,
               "refiner_total_cost": 0.025254,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 7,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current monitoring utilities implementation to identify deviations from the requirements (especially the stubbed service-IP lookup and the host-scoping decorator logic) so you can plan the exact corrections needed before touching the monitoring scripts.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -724,18 +584,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 4026.08,
               "refiner_total_cost": 0.013953,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 11,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the updated `openlibrary/core/bookshelves.py` to ensure the `FILTER_BOOK_LIMIT` constant is correctly defined (and only that numeric literal was changed) and positioned appropriately without disrupting existing imports or formatting, confirming there were no unintended replacements elsewhere in the file.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -779,18 +635,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5025.75,
               "refiner_total_cost": 0.018079,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 10,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `luqum_remove_field` implementation against the Luqum tree structure (e.g., how `SearchField` nodes wrap expressions) to understand why removing `edition.*` fields is collapsing `title:foo` into `foo`, then redesign the removal logic to preserve remaining `SearchField` nodes and boolean/group structure in-place (potentially leveraging `luqum_remove_child`) while still raising `EmptyTreeError` when the tree becomes empty.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -834,28 +686,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1999.87,
               "refiner_total_cost": 0.013813,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "repeated_view"
-                }
-              ],
               "interventions": [
                 {
                   "step": 6,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "repeated_view",
-                      "message": "You have already reviewed this location. If this is to verify a recent edit, focus on the changed lines; otherwise, view a new relevant location or proceed to edit or test.",
-                      "step_index": 6,
-                      "metadata": {
-                        "command": "cd /app && sed -n '1,220p' qutebrowser/utils/resources.py",
-                        "occurrence_count": 2,
-                        "phase": "L_navigate"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the remaining portion of `qutebrowser/utils/resources.py` after the recent edits to identify any leftover references to the old `_resource_path`/`_resource_keyerror_workaround` (notably in `read_file_binary`) and update those to the new `path`/`keyerror_workaround` interface so the module is consistent and functional.",
+                  "rule_ids": [
+                    "repeated_view"
                   ]
                 }
               ]
@@ -902,28 +739,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 4862.13,
               "refiner_total_cost": 0.024854,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 19,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "18:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRe-run the reproduction script you created to confirm the updated parsing logic still works after the latest edits, then remove that script from the workspace so the submission checklist can be satisfied.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -968,49 +790,21 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 12005.34,
               "refiner_total_cost": 0.050307,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 27,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"cd /app && python - <<'PY'\nfrom pathlib import Path\nfor i,line in enumerate(Path('qutebrowser/browser/webengine/webview.py').read_text().splitlines(),1):\n    if 288 <= i <= 295:\n        print(f'{i}: {line}')\nPY\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": 27,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "22:complex_command",
-                        "action": "cd /app && python - <<'PY'\nfrom pathlib import Path\nfor i,line in enumerate(Path('qutebrowser/browser/webengine/webview.py').read_text().splitlines(),1):\n    if 288 <= i <= 295:\n        print(f'{i}: {line}')\nPY"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the surrounding class structure to confirm where `WebEnginePage` starts/ends, then realign `chooseFiles` so it is properly indented within that class while keeping `extra_suffixes_workaround` at true module scope (no indentation), ensuring there are no unexpected indents at module level.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 },
                 {
                   "step": 36,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "32:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRemove the temporary reproduction script you created and then re-run the submission workflow so the review can proceed.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -1055,28 +849,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3453.16,
               "refiner_total_cost": 0.011116,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 9,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "8:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRemove the temporary reproduction script from the repository so only the intended code change remains, then proceed to resubmit once the workspace is clean.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -1134,18 +913,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 9971.69,
               "refiner_total_cost": 0.032694,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview `PlayIterator` for missing instance-level compatibility and implement an instance-level deprecated attribute resolver (e.g., `__getattr__`) that maps legacy `ITERATING_*`/`FAILED_*` names to the new enums while emitting deprecation warnings, ensuring `iterator.ITERATING_TASKS` continues to work.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -1189,38 +964,21 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 7826.47,
               "refiner_total_cost": 0.036071,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the dependency resolution provider logic that invokes Galaxy API calls and update it to respect the new offline mode (via the proxy’s `is_offline_mode_requested` or passed `offline` flag), ensuring those paths return empty results or short-circuit without network access so dependency resolution uses only local artifacts.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 },
                 {
                   "step": 20,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"cd /app && python -m py_compile lib/ansible/galaxy/collection/galaxy_api_proxy.py lib/ansible/galaxy/dependency_resolution/__init__.py lib/ansible/galaxy/collection/__init__.py lib/ansible/cli/galaxy.py && python - <<'PY'\nfrom ansible.galaxy.collection.galaxy_api_proxy import MultiGalaxyAPIProxy\nprint(MultiGalaxyAPIProxy([], None, offline=True).is_offline_mode_requested)\nPY\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": 20,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "30:complex_command",
-                        "action": "cd /app && python -m py_compile lib/ansible/galaxy/collection/galaxy_api_proxy.py lib/ansible/galaxy/dependency_resolution/__init__.py lib/ansible/galaxy/collection/__init__.py lib/ansible/cli/galaxy.py && python - <<'PY'\nfrom ansible.galaxy.collection.galaxy_api_proxy import MultiGalaxyAPIProxy\nprint(MultiGalaxyAPIProxy([], None, offline=True).is_offline_mode_requested)\nPY"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect which `galaxy_api_proxy` module is actually being imported at runtime (e.g., check the module’s file path and `sys.path` order) to confirm whether Python is pulling the installed ansible package instead of the edited source; if so, adjust the test setup to load the repo version before continuing with offline-mode logic changes.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -1265,28 +1023,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3325.4,
               "refiner_total_cost": 0.024199,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 14,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 14,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the remaining required behaviors by inspecting the console command handlers (especially verbosity and any existing timeout/extra-vars handling) and the include validation in `TaskInclude` to identify exactly which functions/keywords still need updates before making further edits.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -1331,18 +1074,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2765.72,
               "refiner_total_cost": 0.015326,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 9,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nIdentify where LCCNs are currently parsed or cleaned in the codebase (e.g., edition save/import flows or identifier utilities), and plan to integrate the new normalization function there so existing logic no longer strips prefixes or leaves hyphenated/suffixed forms unnormalized.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -1386,28 +1125,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1925.88,
               "refiner_total_cost": 0.014828,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_L_navigate"
-                }
-              ],
               "interventions": [
                 {
                   "step": 7,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_L_navigate",
-                      "message": "You seem to navigate between files and code locations in the past 7 steps. You have the following options to explore next, which increases your chance to solve the problem: (1) keep exploring the code base as you do, but focus on the relevant code only; (2) create and run reproduction test to better localize the bug; (3) if you already have enough information, edit the source code to implement the fix.",
-                      "step_index": 7,
-                      "metadata": {
-                        "phase": "L_navigate",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the list edit template to understand how seeds are currently rendered and edited, so you can identify where to add per-seed notes inputs and display logic.",
+                  "rule_ids": [
+                    "dwell_L_navigate"
                   ]
                 }
               ]
@@ -1452,28 +1176,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1902.57,
               "refiner_total_cost": 0.020097,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_L_navigate"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_L_navigate",
-                      "message": "You seem to navigate between files and code locations in the past 7 steps. You have the following options to explore next, which increases your chance to solve the problem: (1) keep exploring the code base as you do, but focus on the relevant code only; (2) create and run reproduction test to better localize the bug; (3) if you already have enough information, edit the source code to implement the fix.",
-                      "step_index": 8,
-                      "metadata": {
-                        "phase": "L_navigate",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the Solr work indexing logic in the `solr/update_work.py` section around where `public_scan_b`, `lending_edition_s`, `printdisabled_s`, `ia`, and `ia_collection_s` are computed, to understand how editions are prioritized and aggregated and to pinpoint the mis-prioritization source.",
+                  "rule_ids": [
+                    "dwell_L_navigate"
                   ]
                 }
               ]
@@ -1518,18 +1227,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2056.72,
               "refiner_total_cost": 0.009648,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 7,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the codebase for existing ad-hoc coordinate string parsing (e.g., manual `split(',')`/`int()` logic in commands or UI handlers) and plan to refactor those call sites to use the new `parse_point` helper with consistent error handling and messaging.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -1573,28 +1278,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1837.42,
               "refiner_total_cost": 0.028945,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 23,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "25:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRe-run the reproduction script to confirm the latest migration-guard changes resolve the crash, and once it passes, delete the temporary reproduction script so the submit checklist can be satisfied.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -1652,39 +1342,22 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 6878.81,
               "refiner_total_cost": 0.035179,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 20,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 20,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nVerify where `ansible-doc` actually gets its macro formatting by locating the `DocCLI.tty_ify` implementation in `lib/ansible/cli/doc.py`, then assess its current regex/token handling to determine why `L()`, `R()`, and `HORIZONTALLINE` are not being processed and why non-macro parenthesized text is being altered.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 },
                 {
                   "step": 26,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the full `CLI.tty_ify` implementation in `lib/ansible/cli/__init__.py` (where the diff shows edits) to understand the exact substitution order and existing macro handling, then identify what adjustments are needed to properly support `L()`, `R()`, `HORIZONTALLINE`, and avoid matching parenthesized text in regular words.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -1728,28 +1401,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2489.59,
               "refiner_total_cost": 0.018209,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"cd /app && python /tmp/repro_wikisource.py\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": 8,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "12:python",
-                        "action": "cd /app && python /tmp/repro_wikisource.py"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `build_pool` implementation and the existing `test_build_pool` coverage to ensure Wikisource-specific matching is handled; then identify and outline the necessary test updates/additions to validate that when a Wikisource source record is present the pool only uses `identifiers.wikisource` and otherwise remains empty without falling back to other fields.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -1794,28 +1452,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1655.27,
               "refiner_total_cost": 0.01138,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 10,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "7:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRemove the temporary reproduction script you created for debugging, then rerun the submission workflow to confirm the change set without extra artifacts.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -1860,28 +1503,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 4463.94,
               "refiner_total_cost": 0.022888,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "repeated_view"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "repeated_view",
-                      "message": "You have already reviewed this location. If this is to verify a recent edit, focus on the changed lines; otherwise, view a new relevant location or proceed to edit or test.",
-                      "step_index": 13,
-                      "metadata": {
-                        "command": "cd /app && sed -n '1,260p' qutebrowser/config/qtargs.py",
-                        "occurrence_count": 2,
-                        "phase": "L_navigate"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nCarefully review the full `_qtwebengine_args` implementation to identify inconsistencies introduced by changing it from a generator to a list-returning function (e.g., remaining `yield` statements and missing appends), and outline the necessary adjustments to make it consistently build and return an `argv` list with consolidated `--enable-features` handling.",
+                  "rule_ids": [
+                    "repeated_view"
                   ]
                 }
               ]
@@ -1926,28 +1554,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2608.99,
               "refiner_total_cost": 0.016718,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 12,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the statusbar command implementation to identify and update remaining references to the old method/command names (e.g., `edit_command`, `set_cmd_text`) so that the new `cmd-` methods are defined, registered with deprecated aliases, and all internal calls use the new names consistently.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -1992,28 +1605,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 11364.71,
               "refiner_total_cost": 0.035422,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 11,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "11:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the updated `ProcessOutcome` implementation to ensure the newly referenced `signal` module is imported at the top of the file, and add that import if it’s missing so the SIGTERM/signal-name logic can execute without runtime errors.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -2075,28 +1673,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3261.31,
               "refiner_total_cost": 0.023854,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 18,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "16:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the new helper’s dependencies and parsing by ensuring the IP normalization utilities (`ip_address`/`ip_network`) are actually imported and available in the Linux network facts module, then re‑validate the helper logic against the mock route output to confirm it now produces non‑empty IPv4/IPv6 lists.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -2141,28 +1724,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2473.31,
               "refiner_total_cost": 0.01903,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 17,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 17,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the remaining logic where `_get_next_task_from_state` is called or where `_eor` is referenced (including child-state invocations and role-completion logic) and update them to match the new signature and removal of `_eor`-based completion so that the state machine compiles and no longer marks roles complete on block-advance.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -2209,28 +1777,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2082.66,
               "refiner_total_cost": 0.021086,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 12,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the password lookup parameter parsing and persistence flow (the parameter parser and the content formatting/parsing helpers) to identify exactly where to thread the new `ident` value—ensuring it is parsed from terms, passed into the encryption call, and recorded alongside the salt so repeated runs reuse the same ident.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -2277,28 +1830,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3409.6,
               "refiner_total_cost": 0.025392,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_L_reproduce"
-                }
-              ],
               "interventions": [
                 {
                   "step": 20,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_L_reproduce",
-                      "message": "You are trying to reproduce the bug in that last 7 steps. Reproduction test generation can be hard. If you observe that, within a few attempts, you cannot resolve the dependencies to successfully create or run reproduction tests, you may pay more attention to the details in the issue description to locate the bug without reproduction. Alternatively, if you think that you have enough information and localized potential locations of the bug, you may start patching.",
-                      "step_index": 20,
-                      "metadata": {
-                        "phase": "L_reproduce",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the internal YAML loader implementation (in the internal YAML package) to identify the instrumented loader class (or factory) that preserves Origin/trust tags, and confirm how it should be invoked from filters—this will clarify what `from_yaml`/`from_yaml_all` should use instead of the current `yaml_load` helper.",
+                  "rule_ids": [
+                    "dwell_L_reproduce"
                   ]
                 }
               ]
@@ -2343,28 +1881,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2291.91,
               "refiner_total_cost": 0.01676,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 12,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nIdentify the remaining direct imports of `ansible.module_utils.common._collections_compat` (e.g., in `module_utils/basic.py`, `modules/uri.py`, and any others still flagged) and replace them with the required approved imports (`ansible.module_utils.six.moves.collections_abc` for module_utils/modules or `collections.abc` for controller code), verifying each change removes the internal shim usage.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -2409,18 +1932,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2515.12,
               "refiner_total_cost": 0.01784,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the module’s argument specification and validation logic to ensure the new `chain_management` parameter is declared in `argument_spec`, has the intended default, and doesn’t conflict with existing parameter requirements (especially around `chain`, `flush`, and rule-specific options), then identify any missing adjustments needed for check mode or state handling.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -2464,18 +1983,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3853.72,
               "refiner_total_cost": 0.016879,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 7,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the SELinux-related methods in `AnsibleModule` (e.g., `selinux_enabled`, `selinux_mls_enabled`, `selinux_initial_context`, getters/setters) and update them to use the new compat shim with per-instance caching and no external command fallbacks, aligning behavior and error handling with the requirements.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -2519,28 +2034,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2281.69,
               "refiner_total_cost": 0.020526,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 13,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the `WorkerProcess.run` implementation to identify where to insert the new initialization sequence (display queue creation/detachment and calling `_detach` before task execution) and where to add the non-fork start-method handling for CLI arguments and plugin loader initialization, so you can plan the precise edits needed next.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -2585,18 +2085,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 1398.57,
               "refiner_total_cost": 0.003925,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 2,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the existing configuration manager logic for Galaxy server handling to identify where server_list is parsed and why server-specific definitions are omitted from ansible-config dump, establishing the exact integration points needed for dynamic server definitions and required-option handling.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -2642,28 +2138,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2817.68,
               "refiner_total_cost": 0.023284,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 14,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "16:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the collection dependency resolution provider/resolver logic (especially where installed collections and preferred candidates are used) to understand how upgrades should be enforced and where to introduce upgrade-aware behavior (e.g., ignoring installed versions when `--upgrade` is set, handling `--no-deps`, and pre-release selection), before making any further edits.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -2708,18 +2189,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2161.78,
               "refiner_total_cost": 0.021662,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 10,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the newly created `icx_logging` module against the requirements and existing logging modules to identify gaps or incorrect logic (e.g., missing check_required_if usage, incomplete parsing of buffered disable lines, facility defaults, persistence handling, idempotency comparisons) before proposing fixes.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -2763,28 +2240,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2402.93,
               "refiner_total_cost": 0.020111,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 17,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "14:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the existing ModuleDepFinder and recursive_finder logic to understand the current dependency resolution flow and identify where to replace recursion with the required queue-based processing and locator-class resolution (legacy vs collection), so you can design the concrete changes needed beyond the stub class insertion.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -2829,39 +2291,20 @@
               "monitor_total_latency_ms": 4.19,
               "refiner_total_latency_ms": 7612.65,
               "refiner_total_cost": 0.039665,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                },
-                {
-                  "type": "monitor",
-                  "content": "Plan compliance violation: ended execution. Expected to complete phases: testing. Skipped phases: te"
-                }
-              ],
               "interventions": [
                 {
                   "step": 16,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 16,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `_build_collection_tar` symlink branch and determine the correct resolution strategy for external symlinks (resolve the link target relative to the symlink’s directory, verify existence, and decide how to handle missing targets) so the build copies actual file content rather than trying to add a non-existent path.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 },
                 {
                   "step": 20,
                   "planner_type": "monitor",
                   "content": "Plan compliance violation: ended execution. Expected to complete phases: testing. Skipped phases: testing. Follow the instructions to ensure thorough problem solving.",
-                  "rule_triggers": null
+                  "pattern": "plan_violation"
                 }
               ]
             }
@@ -2905,38 +2348,21 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 12702.99,
               "refiner_total_cost": 0.031241,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 0,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nBegin by locating and reviewing the current ensure_type implementation and related config/type-conversion utilities to understand existing behavior and where tag handling, type coercion, and error reporting are implemented, so you can map required changes to the correct areas.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 },
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 12,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the updated `ensure_type`/`_ensure_type` implementation against the requirements—especially the boolean and integer conversion semantics and tag propagation rules—to confirm it matches the spec (hashability check before boolean membership, bool→int only for integer conversions, tag copying only when allowed). Identify any mismatches introduced by the recent edits and plan the minimal adjustments needed there before moving on to remaining config/warning/default changes.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -2981,28 +2407,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2745.34,
               "refiner_total_cost": 0.025874,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "10:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the unit test expectations in the human_to_bytes test file for the remaining failures (wrong unit error message format, isbits/default_unit handling), then adjust the parsing/validation logic and error strings to preserve legacy messages for invalid suffixes while still enforcing the stricter regex and ASCII-only input.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -3047,18 +2458,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2214.26,
               "refiner_total_cost": 0.018576,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 10,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the PlayIterator and linear strategy logic to pinpoint where implicit flush/noop tasks and placeholder host entries are generated (especially around handler flushing, lockstep behavior, and rescue transitions), so you can decide how to suppress those emissions when no handlers/active tasks exist while preserving explicit meta tasks and correct fail-state handling.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3104,28 +2511,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3099.31,
               "refiner_total_cost": 0.013591,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_L_navigate"
-                }
-              ],
               "interventions": [
                 {
                   "step": 6,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_L_navigate",
-                      "message": "You seem to navigate between files and code locations in the past 7 steps. You have the following options to explore next, which increases your chance to solve the problem: (1) keep exploring the code base as you do, but focus on the relevant code only; (2) create and run reproduction test to better localize the bug; (3) if you already have enough information, edit the source code to implement the fix.",
-                      "step_index": 6,
-                      "metadata": {
-                        "phase": "L_navigate",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the remaining portions of `GalaxyAPI` in `lib/ansible/galaxy/api.py`—specifically the implementations of `_call_galaxy`, any cache load/save helpers, and existing cache-related attributes—to understand current behavior and identify where the new response-cache logic, locking, and metadata invalidation must be inserted.",
+                  "rule_ids": [
+                    "dwell_L_navigate"
                   ]
                 }
               ]
@@ -3170,18 +2562,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 6379.75,
               "refiner_total_cost": 0.022526,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview where `manifest_control` is constructed and passed into `_build_files_manifest` (likely in the collection build flow that reads `galaxy.yml`) to confirm how `manifest: null` and `manifest: {}` are represented, and decide whether additional adjustments are needed there to map “no manifest provided” to `Sentinel` while still allowing explicit empty/null configurations to be treated as valid manifest control inputs.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3225,18 +2613,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2325.99,
               "refiner_total_cost": 0.018347,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `execute_install` implementation around the role/collection branching to confirm how requirements are parsed and how skip/warning messages are emitted, then identify exactly where to add the unified “install both when no custom path” logic and the conditional warning/verbose messaging for skipped collections/roles based on explicit vs implicit subcommand.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3280,18 +2664,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2440.97,
               "refiner_total_cost": 0.017565,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview an existing NetApp E-Series module (for example, one that already uses the standard E-Series connection parameters and request helpers) to identify the correct connection fragment usage, parameter schema, and REST request patterns, then compare those expectations against the newly created `netapp_e_drive_firmware` implementation to list the concrete mismatches that must be fixed next.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3335,18 +2715,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2521.99,
               "refiner_total_cost": 0.012157,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 7,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the new `_replace_stderr_clixml` implementation against the detailed requirements (line-by-line scanning, header detection, embedded/trailing data preservation, UTF-8 with cp437 fallback, error handling for incomplete blocks), and outline the concrete adjustments needed in `powershell.py` (and any related call sites) before making further changes.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3390,18 +2766,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 13298.96,
               "refiner_total_cost": 0.007471,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 4,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the `parse_log` implementation and any related helper functions directly in `scripts/new-solr-updater.py` (e.g., around where actions like `save`/`save_many` are handled) to understand how keys are currently collected so you can plan where to introduce the new `find_keys` traversal and how to incorporate old/new docs without needing to import the module.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3445,28 +2817,20 @@
               "monitor_total_latency_ms": 4.71,
               "refiner_total_latency_ms": 7499.91,
               "refiner_total_cost": 0.02895,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                },
-                {
-                  "type": "monitor",
-                  "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the obser"
-                }
-              ],
               "interventions": [
                 {
                   "step": 16,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRevisit and correct the `get_location_and_publisher` parsing logic (and any dependent tests) to align with the requirements—specifically, ensure that when a single publisher is preceded by multiple `;`-separated locations before the first `:`, those segments are all treated as locations (not publishers), and verify the function’s outputs with representative cases like “London ; New York ; Paris : Berlitz Publishing”.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 },
                 {
                   "step": 17,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "rule_triggers": null
+                  "pattern": "oscillation"
                 }
               ]
             }
@@ -3510,18 +2874,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5193.16,
               "refiner_total_cost": 0.025847,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview how organization/event authors are parsed (110/111/710/711) and design a unified helper that, like `read_author_person`, handles roles from subfield `e` with preserved trailing periods and applies 880 linkage swapping name/alternate_names; then update `read_authors` to use it for 110/111/710/711 so those entities are included consistently alongside 100/700.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3565,18 +2925,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2926.53,
               "refiner_total_cost": 0.015344,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `find_threshold_match` implementation and the associated tests (especially `test_noisbn_record_should_not_match_title_only`) to confirm the threshold-based matching logic properly blocks title-only matches against ISBN-only editions; identify any missing logic or test updates needed before proceeding.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3620,18 +2976,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2302.48,
               "refiner_total_cost": 0.02709,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 9,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the existing coverstore serving logic (e.g., the cover URL construction and redirect handling in the coverstore web/code layer) to identify where it currently assumes tar-based archives or lacks high-ID redirects, so you can plan the necessary updates to integrate the new zip-based path conventions and archive.org redirection requirements.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3675,18 +3027,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2372.77,
               "refiner_total_cost": 0.017615,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 9,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview all call sites and tests that consume `update_work_id` to ensure they handle the new dictionary return shape, updating any expectations accordingly so the change doesn’t break existing behavior.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3730,18 +3078,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3839.21,
               "refiner_total_cost": 0.008419,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 2,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview `openlibrary/plugins/upstream/checkins.py` (and any related class definitions like `patron_check_ins`) to add a module-level `make_date_string` function and update any class methods or call sites to use it, while also locating the `patron_check_ins` class so you can add the required `is_valid` validation logic there.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3785,18 +3129,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 8210.6,
               "refiner_total_cost": 0.027209,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the placement and indentation of the newly added helper functions in `openlibrary/core/models.py` to ensure they are at module scope and that the `Edition` class methods (e.g., `get_ia_download_link`) are still correctly indented; while doing so, revise `get_isbn_or_asin` (and related helper logic) to detect ASINs before any canonicalization, preserve/uppercase the “B”-prefixed code, and ensure ASINs aren’t stripped by ISBN normalization.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3840,18 +3180,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2106.87,
               "refiner_total_cost": 0.014877,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 11,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the parsed luqum AST for a representative query (e.g., “title:foo bar by:author”) to see the exact node structure and operator grouping, then use that insight to adjust the greedy field binding logic to wrap unfielded terms and preserve boolean operators correctly.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3895,18 +3231,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5936.27,
               "refiner_total_cost": 0.017715,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 9,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the existing proxy allow-list or any prior configuration/constants that define which cover hosts are permitted, and align the newly introduced `ALLOWED_COVER_HOSTS` with that canonical source (updating the constant and any related tests if needed) to ensure the new `process_cover_url` enforces the correct set of hosts.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -3950,28 +3282,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2687.96,
               "refiner_total_cost": 0.022559,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 19,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 19,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview how `DataField` and `BinaryDataField` are instantiated and used (especially in `marc_xml.py`’s record parsing) to ensure the new `MarcFieldBase` constructor signature is satisfied and that all abstract methods are implemented; identify and update call sites or class methods that still assume the old interfaces before proceeding further edits.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -4016,28 +3333,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2158.61,
               "refiner_total_cost": 0.028082,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 15,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "17:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRerun the existing reproduction script to confirm the updated code still imports and behaves as expected, then remove the reproduction script file so the submit guard can pass.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -4082,28 +3384,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 4719.36,
               "refiner_total_cost": 0.024775,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "dwell_P"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "dwell_P",
-                      "message": "It seems that you have spent the last 7 steps editing files to patch the bug. The following options could increase your chances of solving the problem: (1) If the edits are unsuccessful, reconsider the edit location or string replacements. (2) Long sequences of edits, especially unsuccessful ones, could indicate incorrect localization. Look at related code locations and come up with more effective edits to resolve the issue. (3) Validate changes step by step, rather than making multiple changes and validating them later. This will help you determine which changes broke the code.",
-                      "step_index": 12,
-                      "metadata": {
-                        "phase": "P",
-                        "threshold": 7,
-                        "dwell_count": 7
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the remaining import pipeline functions (`load`, `load_data`, `new_work`, and author handling) to identify all save/persistence points and update them to respect the new `save` flag while collecting preview edits (including wiring `load_author_import_records` into the author flow), ensuring no writes occur and the preview response structure is filled out.",
+                  "rule_ids": [
+                    "dwell_P"
                   ]
                 }
               ]
@@ -4148,28 +3435,20 @@
               "monitor_total_latency_ms": 3.81,
               "refiner_total_latency_ms": 2368.46,
               "refiner_total_cost": 0.01582,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                },
-                {
-                  "type": "monitor",
-                  "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the obser"
-                }
-              ],
               "interventions": [
                 {
                   "step": 10,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the failing `test_error` (and any other tests still asserting the old “Error while spawning …” format) and update their expected message patterns to align with the new required error format that includes the capitalized process name, the command in single quotes, and the appropriate error wording/hint.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 },
                 {
                   "step": 11,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "rule_triggers": null
+                  "pattern": "oscillation"
                 }
               ]
             }
@@ -4213,18 +3492,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5706.75,
               "refiner_total_cost": 0.017299,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 9,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRe-evaluate the rubout boundary scan against the stated requirements (especially the “moveby = cursor_position - target_position - 1” rule) and work through an example like “abc” to determine why the current loops still leave the first character; then outline the adjusted target-position logic needed to include the first character when no delimiter is found (e.g., allowing the target position to move past index 0 or otherwise compensating), before making any further changes.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4268,28 +3543,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2153.4,
               "refiner_total_cost": 0.013643,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "9:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the existing qtargs unit tests (especially around `--enable-features`) to identify expected behavior and extend them conceptually to cover `--disable-features`, ensuring the new prefixes and propagation rules are exercised; use this to validate whether any additional logic beyond the current changes is needed.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -4334,18 +3594,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2747.75,
               "refiner_total_cost": 0.022958,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview qutebrowser/utils/version.py to locate the duplicated/placeholder `WebEngineVersions` and `qtwebengine_versions` definitions appended at the end, then consolidate them into a single correct implementation (including `VersionNumber` subclass, proper `WebEngineVersions` classmethods, `qtwebengine_versions` fallback logic, and `parse_webenginecore` usage), ensuring imports and usage sites are consistent before proceeding to ELF parser details.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4389,18 +3645,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 3317.52,
               "refiner_total_cost": 0.017145,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview remaining call sites of the old font parsing helper and adjust them to use the new `FontFamilies.from_str` interface (and its iteration/family behavior), ensuring any code expecting a list or string is updated accordingly while keeping the migration/storage logic consistent.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4444,18 +3696,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 8515.73,
               "refiner_total_cost": 0.022596,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 8,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the updated `later` command implementation to ensure `utils.parse_duration` is properly imported and referenced (adjusting imports if needed) so the new parsing logic actually works at runtime without missing-dependency errors.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4499,28 +3747,22 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5893.47,
               "refiner_total_cost": 0.024533,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                },
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 1,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the existing `chooseFiles` implementation in the webview module to understand how accepted mimetypes are currently handled, so you can determine where to insert the new `extra_suffixes_workaround` call and how to extend the list without duplicates.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 },
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview how Qt runtime version comparisons are done elsewhere in the codebase (e.g., via qtutils or QT_VERSION/QT_VERSION_STR accessors) to confirm whether `machinery.QT_VERSION` is a valid and preferred source; if not, adjust the version check in `extra_suffixes_workaround` to use the correct helper or attribute consistent with existing patterns.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4564,28 +3806,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5579.4,
               "refiner_total_cost": 0.02446,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "11:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview and adjust the search-term parsing flow to align with the requirements: ensure a lone token that matches a configured search engine is treated as a valid prefix (with an empty term), and update the search URL construction so it only uses a base URL when `open_base_url` is enabled; otherwise it should fall back to treating the whole input as a normal search term.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -4630,18 +3857,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5881.87,
               "refiner_total_cost": 0.018562,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the current `qtargs.py` imports for consistency with existing references and restore any removed imports needed elsewhere (notably `qtutils`, which is still used in `init_envvars`) to avoid introducing NameError regressions before proceeding further.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4685,18 +3908,14 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 2807.82,
               "refiner_total_cost": 0.021593,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "plan_compliance"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": []
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview how QtWebEngine-specific workaround settings are currently applied in the web engine settings layer (especially any existing “auto”/version-gated behaviors) and identify the correct place to wire the new `qt.workarounds.disable_accelerated_2d_canvas` option into the settings mapping so it can enable/disable the accelerated 2D canvas based on the runtime Qt/Chromium version logic.",
+                  "rule_ids": [
+                    "plan_compliance"
+                  ]
                 }
               ]
             }
@@ -4740,28 +3959,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 5295.17,
               "refiner_total_cost": 0.019703,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 12,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "13:submit",
-                        "action": "submit"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nAcknowledge the submit feedback by ensuring the temporary reproduction script is removed (it was created under `/tmp`) and that no test files were modified, then proceed to re-run the submit flow to finalize with only the intended urlutils change.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]
@@ -4806,28 +4010,13 @@
               "monitor_total_latency_ms": 0,
               "refiner_total_latency_ms": 4612.77,
               "refiner_total_cost": 0.021215,
-              "trigger_info": [
-                {
-                  "type": "refiner",
-                  "rule_id": "oscillation_self_loop"
-                }
-              ],
               "interventions": [
                 {
                   "step": 13,
                   "planner_type": "refiner",
-                  "content": null,
-                  "rule_triggers": [
-                    {
-                      "rule_id": "oscillation_self_loop",
-                      "message": "It seems that you are repeating action \"cd /app && git checkout -- qutebrowser/config/configtypes.py qutebrowser/config/configinit.py && git status --short\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not, think about a better action in the next step so that you can resolve the problem.",
-                      "step_index": -1,
-                      "metadata": {
-                        "type": "self_loop",
-                        "node": "15:git",
-                        "action": "cd /app && git checkout -- qutebrowser/config/configtypes.py qutebrowser/config/configinit.py && git status --short"
-                      }
-                    }
+                  "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nRemove the ad-hoc reproduction script you created (so the “rerun it” requirement no longer applies), then retry the submission process to confirm there are no remaining checklist blockers.",
+                  "rule_ids": [
+                    "oscillation_self_loop"
                   ]
                 }
               ]

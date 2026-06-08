@@ -306,6 +306,27 @@ class PatternAnalyzer:
             print(f"Warning: Error loading planner.json for {instance_id}: {e}")
             return None
 
+    def _classify_monitor_trigger(self, content: str) -> str:
+        """
+        Classify monitor trigger content into pattern categories.
+        Reuses logic from collect_pattern_resolution.py.
+        """
+        content_lower = content.lower()
+
+        if 'plan compliance' in content_lower or 'skipped phases' in content_lower or 'expected to' in content_lower:
+            return 'plan_violation'
+        if ('repeating action' in content_lower or 'repeated actions' in content_lower or
+            'repeating the same reasoning' in content_lower or 'oscillating between' in content_lower or
+            'stuck in a loop' in content_lower):
+            return 'oscillation'
+        if ('seem to navigate' in content_lower or 'trying to reproduce' in content_lower or
+            ('spent the last' in content_lower and ('steps editing' in content_lower or 'steps validating' in content_lower))):
+            return 'long_stagnation'
+        if 'already reviewed this location' in content_lower or 'have already reviewed' in content_lower:
+            return 'repeated_view'
+
+        return 'unknown'
+
     def _extract_planner_stats(self, planner_data: Dict) -> Dict:
         """Extract summary statistics from planner.json."""
         if not planner_data:
@@ -314,38 +335,38 @@ class PatternAnalyzer:
         summary = planner_data.get('summary', {})
         interventions = planner_data.get('interventions', [])
 
-        # Extract trigger types/content across all interventions
-        trigger_info = []
+        # Extract intervention details
+        intervention_details = []
         for intervention in interventions:
             planner_type = intervention.get('planner_type')
 
             if planner_type == 'monitor':
-                # For monitor, content is the message
-                trigger_info.append({
-                    'type': 'monitor',
-                    'content': intervention.get('content', '')[:100]  # Truncate for readability
+                content = intervention.get('content', '')
+                intervention_details.append({
+                    'step': intervention.get('step'),
+                    'planner_type': 'monitor',
+                    'content': content[:200],
+                    'pattern': self._classify_monitor_trigger(content)
                 })
             elif planner_type == 'refiner':
-                # For refiner, extract rule_triggers
                 rule_triggers = intervention.get('state_summary', {}).get('rule_triggers', [])
-                if not rule_triggers:
-                    trigger_info.append({'type': 'refiner', 'rule_id': 'plan_compliance'})
-                else:
+                # Extract rule_id strings - handle both string and dict formats
+                rule_ids = []
+                if rule_triggers:
                     for trigger in rule_triggers:
                         if isinstance(trigger, dict):
-                            trigger_info.append({'type': 'refiner', 'rule_id': trigger.get('rule_id', 'unknown')})
+                            rule_ids.append(trigger.get('rule_id', 'unknown'))
                         else:
-                            trigger_info.append({'type': 'refiner', 'rule_id': str(trigger)})
+                            rule_ids.append(str(trigger))
+                else:
+                    rule_ids = ['plan_compliance']
 
-        # Extract intervention details
-        intervention_details = []
-        for intervention in interventions:
-            intervention_details.append({
-                'step': intervention.get('step'),
-                'planner_type': intervention.get('planner_type'),
-                'content': intervention.get('content', '')[:200] if intervention.get('planner_type') == 'monitor' else None,
-                'rule_triggers': intervention.get('state_summary', {}).get('rule_triggers', []) if intervention.get('planner_type') == 'refiner' else None
-            })
+                intervention_details.append({
+                    'step': intervention.get('step'),
+                    'planner_type': 'refiner',
+                    'content': intervention.get('content', ''),
+                    'rule_ids': rule_ids
+                })
 
         return {
             'total_interventions': summary.get('total_interventions', 0),
@@ -354,7 +375,6 @@ class PatternAnalyzer:
             'monitor_total_latency_ms': summary.get('monitor_total_latency_ms', 0.0),
             'refiner_total_latency_ms': summary.get('refiner_total_latency_ms', 0.0),
             'refiner_total_cost': summary.get('refiner_total_cost', 0.0),
-            'trigger_info': trigger_info,
             'interventions': intervention_details
         }
 
@@ -510,11 +530,16 @@ class PatternAnalyzer:
             total_refiner_latency_ms += planner_stats['refiner_total_latency_ms']
             total_refiner_cost += planner_stats['refiner_total_cost']
 
-            for info in planner_stats['trigger_info']:
-                if info['type'] == 'monitor':
-                    trigger_type_counter['monitor'] += 1
-                elif info['type'] == 'refiner':
-                    trigger_type_counter[info.get('rule_id', 'unknown')] += 1
+            for intervention in planner_stats['interventions']:
+                planner_type = intervention.get('planner_type')
+                if planner_type == 'monitor':
+                    # Count monitor triggers by pattern type
+                    pattern = intervention.get('pattern', 'unknown')
+                    trigger_type_counter[f"monitor_{pattern}"] += 1
+                elif planner_type == 'refiner':
+                    # Count refiner triggers by rule_id
+                    for rule_id in intervention.get('rule_ids', ['unknown']):
+                        trigger_type_counter[rule_id] += 1
 
         # Return per-instance averages
         stats = {
