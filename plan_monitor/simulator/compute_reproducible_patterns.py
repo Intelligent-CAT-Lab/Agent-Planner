@@ -421,8 +421,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Analyze mini-swe-agent (default)
-  python compute_reproducible_patterns.py --model gpt-5-mini
+  # Analyze SWE-agent (default)
+  python plan_monitor/simulator/compute_reproducible_patterns.py --model gpt-5-mini
 
   # Analyze SWE-agent trajectories
   python plan_monitor/simulator/compute_reproducible_patterns.py --agent SWE-agent --model deepseek-chat-v3-0324 --dataset swebench-pro --sample-approach python

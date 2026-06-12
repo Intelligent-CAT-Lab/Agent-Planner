@@ -143,4 +143,23 @@ if parsed3:
         )
     print(f"Current role: {role}")
     print(f"Expected: P, V_regression_test")
-    
+
+    cmd7 = """
+    cat >/tmp/repro_playiterator.py <<'PY'\nimport sys, warnings\nsys.path.insert(0, '/app/lib')\nfrom ansible.executor.play_iterator import PlayIterator, HostState, IteratingStates, FailedStates\n\nwarnings.simplefilter('always')\nprint('class attr:', PlayIterator.ITERATING_TASKS)\nprint('enum:', IteratingStates.TASKS, FailedStates.RESCUE | FailedStates.ALWAYS)\nprint('hoststate str:', str(HostState([])))\nPY\npython /tmp/repro_playiterator.py
+    """
+    parsed7 = parser.parse(cmd7)
+    print(f"Parsed: {parsed7}") 
+
+    if parsed7:
+        p = parsed7[0]
+        role = get_action_role(
+            tool=None,
+            subcommand=None,
+            command=p.get("command"),
+            args=p.get("args", []),
+            flags=p.get("flags", {}),
+            prev_roles=["P"],
+            created_tests=set()
+        )
+    print(f"Current role: {role}")
+    print(f"Expected: V_newly_generated_test")

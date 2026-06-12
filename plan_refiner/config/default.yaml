@@ -1,14 +1,11 @@
 external_planner:
   # Model Configuration
   model:
-    model_name: "openai/gpt-5.2-codex"
+    model_name: "minimax/minimax-m3"
     model_class: "openrouter"
     model_kwargs:
       temperature: 0.0
-      max_tokens: 3000
-      extra_body:
-        reasoning:
-          effort: "medium"
+      max_tokens: 1000
 
     # Cache Control (optional): Enable prompt caching for efficiency
     # Options: "default_end" (cache last message) or null (no caching)
@@ -54,7 +51,7 @@ external_planner:
     - Do NOT invent repository files, APIs, or behavior not supported by the inputs.
     - Do NOT output shell commands, code edits, file paths, or git operations.
     - Output exactly one <new_plan> block containing exactly ONE next step.
-    - Base your answer primarily on the recent trajectory. Use the additional hint only as supporting reference, not as the main evidence.
+    - Base your answer primarily on the issue description and recent trajectory. Use the additional hint only as supporting reference, not as the main evidence.
     - Do not assume access to any hidden earlier context.
 
     You will be provided with:
@@ -68,7 +65,7 @@ external_planner:
     missing validation, or stalled progress.
 
     The additional hint is a lightweight suggestion about the current situation.
-    Use it only to help understand the recent issue, while keeping the main focus
+    Use it only to help understand the potential recent problems, while keeping the main focus
     on resolving the main task.
 
     Deliver your answer in <new_plan> ... </new_plan>.
