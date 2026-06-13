@@ -378,6 +378,32 @@ class PatternAnalyzer:
             'interventions': intervention_details
         }
 
+    def _compute_pattern_stats(self) -> Dict:
+        """Compute pattern statistics for vanilla and config data."""
+        stats = {}
+
+        for name, data_dict in [('vanilla', self.vanilla_data), (self.config, self.planner_data)]:
+            with_patterns = sum(1 for d in data_dict.values() if any(d.patterns.values()))
+            plan_violation = sum(1 for d in data_dict.values() if d.patterns.get('plan_violation', False))
+            oscillation = sum(1 for d in data_dict.values() if d.patterns.get('oscillation', False))
+            long_stagnation = sum(1 for d in data_dict.values() if d.patterns.get('long_stagnation', False))
+            repeated_view = sum(1 for d in data_dict.values() if d.patterns.get('repeated_view', False))
+
+            blocking = plan_violation + oscillation
+            non_blocking = long_stagnation + repeated_view
+
+            stats[name] = {
+                'with_patterns': with_patterns,
+                'blocking': blocking,
+                'plan_violation': plan_violation,
+                'oscillation': oscillation,
+                'non_blocking': non_blocking,
+                'long_stagnation': long_stagnation,
+                'repeated_view': repeated_view
+            }
+
+        return stats
+
     def analyze_trigger_status(self) -> Dict:
         """Analyze instances based on trigger status."""
         triggered = [iid for iid, data in self.planner_data.items() if data.has_planner]
@@ -629,6 +655,18 @@ class PatternAnalyzer:
 
         summary = report['summary']
         print(f"\nTotal instances: {summary['total_instances']}")
+
+        # Pattern comparison
+        pattern_stats = self._compute_pattern_stats()
+        print(f"\nPattern Statistics:")
+        print(f"  Vanilla run-1:")
+        print(f"    With patterns: {pattern_stats['vanilla']['with_patterns']}")
+        print(f"    Blocking patterns: {pattern_stats['vanilla']['blocking']} (plan_violation: {pattern_stats['vanilla']['plan_violation']}, oscillation: {pattern_stats['vanilla']['oscillation']})")
+        print(f"    Non-blocking patterns: {pattern_stats['vanilla']['non_blocking']} (long_stagnation: {pattern_stats['vanilla']['long_stagnation']}, repeated_view: {pattern_stats['vanilla']['repeated_view']})")
+        print(f"  {config_display}:")
+        print(f"    With patterns: {pattern_stats[config]['with_patterns']}")
+        print(f"    Blocking patterns: {pattern_stats[config]['blocking']} (plan_violation: {pattern_stats[config]['plan_violation']}, oscillation: {pattern_stats[config]['oscillation']})")
+        print(f"    Non-blocking patterns: {pattern_stats[config]['non_blocking']} (long_stagnation: {pattern_stats[config]['long_stagnation']}, repeated_view: {pattern_stats[config]['repeated_view']})")
 
         trigger = summary['trigger_status']
         print(f"\nTrigger Status:")
