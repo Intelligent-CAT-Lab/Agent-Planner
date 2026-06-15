@@ -1,9 +1,9 @@
 CONFIG="default"
-MODEL_NAME="openrouter/deepseek/deepseek-chat-v3-0324"
+MODEL_NAME="openrouter/minimax/minimax-m2.5"
 MODEL="${MODEL_NAME##*/}"
 DATASET="swebench"
 RUN_ID="${1:-1}"
-OUTPUT_DIR="trajectories/${CONFIG}/${DATASET}/${MODEL}/${RUN_ID}"
+OUTPUT_DIR="trajectories/${CONFIG}/${DATASET}/${MODEL}/run-${RUN_ID}"
 PREDICTION_PATH="$OUTPUT_DIR/preds.json"
 
 python -m swebench.harness.run_evaluation \
