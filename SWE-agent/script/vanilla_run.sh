@@ -1,10 +1,11 @@
 CONFIG="default"
-MODEL_NAME="${1:-"openrouter/minimax/minimax-m2.5"}"
+# MODEL_NAME="${1:-"openrouter/minimax/minimax-m2.5"}"
+MODEL_NAME="${1:-"openrouter/google/gemini-2.5-flash"}"
 MODEL="${MODEL_NAME##*/}"
 DATASET="swebench"
 RUN_ID="${2:-1}"
 START_IDX="${3:-0}"
-END_IDX="${4:-500}"
+END_IDX="${4:-1}"
 OUTPUT_DIR="trajectories/${CONFIG}/${DATASET}/${MODEL}/run-${RUN_ID}"
 
 sweagent run-batch \

@@ -1,6 +1,7 @@
 CONFIG="refiner"
 # MODEL_NAME="openrouter/openai/gpt-5.4-mini"
-MODEL_NAME="openrouter/minimax/minimax-m2.5"
+# MODEL_NAME="openrouter/minimax/minimax-m2.5"
+MODEL_NAME="openrouter/google/gemini-2.5-flash"
 MODEL="${MODEL_NAME##*/}"
 DATASET="swebench"
 RUN_ID="${1:-1}"
