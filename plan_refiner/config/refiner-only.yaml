@@ -25,7 +25,7 @@ external_planner:
   # - "recent": use only recent trajectory steps since the last trigger
   # - "selected": use selected relevant trajectory steps (not implemented yet)
 
-  state_summary_mode: "rule"
+  state_summary_mode: "none"
   # Options:
   # - "full": include full <state_summary> information
   # - "rule": include only the currently triggered rule message(s)
@@ -45,7 +45,6 @@ external_planner:
     - understand the issue description,
     - read the recent trajectory steps from the current run,
     - use the latest guidance from the previous refinement if it exists,
-    - use the additional hint if provided,
     - identify what likely went wrong or what is missing,
     - evaluate the recent strategy, and
     - output a refined high-level plan for the very next step.
@@ -53,23 +52,18 @@ external_planner:
     CONSTRAINTS:
     - Do NOT invent repository files, APIs, or behavior not supported by the inputs.
     - Do NOT output shell commands, code edits, file paths, or git operations.
-    - Output exactly one <new_plan> block containing exactly ONE next step.
-    - Base your answer primarily on the recent trajectory. Use the additional hint only as supporting reference, not as the main evidence.
+    - Do NOT suggest modifying existing repository tests or project configuration files (e.g., pyproject.toml, setup.cfg, setup.py, tox.ini).
+    - Base your answer primarily on the issue description and recent trajectory.
     - Do not assume access to any hidden earlier context.
 
     You will be provided with:
     - <issue_description> ... </issue_description>
     - <latest_guidance> ... </latest_guidance> (optional; may be empty)
     - <recent_trajectory> ... </recent_trajectory>
-    - <additional_hint> ... </additional_hint> (optional; may be empty)
 
     The recent trajectory is a segment of the current run since the last refinement trigger.
     It may show repeated failures, ineffective actions, reasoning errors, tool-calling errors,
     missing validation, or stalled progress.
-
-    The additional hint is a lightweight suggestion about the current situation.
-    Use it only to help understand the recent issue, while keeping the main focus
-    on resolving the main task.
 
     Deliver your answer in <new_plan> ... </new_plan>.
     The plan should be high-level and directly help the agent recover from the recent issue and proceed to resolve the task.
@@ -88,18 +82,12 @@ external_planner:
     {{RECENT_TRAJECTORY}}
     </recent_trajectory>
 
-    <additional_hint>
-    {{STATE_SUMMARY}}
-    </additional_hint>
-
     # YOUR TASK
 
-    Based on the issue description, the latest guidance (if any), the recent trajectory,
-    and the additional hint (if provided), propose the most appropriate NEXT STEP for the agent.
+    Based on the issue description, the latest guidance (if any), and the recent trajectory,
+    propose the most appropriate NEXT STEP for the agent.
 
     Focus primarily on the recent trajectory and what is needed to resolve the main issue.
-    Use the additional hint only as supporting reference for understanding recent problems,
-    not as the main evidence.
 
     Requirements:
     - Output EXACTLY ONE step.
