@@ -1,40 +1,92 @@
 """
-Compare the number of trajectory steps and cost between vanilla and monitor/refiner configs.
+Compare cost, steps, and resolution rates between vanilla (default) and planner configs (monitor, refiner-only, refiner).
+
 Executor agent cost from .traj + planner cost from .planner.json
 Latency from the .planner.json
+Resolution rates from reports
+Trigger statistics (instances with .planner.json)
 
 Example usage:
-python analysis/compare_cost_w_wo_planner.py --dataset swebench --agent SWE-agent --model deepseek-chat-v3-0324 --config refiner --version 5 --run_id 1 --reproducible
-python analysis/compare_cost_w_wo_planner.py --dataset swebench --agent SWE-agent --model deepseek-chat-v3-0324 --config monitor --run_id 1 --reproducible
+python analysis/compare_cost_w_wo_planner.py --model deepseek-chat-v3-0324 --dataset swebench --config refiner --version 5 --run_id 1 --reproducible
+python analysis/compare_cost_w_wo_planner.py --model deepseek-chat-v3-0324 --dataset swebench --agent SWE-agent --config monitor --run_id 1 --reproducible
 
 Input args:
   --agent (default: SWE-agent)
-  --config (default: both monitor and refiner)
-  --version (default: 5, only for refiner config)
+  --config (default: loads all available configs - monitor, refiner-only, refiner)
+  --version (default: 5, for refiner and refiner-only configs)
   --run_id (default: 1)
   --reproducible (flag: discover available vanilla runs)
 
 When --dataset is swebench, agent dir is PROJECT_DIR/SWE-agent
 When --dataset is swebench-pro, agent dir is PROJECT_DIR/SWE-bench_Pro-os/SWE-agent
 
-Vanilla traj path: {agent_dir}/trajectories/default/{dataset}/{model}/run-{X}/
-  - When --reproducible is set, discovers all available runs
-  - Otherwise defaults to run-1
-
-Config traj path:
-  - Refiner: {agent_dir}/trajectories/refiner/version-{version}/{dataset}/{model}/run-{run_id}/
+Config traj paths:
+  - Vanilla (default): {agent_dir}/trajectories/default/{dataset}/{model}/run-{X}/
   - Monitor: {agent_dir}/trajectories/monitor/{dataset}/{model}/run-{run_id}/
+  - Refiner-only: {agent_dir}/trajectories/refiner-only/version-{version}/{dataset}/{model}/run-{run_id}/
+  - Refiner: {agent_dir}/trajectories/refiner/version-{version}/{dataset}/{model}/run-{run_id}/
 
 Data extracted:
   From .traj: instance_cost, api_calls
   From .planner.json: refiner_total_cost, monitor_total_latency_ms, refiner_total_latency_ms, interventions
+  From reports: resolved instance IDs (resolution rate)
   Trigger distribution: type (monitor/refiner), rule_id (plan_compliance if empty for refiner)
+  Instances with triggers: count of instances with .planner.json file
 """
 import json
 import argparse
 from pathlib import Path
 from collections import defaultdict, Counter
+from typing import Set
 import numpy as np
+
+
+def load_report(agent_dir: Path, config: str, dataset: str, model: str, run_id: int, version: str = None) -> Set[str]:
+    """Load resolved instance IDs from report file (from collect_pattern_resolution.py)."""
+    dataset_path = dataset if dataset != 'swebench-pro' else f"{dataset}/python"
+
+    # For swebench-pro, report is eval_results.json in the run folder
+    if dataset == 'swebench-pro':
+        if config in ['refiner', 'refiner-only'] and version:
+            report_path = agent_dir / "reports" / config / f"version-{version}" / dataset_path / model / f"run-{run_id}" / "eval_results.json"
+        else:
+            report_path = agent_dir / "reports" / config / dataset_path / model / f"run-{run_id}" / "eval_results.json"
+
+        if report_path.exists():
+            try:
+                with open(report_path, 'r') as f:
+                    data = json.load(f)
+                    return {inst_id for inst_id, resolved in data.items() if resolved}
+            except Exception as e:
+                print(f"Error loading report {report_path}: {e}")
+        return set()
+
+    # For swebench, report is in model directory
+    if config in ['refiner', 'refiner-only'] and version:
+        reports_dir = agent_dir / "reports" / config / f"version-{version}" / dataset_path / model
+    else:
+        reports_dir = agent_dir / "reports" / config / dataset_path / model
+
+    if not reports_dir.exists():
+        return set()
+
+    possible_names = [
+        f"{model}.run_{run_id}.json",
+        f"{model}.run-{run_id}.json",
+        f"{model}.{run_id}.json",
+    ]
+
+    for name in possible_names:
+        report_path = reports_dir / name
+        if report_path.exists():
+            try:
+                with open(report_path, 'r') as f:
+                    data = json.load(f)
+                    return set(data.get('resolved_ids', []))
+            except Exception as e:
+                print(f"Error loading report {report_path}: {e}")
+
+    return set()
 
 
 def load_traj_stats(traj_file: Path) -> dict:
@@ -104,7 +156,7 @@ def load_planner_stats(planner_file: Path) -> dict:
         return None
 
 
-def load_instance_data(instance_dir: Path, instance_id: str, config: str) -> dict:
+def load_instance_data(instance_dir: Path, instance_id: str, config: str, resolved_ids: Set[str]) -> dict:
     """Load data for a single instance."""
     traj_file = instance_dir / f"{instance_id}.traj"
     planner_file = instance_dir / f"{instance_id}.planner.json"
@@ -118,6 +170,7 @@ def load_instance_data(instance_dir: Path, instance_id: str, config: str) -> dic
 
     result = {
         'instance_id': instance_id,
+        'resolved': instance_id in resolved_ids,
         'executor_cost': traj_stats['instance_cost'],
         'api_calls': traj_stats['api_calls'],
         'refiner_cost': 0,
@@ -128,11 +181,13 @@ def load_instance_data(instance_dir: Path, instance_id: str, config: str) -> dic
         'total_interventions': 0,
         'monitor_count': 0,
         'refiner_count': 0,
-        'triggers': []
+        'triggers': [],
+        'has_planner': False
     }
 
-    # Load planner stats if available (for refiner/monitor configs)
+    # Load planner stats if available (for non-default configs)
     if config != 'default' and planner_file.exists():
+        result['has_planner'] = True
         planner_stats = load_planner_stats(planner_file)
         if planner_stats:
             result['refiner_cost'] = planner_stats['refiner_cost']
@@ -165,33 +220,41 @@ def load_trajectory_data(agent_dir: Path, dataset: str, model: str, config: str,
                 if not base_path.exists():
                     continue
 
+                # Load resolved IDs for this run
+                resolved_ids = load_report(agent_dir, config, dataset, model, run, version)
+
                 for instance_dir in base_path.iterdir():
                     if not instance_dir.is_dir():
                         continue
 
                     instance_id = instance_dir.name
-                    data = load_instance_data(instance_dir, instance_id, config)
+                    data = load_instance_data(instance_dir, instance_id, config, resolved_ids)
                     if data:
                         all_data.append(data)
         else:
             # Single run mode
             base_path = agent_dir / "trajectories" / "default" / dataset_path / model / "run-1"
+            resolved_ids = load_report(agent_dir, config, dataset, model, 1, version)
+
             if base_path.exists():
                 for instance_dir in base_path.iterdir():
                     if not instance_dir.is_dir():
                         continue
 
                     instance_id = instance_dir.name
-                    data = load_instance_data(instance_dir, instance_id, config)
+                    data = load_instance_data(instance_dir, instance_id, config, resolved_ids)
                     if data:
                         all_data.append(data)
     else:
-        # Config trajectories (monitor/refiner)
-        # Version is only used for refiner config
-        if config == 'refiner' and version:
+        # Config trajectories (monitor/refiner-only/refiner)
+        # Version is used for refiner and refiner-only configs
+        if config in ['refiner', 'refiner-only'] and version:
             base_path = agent_dir / "trajectories" / config / f"version-{version}" / dataset_path / model / f"run-{run_id}"
         else:
             base_path = agent_dir / "trajectories" / config / dataset_path / model / f"run-{run_id}"
+
+        # Load resolved IDs for this config
+        resolved_ids = load_report(agent_dir, config, dataset, model, run_id, version)
 
         if base_path.exists():
             for instance_dir in base_path.iterdir():
@@ -199,18 +262,27 @@ def load_trajectory_data(agent_dir: Path, dataset: str, model: str, config: str,
                     continue
 
                 instance_id = instance_dir.name
-                data = load_instance_data(instance_dir, instance_id, config)
+                data = load_instance_data(instance_dir, instance_id, config, resolved_ids)
                 if data:
                     all_data.append(data)
 
     return all_data
 
 
-def compute_averages(data: list) -> dict:
-    """Compute average statistics across instances."""
+def compute_averages(data: list, total_instances: int = None) -> dict:
+    """Compute average statistics across instances.
+
+    Args:
+        data: List of instance data
+        total_instances: Total dataset size for resolution rate calculation (500 for swebench, 264 for swebench-pro)
+    """
     if not data:
         return {
             'instance_count': 0,
+            'resolved_count': 0,
+            'resolution_rate': 0.0,
+            'instances_with_triggers': 0,
+            'trigger_rate': 0.0,
             'avg_executor_cost': 0,
             'avg_refiner_cost': 0,
             'avg_total_cost': 0,
@@ -223,8 +295,18 @@ def compute_averages(data: list) -> dict:
             'avg_refiner_count': 0
         }
 
+    resolved_count = sum(1 for d in data if d.get('resolved', False))
+    instances_with_triggers = sum(1 for d in data if d.get('has_planner', False))
+
+    # Use total_instances for resolution rate if provided, otherwise use len(data)
+    rate_denominator = total_instances if total_instances else len(data)
+
     return {
         'instance_count': len(data),
+        'resolved_count': resolved_count,
+        'resolution_rate': (resolved_count / rate_denominator * 100) if rate_denominator > 0 else 0.0,
+        'instances_with_triggers': instances_with_triggers,
+        'trigger_rate': (instances_with_triggers / len(data) * 100) if len(data) > 0 else 0.0,
         'avg_executor_cost': float(np.mean([d['executor_cost'] for d in data])),
         'avg_refiner_cost': float(np.mean([d['refiner_cost'] for d in data])),
         'avg_total_cost': float(np.mean([d['total_cost'] for d in data])),
@@ -298,10 +380,11 @@ def analyze_trigger_distribution(data: list) -> dict:
 
 
 def generate_comparison_report(vanilla_data: list, config_data: list,
-                              config: str, model: str, version: str, run_id: int, vanilla_run_id: int = None) -> dict:
+                              config: str, model: str, version: str, run_id: int,
+                              vanilla_run_id: int = None, total_instances: int = None) -> dict:
     """Generate comparison report."""
-    vanilla_avg = compute_averages(vanilla_data)
-    config_avg = compute_averages(config_data)
+    vanilla_avg = compute_averages(vanilla_data, total_instances)
+    config_avg = compute_averages(config_data, total_instances)
 
     report = {
         'config_name': config,
@@ -386,9 +469,9 @@ def print_cost_comparison(report: dict):
     print("="*80)
 
 
-def print_trigger_analysis(config_data: list, config_name: str, model: str, version: str, run_id: int):
+def print_trigger_analysis(config_data: list, config_name: str, model: str, version: str, run_id: int, total_instances: int = None):
     """Print trigger analysis with monitor/refiner separation."""
-    config_avg = compute_averages(config_data)
+    config_avg = compute_averages(config_data, total_instances)
     trigger_stats = analyze_trigger_distribution(config_data)
 
     print("\n" + "="*80)
@@ -399,6 +482,8 @@ def print_trigger_analysis(config_data: list, config_name: str, model: str, vers
     print("="*80)
 
     print(f"\nConfig Instances: {config_avg['instance_count']}")
+    print(f"Resolved: {config_avg['resolved_count']} ({config_avg['resolution_rate']:.2f}%)")
+    print(f"Instances with Triggers: {config_avg['instances_with_triggers']} ({config_avg['trigger_rate']:.1f}%)")
 
     # Latency
     print(f"\nLatency:")
@@ -466,13 +551,13 @@ def print_trigger_analysis(config_data: list, config_name: str, model: str, vers
     print("="*80)
 
 
-def save_combined_report(comparisons: list, trigger_analysis: dict, config_name: str,
+def save_combined_report(comparisons: list, trigger_analysis: dict, dataset: str, config_name: str,
                         model: str, version: str, run_id: int, output_dir: Path):
     """Save combined report with all vanilla comparisons and trigger analysis to JSON."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     version_suffix = f"_version-{version}" if (config_name == 'refiner' and version) else ""
-    output_file = output_dir / f"{config_name}_{model.split('/')[-1]}_run{run_id}{version_suffix}_cost_comparison.json"
+    output_file = output_dir / f"{dataset}_{config_name}_{model.split('/')[-1]}_run{run_id}{version_suffix}_cost_comparison.json"
 
     combined_report = {
         'config_name': config_name,
@@ -512,17 +597,17 @@ def discover_available_runs(agent_dir: Path, dataset: str, model: str) -> list:
 
 def process_config(agent_dir: Path, dataset: str, model: str, config: str,
                    version: str, run_id: int, vanilla_runs: list, script_dir: Path):
-    """Process a single config (monitor or refiner) and compare with vanilla runs."""
+    """Process a single planner config (monitor, refiner-only, or refiner) and compare with vanilla runs."""
     # Load config data
     print(f"\nLoading {config} trajectories...")
-    if config == 'refiner' and version:
+    if config in ['refiner', 'refiner-only'] and version:
         print(f"  Version: {version}, Run: {run_id}")
     else:
         print(f"  Run: {run_id}")
 
     config_data = load_trajectory_data(
         agent_dir, dataset, model, config,
-        version=version if config == 'refiner' else None,
+        version=version if config in ['refiner', 'refiner-only'] else None,
         run_id=run_id
     )
 
@@ -532,32 +617,47 @@ def process_config(agent_dir: Path, dataset: str, model: str, config: str,
 
     print(f"  Loaded {len(config_data)} {config} instances")
 
-    # Print trigger analysis once
-    print_trigger_analysis(config_data, config, model, version if config == 'refiner' else None, run_id)
+    # Load all vanilla data to determine total_instances
+    all_vanilla_data = []
+    for vanilla_run in vanilla_runs:
+        vanilla_data = load_trajectory_data(
+            agent_dir, dataset, model, 'default',
+            version=None, run_id=None, runs=[vanilla_run]
+        )
+        if vanilla_data:
+            all_vanilla_data.append(vanilla_data)
+
+    # Determine total instances: max of config and all vanilla runs
+    total_instances = max(len(config_data), max((len(vd) for vd in all_vanilla_data), default=0))
+
+    # Compute and print cost breakdown for the config
+    config_avg = compute_averages(config_data, total_instances)
+    print(f"\nConfig Cost Breakdown:")
+    print(f"  Executor Cost:  ${config_avg['avg_executor_cost']:.6f}")
+    if 'refiner' in config:
+        print(f"  Refiner Cost:   ${config_avg['avg_refiner_cost']:.6f}")
+    print(f"  Total Cost:     ${config_avg['avg_total_cost']:.6f}")
+
+    # Print trigger analysis for planner configs only
+    print_trigger_analysis(config_data, config, model, version if config in ['refiner', 'refiner-only'] else None, run_id, total_instances)
     trigger_analysis = analyze_trigger_distribution(config_data)
 
     # Compare each vanilla run with config
     comparisons = []
-    for vanilla_run in vanilla_runs:
-        print(f"\n{'='*80}")
-        print(f"Processing Vanilla Run {vanilla_run}")
-        print(f"{'='*80}")
-
-        vanilla_data = load_trajectory_data(
-            agent_dir, dataset, model, 'default',
-            runs=[vanilla_run]
-        )
-
+    for vanilla_run, vanilla_data in zip(vanilla_runs, all_vanilla_data):
         if not vanilla_data:
-            print(f"  Warning: No data loaded for vanilla run {vanilla_run}, skipping...")
+            print(f"\n  Warning: No data loaded for vanilla run {vanilla_run}, skipping...")
             continue
 
+        print(f"\n{'='*80}")
+        print(f"Comparing with Vanilla Run {vanilla_run}")
+        print(f"{'='*80}")
         print(f"  Loaded {len(vanilla_data)} vanilla instances from run {vanilla_run}")
 
         report = generate_comparison_report(
             vanilla_data, config_data, config, model,
-            version if config == 'refiner' else None,
-            run_id, vanilla_run_id=vanilla_run
+            version if config in ['refiner', 'refiner-only'] else None,
+            run_id, vanilla_run_id=vanilla_run, total_instances=total_instances
         )
 
         print_cost_comparison(report)
@@ -566,8 +666,8 @@ def process_config(agent_dir: Path, dataset: str, model: str, config: str,
     # Save combined report
     if comparisons:
         output_dir = script_dir / "analysis" / "analysis-results" / "cost"
-        save_combined_report(comparisons, trigger_analysis, config, model,
-                           version if config == 'refiner' else None,
+        save_combined_report(comparisons, trigger_analysis, dataset, config, model,
+                           version if config in ['refiner', 'refiner-only'] else None,
                            run_id, output_dir)
 
     return True
@@ -621,7 +721,8 @@ def main():
     if args.config:
         configs_to_process = [args.config]
     else:
-        configs_to_process = ['monitor', 'refiner']
+        # Try all planner configs: monitor, refiner-only, refiner
+        configs_to_process = ['monitor', 'refiner-only', 'refiner']
 
     # Process each config
     processed_count = 0

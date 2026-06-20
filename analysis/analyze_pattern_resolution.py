@@ -7,7 +7,6 @@ Analyzes:
 3. Instance-level details for U-R and R-U cases
 4. Cost and step comparisons
 5. Pattern analysis
-6. Deeper insights into why triggers don't change outcomes
 
 Usage:
     python analysis/analyze_pattern_resolution.py --agent SWE-agent --model deepseek-chat-v3-0324 --dataset swebench --config refiner
@@ -115,6 +114,10 @@ class CSVParser:
                 # Monitor: has trigger status, 12 columns
                 section_width = 12
                 config_sections['monitor'] = (section_start, section_start + section_width)
+            elif 'Refiner-Only Run' in section_name:
+                # Refiner-only: has trigger status, 12 columns
+                section_width = 12
+                config_sections['refiner-only'] = (section_start, section_start + section_width)
             elif 'Live-Plan' in section_name or 'Refiner' in section_name:
                 # Refiner: has trigger status, 12 columns
                 section_width = 12
@@ -327,26 +330,144 @@ class PatternAnalyzer:
 
         return 'unknown'
 
-    def _extract_planner_stats(self, planner_data: Dict) -> Dict:
+    def _load_trajectory(self, instance_id: str) -> Optional[Dict]:
+        """Load trajectory file for a given instance."""
+        if not self.agent_dir or not self.model or not self.dataset:
+            return None
+
+        dataset_path = self.dataset if self.dataset != 'swebench-pro' else f"{self.dataset}/python"
+
+        if self.config in ['refiner', 'refiner-only'] and self.version:
+            traj_path = (self.agent_dir / "trajectories" / self.config / f"version-{self.version}" /
+                        dataset_path / self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.traj")
+        else:
+            traj_path = (self.agent_dir / "trajectories" / self.config / dataset_path /
+                        self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.traj")
+
+        if not traj_path.exists():
+            return None
+
+        try:
+            with open(traj_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Warning: Error loading trajectory for {instance_id}: {e}")
+            return None
+
+    def _find_next_action_after_intervention(self, intervention_step: int, intervention_content: str,
+                                              trajectory: List) -> Tuple[str, str]:
+        """
+        Find the next agent action after an intervention by searching for when this specific
+        intervention first appeared in the trajectory query messages.
+
+        Args:
+            intervention_step: The step index from planner.json where intervention occurred
+            intervention_content: The full content of the intervention
+            trajectory: The trajectory list from .traj file
+
+        Returns (next_action, next_thought)
+
+        Note: If multiple interventions point to the same next step, that's fine - it means
+        the agent took the same action in response to different interventions.
+        """
+        if not trajectory or intervention_step is None:
+            return '', ''
+
+        # Extract a unique signature from the intervention content
+        # Use first 80 chars after the header as a unique identifier
+        lines = intervention_content.split('\n')
+        if len(lines) > 2:
+            # Skip the header line and get the actual guidance content
+            unique_signature = '\n'.join(lines[2:4])[:80]
+        else:
+            unique_signature = intervention_content[:80]
+
+        # Search for this intervention in query messages
+        # Interventions persist in context, so we find where it was newly added (not in previous step)
+        # Search in a range around the intervention_step
+        search_start = max(0, intervention_step - 2)
+        search_end = min(len(trajectory), intervention_step + 5)
+
+        # Find all occurrences where this intervention first appeared (not in previous step)
+        new_occurrences = []
+        for idx in range(search_start, search_end):
+            step = trajectory[idx]
+            has_signature = False
+            for msg in step.get('query', []):
+                content_parts = msg.get('content', [])
+                # Handle both list of parts and direct string
+                if isinstance(content_parts, list):
+                    for part in content_parts:
+                        if isinstance(part, dict) and 'text' in part:
+                            if unique_signature in part['text']:
+                                has_signature = True
+                                break
+                elif isinstance(content_parts, str) and unique_signature in content_parts:
+                    has_signature = True
+                    break
+                if has_signature:
+                    break
+
+            # Check if this is a new occurrence (not in previous step)
+            if has_signature and (idx == 0 or not self._intervention_in_step(trajectory[idx - 1], unique_signature)):
+                new_occurrences.append(idx)
+
+        # Pick the occurrence closest to intervention_step
+        # This handles duplicate intervention content by matching based on step proximity
+        if new_occurrences:
+            first_occurrence_idx = min(new_occurrences, key=lambda x: abs(x - intervention_step))
+        else:
+            return '', ''
+
+        # Return the action from the step where intervention first appeared
+        # The intervention is injected INTO the query of a step, so the action/thought
+        # at that step is the agent's response to the intervention
+        if first_occurrence_idx < len(trajectory):
+            response_step = trajectory[first_occurrence_idx]
+            return response_step.get('action', ''), response_step.get('thought', '')
+
+        return '', ''
+
+    def _intervention_in_step(self, step: Dict, signature: str) -> bool:
+        """Check if an intervention signature exists in a step's query messages."""
+        for msg in step.get('query', []):
+            content_parts = msg.get('content', [])
+            if isinstance(content_parts, list):
+                for part in content_parts:
+                    if isinstance(part, dict) and 'text' in part:
+                        if signature in part['text']:
+                            return True
+            elif isinstance(content_parts, str) and signature in content_parts:
+                return True
+        return False
+
+    def _extract_planner_stats(self, planner_data: Dict, traj_data: Dict = None) -> Dict:
         """Extract summary statistics from planner.json."""
         if not planner_data:
             return None
 
         summary = planner_data.get('summary', {})
         interventions = planner_data.get('interventions', [])
+        trajectory = traj_data.get('trajectory', []) if traj_data else []
 
         # Extract intervention details
         intervention_details = []
         for intervention in interventions:
             planner_type = intervention.get('planner_type')
+            step_idx = intervention.get('step')
+            content = intervention.get('content', '')
+
+            # Find next agent action by searching in trajectory
+            next_action, next_thought = self._find_next_action_after_intervention(step_idx, content, trajectory)
 
             if planner_type == 'monitor':
-                content = intervention.get('content', '')
                 intervention_details.append({
-                    'step': intervention.get('step'),
+                    'step': step_idx,
                     'planner_type': 'monitor',
                     'content': content[:200],
-                    'pattern': self._classify_monitor_trigger(content)
+                    'pattern': self._classify_monitor_trigger(content),
+                    'next_action': next_action,
+                    'next_thought': next_thought
                 })
             elif planner_type == 'refiner':
                 rule_triggers = intervention.get('state_summary', {}).get('rule_triggers', [])
@@ -362,10 +483,12 @@ class PatternAnalyzer:
                     rule_ids = ['plan_compliance']
 
                 intervention_details.append({
-                    'step': intervention.get('step'),
+                    'step': step_idx,
                     'planner_type': 'refiner',
-                    'content': intervention.get('content', ''),
-                    'rule_ids': rule_ids
+                    'content': content,
+                    'rule_ids': rule_ids,
+                    'next_action': next_action,
+                    'next_thought': next_thought
                 })
 
         return {
@@ -484,7 +607,8 @@ class PatternAnalyzer:
             planner_stats = None
             if planner.has_planner:
                 planner_data_json = self._load_planner_json(iid)
-                planner_stats = self._extract_planner_stats(planner_data_json)
+                traj_data_json = self._load_trajectory(iid)
+                planner_stats = self._extract_planner_stats(planner_data_json, traj_data_json)
 
             planner_detail = {
                 'resolved': planner.resolved,
@@ -515,7 +639,8 @@ class PatternAnalyzer:
                 f'{self.config}': planner_detail
             })
 
-        total_instances = len(self.planner_data)
+        # Use max of vanilla and planner data for fair resolution rate comparison
+        total_instances = max(len(self.vanilla_data), len(self.planner_data))
 
         return ComparisonResult(
             category=category,
@@ -545,7 +670,8 @@ class PatternAnalyzer:
             if not planner_data:
                 continue
 
-            planner_stats = self._extract_planner_stats(planner_data)
+            traj_data = self._load_trajectory(iid)
+            planner_stats = self._extract_planner_stats(planner_data, traj_data)
             if not planner_stats:
                 continue
 
@@ -720,7 +846,7 @@ def main():
     parser.add_argument('--dataset', type=str, default='swebench',
                        help='Dataset name (default: swebench)')
     parser.add_argument('--config', type=str, nargs='+', default=['monitor', 'refiner'],
-                       choices=['monitor', 'refiner'],
+                       choices=['monitor', 'refiner-only', 'refiner'],
                        help='Config(s) to analyze (default: monitor refiner)')
     parser.add_argument('--run', type=int, default=1,
                        help='Run ID (default: 1)')

@@ -9,6 +9,7 @@ Collect and compute the report and traj files (refer to plan_monitor/simulator/c
 
 For vanilla run-1: resolution, patterns, cost, steps, lang, unique_phases
 For monitor run: additionally record trigger status (planner.json exists) and overlapping issues
+For refiner-only run: additionally record trigger status (planner.json exists) and overlapping issues
 For refiner run: additionally record trigger status (planner.json exists) and overlapping issues
 
 For monitor triggers, match the intervention content against rules in plan_monitor/config/default_rules.json:
@@ -37,7 +38,7 @@ def load_report(agent_dir: Path, config: str, dataset: str, model: str, run_id: 
 
     # For swebench-pro, report is eval_results.json in the run folder
     if dataset == 'swebench-pro':
-        if config == 'refiner' and version:
+        if config in ['refiner', 'refiner-only'] and version:
             report_path = agent_dir / "reports" / config / f"version-{version}" / dataset_path / model / f"run-{run_id}" / "eval_results.json"
         else:
             report_path = agent_dir / "reports" / config / dataset_path / model / f"run-{run_id}" / "eval_results.json"
@@ -53,7 +54,7 @@ def load_report(agent_dir: Path, config: str, dataset: str, model: str, run_id: 
         return set()
 
     # For swebench, report is in model directory
-    if config == 'refiner' and version:
+    if config in ['refiner', 'refiner-only'] and version:
         reports_dir = agent_dir / "reports" / config / f"version-{version}" / dataset_path / model
     else:
         reports_dir = agent_dir / "reports" / config / dataset_path / model
@@ -329,7 +330,7 @@ def load_run_data(agent_dir: Path, config: str, dataset: str, model: str, run_id
     # Determine trajectory path based on config
     if config == 'default':
         traj_base = agent_dir / "trajectories" / "default" / dataset_path / model / f"run-{run_id}"
-    elif config == 'refiner' and version:
+    elif config in ['refiner', 'refiner-only'] and version:
         traj_base = agent_dir / "trajectories" / config / f"version-{version}" / dataset_path / model / f"run-{run_id}"
     else:
         traj_base = agent_dir / "trajectories" / config / dataset_path / model / f"run-{run_id}"
@@ -360,8 +361,8 @@ def load_run_data(agent_dir: Path, config: str, dataset: str, model: str, run_id
         # Initialize cost with executor cost from trajectory
         total_cost = traj_result['cost']
 
-        # For monitor/refiner configs, add planner cost if available
-        if config in ['monitor', 'refiner'] and planner_file.exists():
+        # For monitor/refiner/refiner-only configs, add planner cost if available
+        if config in ['monitor', 'refiner', 'refiner-only'] and planner_file.exists():
             # Add planner cost (refiner_total_cost from planner.json)
             planner_cost = extract_planner_cost(planner_file)
             total_cost += planner_cost
@@ -397,6 +398,7 @@ def compute_overlapping_issues(run1_patterns: Dict, run2_patterns: Dict) -> List
 def generate_csv(
     vanilla_run1: Dict[str, Dict],
     monitor_run: Dict[str, Dict],
+    refiner_only_run: Dict[str, Dict],
     refiner_run: Dict[str, Dict],
     output_path: Path
 ):
@@ -404,10 +406,11 @@ def generate_csv(
     # Determine which runs have data
     has_vanilla1 = bool(vanilla_run1)
     has_monitor = bool(monitor_run)
+    has_refiner_only = bool(refiner_only_run)
     has_refiner = bool(refiner_run)
 
     # Get all instance IDs
-    all_instances = set(vanilla_run1.keys()) | set(monitor_run.keys()) | set(refiner_run.keys())
+    all_instances = set(vanilla_run1.keys()) | set(monitor_run.keys()) | set(refiner_only_run.keys()) | set(refiner_run.keys())
 
     if not all_instances:
         print("Warning: No instances found in any run")
@@ -430,6 +433,11 @@ def generate_csv(
 
         if has_monitor:
             header_row1.extend(['Monitor Run', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+
+        if has_refiner_only:
+            header_row1.extend(['Refiner-Only Run', '', '', '', '', '', '', '', '', '', '', ''])
             header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
             header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
 
@@ -499,6 +507,38 @@ def generate_csv(
                 else:
                     row.extend(['', '', '', '', '', '', '', '', '', '', '', ''])
 
+            # Refiner-Only Run
+            if has_refiner_only:
+                if instance_id in refiner_only_run:
+                    data = refiner_only_run[instance_id]
+                    has_issue = 1 if any(data['patterns'].values()) else 0
+
+                    # Compute overlapping issues with run 1
+                    overlaps = []
+                    if has_vanilla1 and instance_id in vanilla_run1:
+                        overlaps = compute_overlapping_issues(
+                            vanilla_run1[instance_id]['patterns'],
+                            data['patterns']
+                        )
+                    overlapping_str = ','.join(overlaps) if overlaps else ''
+
+                    row.extend([
+                        1 if data['has_planner'] else 0,  # Trigger status
+                        1 if data['resolved'] else 0,
+                        has_issue,
+                        overlapping_str,
+                        1 if data['patterns']['plan_violation'] else 0,
+                        1 if data['patterns']['oscillation'] else 0,
+                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['repeated_view'] else 0,
+                        data['lang'],
+                        data['unique_phases'],
+                        f"{data['cost']:.6f}",
+                        data['steps']
+                    ])
+                else:
+                    row.extend(['', '', '', '', '', '', '', '', '', '', '', ''])
+
             # Refiner Run
             if has_refiner:
                 if instance_id in refiner_run:
@@ -536,13 +576,13 @@ def generate_csv(
     print(f"\nCSV saved to: {output_path}")
 
 
-def print_summary(vanilla_run1: Dict, monitor_run: Dict, refiner_run: Dict):
+def print_summary(vanilla_run1: Dict, monitor_run: Dict, refiner_only_run: Dict, refiner_run: Dict):
     """Print summary statistics."""
     print("\n" + "="*80)
     print("SUMMARY STATISTICS")
     print("="*80)
 
-    for name, data in [('Vanilla Run-1', vanilla_run1), ('Monitor Run', monitor_run), ('Refiner Run', refiner_run)]:
+    for name, data in [('Vanilla Run-1', vanilla_run1), ('Monitor Run', monitor_run), ('Refiner-Only Run', refiner_only_run), ('Refiner Run', refiner_run)]:
         if not data:
             print(f"\n[{name}]: No data")
             continue
@@ -560,7 +600,7 @@ def print_summary(vanilla_run1: Dict, monitor_run: Dict, refiner_run: Dict):
         print(f"  Avg cost: ${avg_cost:.6f}")
         print(f"  Avg steps: {avg_steps:.1f}")
 
-        if name in ['Monitor Run', 'Refiner Run']:
+        if name in ['Monitor Run', 'Refiner-Only Run', 'Refiner Run']:
             with_planner = sum(1 for d in data.values() if d['has_planner'])
             print(f"  With triggers: {with_planner} ({with_planner/total*100:.1f}%)")
 
@@ -579,10 +619,12 @@ def main():
                        help='Vanilla run ID (default: 1)')
     parser.add_argument('--monitor-run', type=int, default=1,
                        help='Monitor run ID (default: 1)')
+    parser.add_argument('--refiner-only-run', type=int, default=1,
+                       help='Refiner-only run ID (default: 1)')
     parser.add_argument('--refiner-run', type=int, default=1,
                        help='Refiner run ID (default: 1)')
-    parser.add_argument('--refiner-version', type=str, default='5',
-                       help='Refiner version (default: 5)')
+    parser.add_argument('--version', type=str, default='5',
+                       help='Version for refiner-only and refiner (default: 5)')
     parser.add_argument('--output', type=Path, default=None,
                        help='Output CSV path (default: analysis/analysis-results/comparison/{agent}-{model}-{dataset}.csv)')
 
@@ -616,14 +658,21 @@ def main():
     else:
         print(f"  No data found for monitor run {args.monitor_run}")
 
-    print(f"\nLoading Refiner Run {args.refiner_run} (version-{args.refiner_version})...")
-    refiner_run = load_run_data(agent_dir, 'refiner', args.dataset, args.model, args.refiner_run, version=args.refiner_version)
+    print(f"\nLoading Refiner-Only Run {args.refiner_only_run} (version-{args.version})...")
+    refiner_only_run = load_run_data(agent_dir, 'refiner-only', args.dataset, args.model, args.refiner_only_run, version=args.version)
+    if refiner_only_run:
+        print(f"  Loaded {len(refiner_only_run)} instances")
+    else:
+        print(f"  No data found for refiner-only run {args.refiner_only_run}")
+
+    print(f"\nLoading Refiner Run {args.refiner_run} (version-{args.version})...")
+    refiner_run = load_run_data(agent_dir, 'refiner', args.dataset, args.model, args.refiner_run, version=args.version)
     if refiner_run:
         print(f"  Loaded {len(refiner_run)} instances")
     else:
         print(f"  No data found for refiner run {args.refiner_run}")
 
-    if not vanilla_run1 and not monitor_run and not refiner_run:
+    if not vanilla_run1 and not monitor_run and not refiner_only_run and not refiner_run:
         print("\nError: No data loaded for any run. Please check the paths and file availability.")
         return
 
@@ -639,10 +688,10 @@ def main():
         output_path = output_dir / f"{args.agent}-{args.model}-{args.dataset}.csv"
 
     # Generate CSV
-    generate_csv(vanilla_run1, monitor_run, refiner_run, output_path)
+    generate_csv(vanilla_run1, monitor_run, refiner_only_run, refiner_run, output_path)
 
     # Print summary
-    print_summary(vanilla_run1, monitor_run, refiner_run)
+    print_summary(vanilla_run1, monitor_run, refiner_only_run, refiner_run)
 
 
 if __name__ == "__main__":

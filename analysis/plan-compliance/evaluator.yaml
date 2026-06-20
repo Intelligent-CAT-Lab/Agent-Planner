@@ -1,0 +1,35 @@
+evaluator: 
+  model:
+    model_name: "openai/gpt-5.2-codex"
+    model_class: "openrouter"
+    model_kwargs:
+      temperature: 0.0
+    
+  prompt: |
+    You are a helpful evaluator that determines whether the next step follows the provided guidance.
+
+    Given:
+
+    <next_step>
+    Thought:
+    {THOUGHT}
+
+    Action:
+    {ACTION}
+    </next_step>
+
+    Determine whether the next step follows the guidance.
+
+    Judging criteria:
+    - Return True if the action is consistent with the guidance and makes meaningful progress toward carrying it out, even if it only completes part of the guidance or represents a reasonable first step.
+    - Return False if the action ignores the guidance, contradicts it, repeats the behavior the guidance is trying to correct, or primarily pursues an unrelated goal.
+
+    Judge primarily based on the action. Use the thought only as supporting evidence when the action is ambiguous.
+
+    Output exactly one word:
+
+    True
+
+    or
+
+    False
