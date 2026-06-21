@@ -15,17 +15,16 @@ import matplotlib.patches as mpatches
 import numpy as np
 
 
-# Visualization name mappings
-MODEL_NAME_MAP = {
-    'deepseek-chat-v3-0324': 'DeepSeek-V3',
-    'gemini-2.5-flash': 'Gemini-2.5-Flash',
-    'minimax-m2.5': 'MiniMax-M2.5'
-}
+# Load visualization name mappings
+def load_name_maps():
+    """Load name mappings from name_map.json."""
+    name_map_path = Path(__file__).parent / "name_map.json"
+    with open(name_map_path) as f:
+        maps = json.load(f)
+    return maps['MODEL_NAME_MAP'], maps['DATASET_NAME_MAP'], maps['CONFIG_NAME_MAP']
 
-DATASET_NAME_MAP = {
-    'swebench': 'SWE-bench Verified',
-    'swebench-pro': 'SWE-bench Pro'
-}
+
+MODEL_NAME_MAP, DATASET_NAME_MAP, CONFIG_NAME_MAP = load_name_maps()
 
 
 def count_refiner_interventions(planner_path: Path) -> int:
@@ -140,8 +139,8 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
     ncols = 2
     nrows = (n_pairs + ncols - 1) // ncols
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(12, 4.8 * nrows))
-    fig.subplots_adjust(hspace=0.28, wspace=0.15, left=0.09, right=0.91, top=0.88, bottom=0.08)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(13, 5.2 * nrows))
+    fig.subplots_adjust(hspace=0.30, wspace=0.15, left=0.09, right=0.91, top=0.88, bottom=0.08)
 
     # Ensure axes is always 2D array
     if nrows == 1:
@@ -204,35 +203,37 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
             height = bar.get_height()
             # Place text inside the bar
             ax1.text(bar.get_x() + bar.get_width()/2., height * 0.5,
-                    f'{val:.2f}', ha='center', va='center', fontsize=11, fontweight='bold',
+                    f'{val:.2f}', ha='center', va='center', fontsize=14, fontweight='bold',
                     color='black')
 
         for i, (bar, val) in enumerate(zip(bars2, percentages)):
             height = bar.get_height()
             # Place text inside the bar
             ax2.text(bar.get_x() + bar.get_width()/2., height * 0.5,
-                    f'{val:.1f}%', ha='center', va='center', fontsize=11, fontweight='bold',
+                    f'{val:.1f}%', ha='center', va='center', fontsize=14, fontweight='bold',
                     color='black')
 
         # Configure axes
         ax1.set_xticks(x_pos)
-        ax1.set_xticklabels(available_configs, fontsize=13, fontweight='bold')
+        # Map config names for display
+        display_configs = [CONFIG_NAME_MAP.get(c, c) for c in available_configs]
+        ax1.set_xticklabels(display_configs, fontsize=15, fontweight='bold')
 
         # Only show y-axis labels on leftmost (col 0) and rightmost (col 1) subplots
         if col == 0:
-            ax1.set_ylabel('Avg. Interventions\nper Instance', fontsize=13, fontweight='bold', color='black')
+            ax1.set_ylabel('Avg. Interventions\nper Instance', fontsize=15, fontweight='bold', color='black')
         else:
             ax1.set_ylabel('')
             ax1.tick_params(axis='y', labelleft=False)
 
         if col == ncols - 1:
-            ax2.set_ylabel('% Instances\nwith Planner', fontsize=13, fontweight='bold', color='black')
+            ax2.set_ylabel('% Instances\nwith Planner', fontsize=15, fontweight='bold', color='black')
         else:
             ax2.set_ylabel('')
             ax2.tick_params(axis='y', labelright=False)
 
-        ax1.tick_params(axis='y', labelsize=11)
-        ax2.tick_params(axis='y', labelsize=11)
+        ax1.tick_params(axis='y', labelsize=13)
+        ax2.tick_params(axis='y', labelsize=13)
 
         # Use shared y-axis limits
         ax1.set_ylim(0, y1_max)
@@ -244,7 +245,7 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
         # Title with mapped names
         model_display = MODEL_NAME_MAP.get(model, model)
         dataset_display = DATASET_NAME_MAP.get(dataset, dataset)
-        ax1.set_title(f"{model_display}\n{dataset_display}", fontsize=14, fontweight='bold', pad=12)
+        ax1.set_title(f"{model_display}\n{dataset_display}", fontsize=16, fontweight='bold', pad=12)
 
     # Hide unused subplots
     for row in range(nrows):
@@ -255,12 +256,12 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
                 if (row, col) in twin_axes:
                     twin_axes[(row, col)].axis('off')
 
-    # Create custom legend
+    # Create custom legend with mapped config names
     legend_elements = [
         mpatches.Patch(facecolor=colors['refiner-only'], edgecolor='black', linewidth=0.5,
-                      label='Refiner-only', alpha=0.8),
+                      label=CONFIG_NAME_MAP.get('refiner-only', 'Refiner-only'), alpha=0.8),
         mpatches.Patch(facecolor=colors['refiner'], edgecolor='black', linewidth=0.5,
-                      label='Refiner', alpha=0.8),
+                      label=CONFIG_NAME_MAP.get('refiner', 'Refiner'), alpha=0.8),
         mpatches.Patch(facecolor='gray', edgecolor='black', linewidth=0.5,
                       label='Avg. Interventions (solid)', alpha=0.8),
         mpatches.Patch(facecolor='gray', edgecolor='black', linewidth=0.5, hatch='//',
@@ -268,7 +269,7 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
     ]
 
     fig.legend(handles=legend_elements, loc='upper center', ncol=4,
-              frameon=True, fontsize=11, bbox_to_anchor=(0.5, 0.97), edgecolor='black')
+              frameon=True, fontsize=13, bbox_to_anchor=(0.5, 0.97), edgecolor='black')
 
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"\nFigure saved to: {output_path}")
@@ -347,7 +348,7 @@ def main():
                       f"0 configs - ✗ Skipped (no data)")
 
     # Create visualization
-    output_path = output_dir / "refiner_llm_trigger_stats.pdf"
+    output_path = output_dir / "advisor_llm_trigger_stats.pdf"
     create_visualization(data, args.datasets, args.models, args.configs, output_path)
 
     # Print summary
