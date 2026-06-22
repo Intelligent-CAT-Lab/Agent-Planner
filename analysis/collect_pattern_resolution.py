@@ -8,6 +8,7 @@ Collect and compute the report and traj files (refer to plan_monitor/simulator/c
 1 means true, 0 means false, and empty means data not available.
 
 For vanilla run-1: resolution, patterns, cost, steps, lang, unique_phases
+For sage: resolution, patterns, cost, steps, lang, unique_phases
 For monitor run: additionally record trigger status (planner.json exists) and overlapping issues
 For refiner-only run: additionally record trigger status (planner.json exists) and overlapping issues
 For refiner run: additionally record trigger status (planner.json exists) and overlapping issues
@@ -330,6 +331,8 @@ def load_run_data(agent_dir: Path, config: str, dataset: str, model: str, run_id
     # Determine trajectory path based on config
     if config == 'default':
         traj_base = agent_dir / "trajectories" / "default" / dataset_path / model / f"run-{run_id}"
+    elif config == 'sage':
+        traj_base = agent_dir / "trajectories" / "sage" / dataset_path / model / f"run-{run_id}"
     elif config in ['refiner', 'refiner-only'] and version:
         traj_base = agent_dir / "trajectories" / config / f"version-{version}" / dataset_path / model / f"run-{run_id}"
     else:
@@ -400,6 +403,7 @@ def generate_csv(
     monitor_run: Dict[str, Dict],
     refiner_only_run: Dict[str, Dict],
     refiner_run: Dict[str, Dict],
+    sage_run: Dict[str, Dict],
     output_path: Path
 ):
     """Generate CSV file in the specified format."""
@@ -408,9 +412,10 @@ def generate_csv(
     has_monitor = bool(monitor_run)
     has_refiner_only = bool(refiner_only_run)
     has_refiner = bool(refiner_run)
+    has_sage = bool(sage_run)
 
     # Get all instance IDs
-    all_instances = set(vanilla_run1.keys()) | set(monitor_run.keys()) | set(refiner_only_run.keys()) | set(refiner_run.keys())
+    all_instances = set(vanilla_run1.keys()) | set(monitor_run.keys()) | set(refiner_only_run.keys()) | set(refiner_run.keys()) | set(sage_run.keys())
 
     if not all_instances:
         print("Warning: No instances found in any run")
@@ -428,6 +433,11 @@ def generate_csv(
 
         if has_vanilla1:
             header_row1.extend(['Vanilla Run', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+
+        if has_sage:
+            header_row1.extend(['Sage Run', '', '', '', '', '', '', '', '', ''])
             header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
             header_row3.extend(['', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
 
@@ -459,6 +469,26 @@ def generate_csv(
             if has_vanilla1:
                 if instance_id in vanilla_run1:
                     data = vanilla_run1[instance_id]
+                    has_issue = 1 if any(data['patterns'].values()) else 0
+                    row.extend([
+                        1 if data['resolved'] else 0,
+                        has_issue,
+                        1 if data['patterns']['plan_violation'] else 0,
+                        1 if data['patterns']['oscillation'] else 0,
+                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['repeated_view'] else 0,
+                        data['lang'],
+                        data['unique_phases'],
+                        f"{data['cost']:.6f}",
+                        data['steps']
+                    ])
+                else:
+                    row.extend(['', '', '', '', '', '', '', '', '', ''])
+
+            # Sage Run
+            if has_sage:
+                if instance_id in sage_run:
+                    data = sage_run[instance_id]
                     has_issue = 1 if any(data['patterns'].values()) else 0
                     row.extend([
                         1 if data['resolved'] else 0,
@@ -576,13 +606,13 @@ def generate_csv(
     print(f"\nCSV saved to: {output_path}")
 
 
-def print_summary(vanilla_run1: Dict, monitor_run: Dict, refiner_only_run: Dict, refiner_run: Dict):
+def print_summary(vanilla_run1: Dict, monitor_run: Dict, refiner_only_run: Dict, refiner_run: Dict, sage_run: Dict):
     """Print summary statistics."""
     print("\n" + "="*80)
     print("SUMMARY STATISTICS")
     print("="*80)
 
-    for name, data in [('Vanilla Run-1', vanilla_run1), ('Monitor Run', monitor_run), ('Refiner-Only Run', refiner_only_run), ('Refiner Run', refiner_run)]:
+    for name, data in [('Vanilla Run-1', vanilla_run1), ('Sage Run', sage_run), ('Monitor Run', monitor_run), ('Refiner-Only Run', refiner_only_run), ('Refiner Run', refiner_run)]:
         if not data:
             print(f"\n[{name}]: No data")
             continue
@@ -617,6 +647,8 @@ def main():
                        help='Dataset name (default: swebench)')
     parser.add_argument('--vanilla-run', type=int, default=1,
                        help='Vanilla run ID (default: 1)')
+    parser.add_argument('--sage-run', type=int, default=1,
+                       help='Sage run ID (default: 1)')
     parser.add_argument('--monitor-run', type=int, default=1,
                        help='Monitor run ID (default: 1)')
     parser.add_argument('--refiner-only-run', type=int, default=1,
@@ -651,6 +683,13 @@ def main():
     vanilla_run1 = load_run_data(agent_dir, 'default', args.dataset, args.model, args.vanilla_run)
     print(f"  Loaded {len(vanilla_run1)} instances")
 
+    print(f"\nLoading Sage Run {args.sage_run}...")
+    sage_run = load_run_data(agent_dir, 'sage', args.dataset, args.model, args.sage_run)
+    if sage_run:
+        print(f"  Loaded {len(sage_run)} instances")
+    else:
+        print(f"  No data found for sage run {args.sage_run}")
+
     print(f"\nLoading Monitor Run {args.monitor_run}...")
     monitor_run = load_run_data(agent_dir, 'monitor', args.dataset, args.model, args.monitor_run)
     if monitor_run:
@@ -672,7 +711,7 @@ def main():
     else:
         print(f"  No data found for refiner run {args.refiner_run}")
 
-    if not vanilla_run1 and not monitor_run and not refiner_only_run and not refiner_run:
+    if not vanilla_run1 and not sage_run and not monitor_run and not refiner_only_run and not refiner_run:
         print("\nError: No data loaded for any run. Please check the paths and file availability.")
         return
 
@@ -688,10 +727,10 @@ def main():
         output_path = output_dir / f"{args.agent}-{args.model}-{args.dataset}.csv"
 
     # Generate CSV
-    generate_csv(vanilla_run1, monitor_run, refiner_only_run, refiner_run, output_path)
+    generate_csv(vanilla_run1, monitor_run, refiner_only_run, refiner_run, sage_run, output_path)
 
     # Print summary
-    print_summary(vanilla_run1, monitor_run, refiner_only_run, refiner_run)
+    print_summary(vanilla_run1, monitor_run, refiner_only_run, refiner_run, sage_run)
 
 
 if __name__ == "__main__":

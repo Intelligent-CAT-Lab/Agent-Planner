@@ -110,6 +110,10 @@ class CSVParser:
                 # Vanilla: no trigger status, 10 columns
                 section_width = 10
                 config_sections['vanilla'] = (section_start, section_start + section_width)
+            elif 'Sage Run' in section_name:
+                # Sage: no trigger status, 10 columns
+                section_width = 10
+                config_sections['sage'] = (section_start, section_start + section_width)
             elif 'Monitor Run' in section_name or 'Monitor' in section_name:
                 # Monitor: has trigger status, 12 columns
                 section_width = 12
@@ -134,11 +138,11 @@ class CSVParser:
         """Check if a config section exists in the CSV."""
         return config in self.column_map
 
-    def parse_vanilla_data(self, row: List[str]) -> Optional[InstanceData]:
+    def parse_baseline_data(self, row: List[str], config: str = 'vanilla') -> Optional[InstanceData]:
         """
-        Parse vanilla run data from a row.
+        Parse baseline run data (vanilla or sage) from a row.
 
-        Vanilla structure (10 columns):
+        Baseline structure (10 columns):
         0: Resolution Status
         1: Has Issue
         2-5: Patterns (plan_violation, oscillation, long_stagnation, repeated view)
@@ -147,10 +151,10 @@ class CSVParser:
         8: Cost
         9: Steps
         """
-        if 'vanilla' not in self.column_map:
+        if config not in self.column_map:
             return None
 
-        start, end = self.column_map['vanilla']
+        start, end = self.column_map[config]
         if len(row) <= start or not row[start]:
             return None
 
@@ -180,8 +184,16 @@ class CSVParser:
                 steps=steps
             )
         except (ValueError, IndexError) as e:
-            print(f"Warning: Error parsing vanilla data for row: {e}")
+            print(f"Warning: Error parsing {config} data for row: {e}")
             return None
+
+    def parse_vanilla_data(self, row: List[str]) -> Optional[InstanceData]:
+        """Parse vanilla run data from a row."""
+        return self.parse_baseline_data(row, 'vanilla')
+
+    def parse_sage_data(self, row: List[str]) -> Optional[InstanceData]:
+        """Parse sage run data from a row."""
+        return self.parse_baseline_data(row, 'sage')
 
     def parse_planner_data(self, row: List[str], config: str) -> Optional[InstanceData]:
         """
@@ -244,11 +256,14 @@ class PatternAnalyzer:
     """Analyzer for pattern resolution data."""
 
     PATTERN_TYPES = ['plan_violation', 'oscillation', 'long_stagnation', 'repeated_view']
+    BASELINE_CONFIGS = ['vanilla', 'sage']  # Configs without trigger status (10 columns)
+    PLANNER_CONFIGS = ['monitor', 'refiner-only', 'refiner']  # Configs with trigger status (12 columns)
 
     def __init__(self, csv_path: Path, config: str, agent_dir: Path = None,
                  model: str = None, dataset: str = None, run_id: int = 1, version: str = '5'):
         self.csv_path = csv_path
-        self.config = config  # 'monitor' or 'refiner'
+        self.config = config  # 'vanilla', 'sage', 'monitor', 'refiner', or 'refiner-only'
+        self.is_baseline = config in self.BASELINE_CONFIGS
         self.agent_dir = agent_dir
         self.model = model
         self.dataset = dataset
@@ -262,8 +277,11 @@ class PatternAnalyzer:
         """Load and parse CSV data using smart parser."""
         parser = CSVParser(self.csv_path)
 
-        if not parser.has_config('vanilla'):
-            print("Warning: No vanilla data found in CSV")
+        # Auto-detect baseline: prefer vanilla, fallback to sage
+        baseline_config = 'vanilla' if parser.has_config('vanilla') else ('sage' if parser.has_config('sage') else None)
+
+        if not baseline_config:
+            print("Warning: No baseline data (vanilla or sage) found in CSV")
 
         if not parser.has_config(self.config):
             raise ValueError(f"Config '{self.config}' not found in CSV. Available: {list(parser.column_map.keys())}")
@@ -275,15 +293,30 @@ class PatternAnalyzer:
 
             instance_id = row[0]
 
-            # Parse vanilla data
-            vanilla = parser.parse_vanilla_data(row)
-            if vanilla:
-                self.vanilla_data[instance_id] = vanilla
+            # Parse baseline data (vanilla or sage) for comparison
+            if baseline_config:
+                if baseline_config == 'sage':
+                    baseline = parser.parse_sage_data(row)
+                else:
+                    baseline = parser.parse_vanilla_data(row)
 
-            # Parse planner data (monitor or refiner)
-            planner = parser.parse_planner_data(row, self.config)
-            if planner:
-                self.planner_data[instance_id] = planner
+                if baseline:
+                    self.vanilla_data[instance_id] = baseline
+
+            # Parse target config data
+            if self.is_baseline:
+                # Target is also a baseline (vanilla or sage comparison)
+                if self.config == 'sage':
+                    target = parser.parse_sage_data(row)
+                else:
+                    target = parser.parse_vanilla_data(row)
+                if target:
+                    self.planner_data[instance_id] = target
+            else:
+                # Target is a planner config (monitor, refiner, refiner-only)
+                planner = parser.parse_planner_data(row, self.config)
+                if planner:
+                    self.planner_data[instance_id] = planner
 
     def _load_planner_json(self, instance_id: str) -> Optional[Dict]:
         """Load planner.json for a given instance."""
@@ -292,7 +325,12 @@ class PatternAnalyzer:
 
         dataset_path = self.dataset if self.dataset != 'swebench-pro' else f"{self.dataset}/python"
 
-        if self.config == 'refiner' and self.version:
+        # Baseline configs don't have planner.json
+        if self.is_baseline:
+            return None
+
+        # Map config to trajectory path
+        if self.config in ['refiner', 'refiner-only'] and self.version:
             planner_path = (self.agent_dir / "trajectories" / self.config / f"version-{self.version}" /
                           dataset_path / self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.planner.json")
         else:
@@ -337,11 +375,19 @@ class PatternAnalyzer:
 
         dataset_path = self.dataset if self.dataset != 'swebench-pro' else f"{self.dataset}/python"
 
+        # Map config to trajectory path
+        if self.config == 'vanilla':
+            config_path = 'default'
+        elif self.config == 'sage':
+            config_path = 'sage'
+        else:
+            config_path = self.config
+
         if self.config in ['refiner', 'refiner-only'] and self.version:
-            traj_path = (self.agent_dir / "trajectories" / self.config / f"version-{self.version}" /
+            traj_path = (self.agent_dir / "trajectories" / config_path / f"version-{self.version}" /
                         dataset_path / self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.traj")
         else:
-            traj_path = (self.agent_dir / "trajectories" / self.config / dataset_path /
+            traj_path = (self.agent_dir / "trajectories" / config_path / dataset_path /
                         self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.traj")
 
         if not traj_path.exists():
@@ -846,7 +892,7 @@ def main():
     parser.add_argument('--dataset', type=str, default='swebench',
                        help='Dataset name (default: swebench)')
     parser.add_argument('--config', type=str, nargs='+', default=['monitor', 'refiner'],
-                       choices=['monitor', 'refiner-only', 'refiner'],
+                       choices=['vanilla', 'sage', 'monitor', 'refiner-only', 'refiner'],
                        help='Config(s) to analyze (default: monitor refiner)')
     parser.add_argument('--run', type=int, default=1,
                        help='Run ID (default: 1)')
@@ -914,7 +960,7 @@ def main():
                 model=args.model,
                 dataset=args.dataset,
                 run_id=args.run,
-                version=args.refiner_version if config == 'refiner' else None
+                version=args.refiner_version if config in ['refiner', 'refiner-only'] else None
             )
             report = analyzer.generate_report(output_dir)
             processed_count += 1

@@ -214,7 +214,7 @@ def main():
     analysis_path = (script_dir / "analysis/analysis-results/comparison/detailed-analysis" /
                     args.config / f"{args.agent}-{args.model}-{args.dataset}-{args.config}-analysis.json")
     evaluator_config_path = script_dir / "analysis/plan-compliance/evaluator.yaml"
-    cache_path = script_dir / f"analysis/plan-compliance/.cache-{args.agent}-{args.model}-{args.dataset}-{args.config}.json"
+    cache_path = script_dir / f"analysis/plan-compliance/.cache/{args.agent}-{args.model}-{args.dataset}-{args.config}.json"
 
     if not analysis_path.exists():
         raise FileNotFoundError(f"Analysis file not found: {analysis_path}")
