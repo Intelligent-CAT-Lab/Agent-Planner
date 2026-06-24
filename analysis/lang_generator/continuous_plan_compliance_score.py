@@ -45,7 +45,7 @@ class PlanTestConfig:
     models: Optional[List[str]] = None
     setting: str = "plan"
     data_dir: str = "artifacts"
-    expected_order: Tuple[str, ...] = ("L_navigate", "L_reproduce", "P", "V_newly_generated_test")
+    expected_order: Tuple[str, ...] = ("L_navigate", "L_reproduce", "P", "V")
 
 
 @dataclass
@@ -67,7 +67,7 @@ class ComplianceScore:
 
 # Setting to expected order mapping
 SETTING_TO_EXPECTED_ORDER = {
-    "plan": ("L_navigate", "L_reproduce", "P", "V_newly_generated_test"),
+    "plan": ("L_navigate", "L_reproduce", "P", "V"),
 }
 
 
@@ -254,12 +254,12 @@ def compute_compliance_score(
         s2_coverage=s2_coverage,
         s3_order=s3_order,
         final_score=final_score,
-        # num_expected_phases=m,
-        # num_extra_phases=num_extra,
-        # num_required_seen=num_required_seen,
-        # num_required_total=num_required_total,
-        # lcs_length=lis_length,
-        # expected_length=expected_length
+        num_expected_phases=m,
+        num_extra_phases=num_extra,
+        num_required_seen=num_required_seen,
+        num_required_total=num_required_total,
+        lcs_length=lis_length,
+        expected_length=expected_length
     )
 
 def main():

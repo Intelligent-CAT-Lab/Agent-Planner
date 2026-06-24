@@ -120,7 +120,7 @@ def main():
     parser.add_argument('--configs', type=str, nargs='+',
                        default=['monitor', 'refiner-only', 'refiner'],
                        help='Configs to analyze (default: monitor refiner-only refiner)')
-    parser.add_argument('--skip-collect', action='store_true',
+    parser.add_argument('--skip-collect', action='store_false',
                        help='Skip collection step (CSV generation)')
     parser.add_argument('--skip-analyze', action='store_true',
                        help='Skip analysis step (JSON generation)')

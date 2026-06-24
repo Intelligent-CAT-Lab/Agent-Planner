@@ -112,24 +112,6 @@ def compute_lcs_similarity(seq1: List[str], seq2: List[str]) -> float:
     return 2 * lcs_len / (len(seq1) + len(seq2))
 
 
-def compute_exact_prefix_match(seq1: List[str], seq2: List[str]) -> Tuple[int, float]:
-    """
-    Compute exact prefix match length and ratio.
-    Returns: (prefix_length, prefix_ratio)
-    """
-    prefix_len = 0
-    for i in range(min(len(seq1), len(seq2))):
-        if seq1[i] == seq2[i]:
-            prefix_len += 1
-        else:
-            break
-
-    max_len = max(len(seq1), len(seq2))
-    prefix_ratio = prefix_len / max_len if max_len > 0 else 1.0
-
-    return prefix_len, prefix_ratio
-
-
 def analyze_instance_divergence(
     instance_id: str,
     vanilla_traj_path: Path,
@@ -153,27 +135,23 @@ def analyze_instance_divergence(
     vanilla_actions = extract_actions(vanilla_traj)
     planner_actions = extract_actions(planner_traj)
 
-    # Truncate planner at first intervention, vanilla at min(vanilla_length, first_intervention)
+    # Truncate at first intervention for prefix comparison
     if first_intervention_step is not None:
         planner_actions_prefix = planner_actions[:first_intervention_step]
         vanilla_actions_prefix = vanilla_actions[:min(len(vanilla_actions), first_intervention_step)]
-        intervention_step_ratio = first_intervention_step / len(planner_actions) if planner_actions else 0
     else:
         planner_actions_prefix = planner_actions
         vanilla_actions_prefix = vanilla_actions
-        intervention_step_ratio = None
 
-    # Compute action-level metrics
-    exact_prefix_len, exact_prefix_ratio = compute_exact_prefix_match(
-        vanilla_actions_prefix, planner_actions_prefix
-    )
-    lcs_similarity = compute_lcs_similarity(vanilla_actions_prefix, planner_actions_prefix)
+    # Compute action-level LCS similarity
+    prefix_action_lcs = compute_lcs_similarity(vanilla_actions_prefix, planner_actions_prefix)
+    full_action_lcs = compute_lcs_similarity(vanilla_actions, planner_actions)
 
-    # Extract phase sequences from langutory for coarse-grained comparison
+    # Extract phase sequences from langutory
     vanilla_phases_full = parse_langutory(vanilla_lang)
     planner_phases_full = parse_langutory(planner_lang)
 
-    # Estimate phase cutoff proportionally to action cutoff
+    # Estimate phase cutoff proportionally to action cutoff for prefix comparison
     if len(vanilla_actions) > 0 and len(planner_actions) > 0:
         vanilla_phase_cutoff_ratio = len(vanilla_actions_prefix) / len(vanilla_actions)
         planner_phase_cutoff_ratio = len(planner_actions_prefix) / len(planner_actions)
@@ -181,34 +159,33 @@ def analyze_instance_divergence(
         vanilla_phase_cutoff = int(len(vanilla_phases_full) * vanilla_phase_cutoff_ratio)
         planner_phase_cutoff = int(len(planner_phases_full) * planner_phase_cutoff_ratio)
 
-        vanilla_phases = vanilla_phases_full[:vanilla_phase_cutoff]
-        planner_phases = planner_phases_full[:planner_phase_cutoff]
+        vanilla_phases_prefix = vanilla_phases_full[:vanilla_phase_cutoff]
+        planner_phases_prefix = planner_phases_full[:planner_phase_cutoff]
     else:
-        vanilla_phases = vanilla_phases_full
-        planner_phases = planner_phases_full
+        vanilla_phases_prefix = vanilla_phases_full
+        planner_phases_prefix = planner_phases_full
 
-    # Compute phase-level similarity
-    phase_lcs_similarity = compute_lcs_similarity(vanilla_phases, planner_phases)
-    phase_prefix_len, phase_prefix_ratio = compute_exact_prefix_match(vanilla_phases, planner_phases)
+    # Compute phase-level LCS similarity
+    prefix_phase_lcs = compute_lcs_similarity(vanilla_phases_prefix, planner_phases_prefix)
+    full_phase_lcs = compute_lcs_similarity(vanilla_phases_full, planner_phases_full)
 
     return {
         'instance_id': instance_id,
-        'vanilla_action_count': len(vanilla_actions),
-        'planner_action_count': len(planner_actions),
-        # 'vanilla_comparison_length': len(vanilla_actions_prefix),
-        # 'planner_comparison_length': len(planner_actions_prefix),
         'first_intervention_step': first_intervention_step,
-        'intervention_step_ratio': intervention_step_ratio,
-        'exact_prefix_length': exact_prefix_len,
-        'exact_prefix_ratio': exact_prefix_ratio,
-        'action_lcs_similarity': lcs_similarity,
-        'vanilla_phase_count': len(vanilla_phases_full),
-        'planner_phase_count': len(planner_phases_full),
-        'vanilla_comparison_phase_count': len(vanilla_phases),
-        'planner_comparison_phase_count': len(planner_phases),
-        'phase_exact_prefix_length': phase_prefix_len,
-        'phase_exact_prefix_ratio': phase_prefix_ratio,
-        'phase_lcs_similarity': phase_lcs_similarity
+        'sequence_lengths': {
+            'vanilla_actions': len(vanilla_actions),
+            'planner_actions': len(planner_actions),
+            'vanilla_phases': len(vanilla_phases_full),
+            'planner_phases': len(planner_phases_full)
+        },
+        'prefix_similarity': {
+            'action_lcs': prefix_action_lcs,
+            'phase_lcs': prefix_phase_lcs
+        },
+        'full_similarity': {
+            'action_lcs': full_action_lcs,
+            'phase_lcs': full_phase_lcs
+        }
     }
 
 
@@ -219,68 +196,32 @@ def aggregate_divergence_stats(divergence_results: List[Dict], include_details: 
 
     total = len(divergence_results)
 
-    # Compute averages
-    avg_exact_prefix_ratio = sum(r['exact_prefix_ratio'] for r in divergence_results) / total
-    avg_action_lcs_similarity = sum(r['action_lcs_similarity'] for r in divergence_results) / total
-    avg_phase_lcs_similarity = sum(r['phase_lcs_similarity'] for r in divergence_results) / total
-    avg_phase_prefix_ratio = sum(r['phase_exact_prefix_ratio'] for r in divergence_results) / total
-
     # Count interventions
     has_intervention = [r for r in divergence_results if r['first_intervention_step'] is not None]
-    if has_intervention:
-        avg_intervention_step_ratio = sum(r['intervention_step_ratio'] for r in has_intervention) / len(has_intervention)
-    else:
-        avg_intervention_step_ratio = None
 
-    # Count perfect matches
-    perfect_prefix_count = sum(1 for r in divergence_results if r['exact_prefix_ratio'] == 1.0)
-    perfect_prefix_ratio = perfect_prefix_count / total
-
-    perfect_phase_prefix_count = sum(1 for r in divergence_results if r['phase_exact_prefix_ratio'] == 1.0)
-    perfect_phase_prefix_ratio = perfect_phase_prefix_count / total
-
-    # Distribution of prefix ratios
-    prefix_ratio_bins = {
-        '0.0-0.2': 0,
-        '0.2-0.4': 0,
-        '0.4-0.6': 0,
-        '0.6-0.8': 0,
-        '0.8-1.0': 0,
-        '1.0': 0
-    }
-
-    for r in divergence_results:
-        ratio = r['exact_prefix_ratio']
-        if ratio == 1.0:
-            prefix_ratio_bins['1.0'] += 1
-        elif ratio >= 0.8:
-            prefix_ratio_bins['0.8-1.0'] += 1
-        elif ratio >= 0.6:
-            prefix_ratio_bins['0.6-0.8'] += 1
-        elif ratio >= 0.4:
-            prefix_ratio_bins['0.4-0.6'] += 1
-        elif ratio >= 0.2:
-            prefix_ratio_bins['0.2-0.4'] += 1
-        else:
-            prefix_ratio_bins['0.0-0.2'] += 1
+    # Compute average similarities
+    avg_prefix_action_lcs = sum(r['prefix_similarity']['action_lcs'] for r in divergence_results) / total
+    avg_prefix_phase_lcs = sum(r['prefix_similarity']['phase_lcs'] for r in divergence_results) / total
+    avg_full_action_lcs = sum(r['full_similarity']['action_lcs'] for r in divergence_results) / total
+    avg_full_phase_lcs = sum(r['full_similarity']['phase_lcs'] for r in divergence_results) / total
 
     result = {
         'total_instances': total,
         'instances_with_intervention': len(has_intervention),
-        'avg_intervention_step_ratio': avg_intervention_step_ratio,
-        'avg_exact_prefix_ratio': avg_exact_prefix_ratio,
-        'avg_action_lcs_similarity': avg_action_lcs_similarity,
-        'avg_phase_exact_prefix_ratio': avg_phase_prefix_ratio,
-        'avg_phase_lcs_similarity': avg_phase_lcs_similarity,
-        'perfect_prefix_count': perfect_prefix_count,
-        'perfect_prefix_ratio': perfect_prefix_ratio,
-        'perfect_phase_prefix_count': perfect_phase_prefix_count,
-        'perfect_phase_prefix_ratio': perfect_phase_prefix_ratio,
-        'prefix_ratio_distribution': prefix_ratio_bins
+        'avg_similarity': {
+            'prefix': {
+                'action_lcs': avg_prefix_action_lcs,
+                'phase_lcs': avg_prefix_phase_lcs
+            },
+            'full': {
+                'action_lcs': avg_full_action_lcs,
+                'phase_lcs': avg_full_phase_lcs
+            }
+        }
     }
 
     if include_details:
-        result['details'] = divergence_results
+        result['instances'] = divergence_results
 
     return result
 
@@ -395,19 +336,34 @@ def analyze_divergence(
     # Compute overall statistics (without details at overall level)
     all_divergence_results = []
     for cat_results in results_by_category.values():
-        all_divergence_results.extend(cat_results.get('details', []))
+        all_divergence_results.extend(cat_results.get('instances', []))
 
     overall_stats = aggregate_divergence_stats(all_divergence_results, include_details=False) if all_divergence_results else {}
 
+    # Remove instance details from category results for cleaner output
+    by_category_summary = {}
+    for category, cat_data in results_by_category.items():
+        by_category_summary[category] = {
+            'total_instances': cat_data['total_instances'],
+            'instances_with_intervention': cat_data['instances_with_intervention'],
+            'avg_similarity': cat_data['avg_similarity']
+        }
+
     return {
-        'config': config,
-        'agent': agent,
-        'model': model,
-        'dataset': dataset,
-        'version': version,
-        'run_id': run_id,
+        'metadata': {
+            'config': config,
+            'agent': agent,
+            'model': model,
+            'dataset': dataset,
+            'version': version,
+            'run_id': run_id
+        },
         'overall': overall_stats,
-        'by_category': results_by_category
+        'by_category': by_category_summary,
+        'instances': {
+            category: cat_data.get('instances', [])
+            for category, cat_data in results_by_category.items()
+        }
     }
 
 
@@ -445,7 +401,7 @@ def main():
 
     for config in configs:
         try:
-            version = args.version if config == 'refiner' else None
+            version = args.version if 'refiner' in config else None
 
             results = analyze_divergence(
                 agent=args.agent,
@@ -458,7 +414,8 @@ def main():
             )
 
             # Save results
-            output_path = output_dir / f"{config}-{args.agent}-{args.model}-{args.dataset}-divergence.json"
+            version_str = f"-v{version}" if version is not None else ""
+            output_path = output_dir / f"{config}-{args.agent}-{args.model}-{args.dataset}{version_str}-divergence.json"
             with open(output_path, 'w') as f:
                 json.dump(results, f, indent=2)
 
@@ -472,28 +429,34 @@ def main():
             overall = results.get('overall', {})
             if overall:
                 print(f"\nTotal: {overall.get('total_instances', 0)} instances")
-                if overall.get('avg_intervention_step_ratio') is not None:
-                    print(f"Intervention timing: {overall.get('avg_intervention_step_ratio', 0):.1%} of trajectory on average")
+                print(f"With intervention: {overall.get('instances_with_intervention', 0)} instances")
 
-                print(f"\nAction-level divergence before first intervention:")
-                print(f"  Exact prefix: {overall.get('avg_exact_prefix_ratio', 0):.3f} | LCS: {overall.get('avg_action_lcs_similarity', 0):.3f}")
-                print(f"  Perfect matches: {overall.get('perfect_prefix_count', 0)} ({overall.get('perfect_prefix_ratio', 0)*100:.1f}%)")
+                avg_sim = overall.get('avg_similarity', {})
+                prefix_sim = avg_sim.get('prefix', {})
+                full_sim = avg_sim.get('full', {})
 
-                print(f"\nPhase-level divergence before first intervention:")
-                print(f"  Exact prefix: {overall.get('avg_phase_exact_prefix_ratio', 0):.3f} | LCS: {overall.get('avg_phase_lcs_similarity', 0):.3f}")
-                print(f"  Perfect matches: {overall.get('perfect_phase_prefix_count', 0)} ({overall.get('perfect_phase_prefix_ratio', 0)*100:.1f}%)")
+                print(f"\nSimilarity before first intervention (prefix):")
+                print(f"  Action LCS: {prefix_sim.get('action_lcs', 0):.3f}")
+                print(f"  Phase LCS:  {prefix_sim.get('phase_lcs', 0):.3f}")
+
+                print(f"\nSimilarity across full trajectories:")
+                print(f"  Action LCS: {full_sim.get('action_lcs', 0):.3f}")
+                print(f"  Phase LCS:  {full_sim.get('phase_lcs', 0):.3f}")
 
             by_category = results.get('by_category', {})
             if by_category:
-                print("\nBy Category (Action exact prefix | Action LCS | Phase exact prefix | Phase LCS):")
+                print("\nBy Category (Prefix Action | Prefix Phase | Full Action | Full Phase):")
                 for category in ['R-R', 'R-U', 'U-R', 'U-U']:
                     cat_results = by_category.get(category)
                     if cat_results:
+                        cat_sim = cat_results.get('avg_similarity', {})
+                        prefix_sim = cat_sim.get('prefix', {})
+                        full_sim = cat_sim.get('full', {})
                         print(f"  {category}: n={cat_results.get('total_instances', 0):3d} | "
-                              f"{cat_results.get('avg_exact_prefix_ratio', 0):.3f} | "
-                              f"{cat_results.get('avg_action_lcs_similarity', 0):.3f} | "
-                              f"{cat_results.get('avg_phase_exact_prefix_ratio', 0):.3f} | "
-                              f"{cat_results.get('avg_phase_lcs_similarity', 0):.3f}")
+                              f"{prefix_sim.get('action_lcs', 0):.3f} | "
+                              f"{prefix_sim.get('phase_lcs', 0):.3f} | "
+                              f"{full_sim.get('action_lcs', 0):.3f} | "
+                              f"{full_sim.get('phase_lcs', 0):.3f}")
 
             print("="*80)
 

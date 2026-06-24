@@ -121,23 +121,28 @@ def _hide_zero_labels(ax: plt.Axes) -> None:
 
 
 def _repel_labels(ax: plt.Axes, max_iter: int = 280, step: float = 1.0) -> None:
-    """Overlap avoidance: nudge labels apart in display coords, keep inside axes."""
+    """
+    Minimal overlap avoidance for Venn diagram labels.
+    Only applies tiny adjustments when labels truly overlap, preserving correct region positioning.
+    """
     fig = ax.figure
     fig.canvas.draw()
     texts = [t for t in ax.texts if t.get_visible()]
     if len(texts) < 2:
         return
 
-    for _ in range(max_iter):
+    # Only do minimal adjustment to avoid obscuring each other
+    for iteration in range(max_iter):
         moved = False
-        bboxes = [t.get_window_extent(fig.canvas.get_renderer()).expanded(1.05, 1.2) for t in texts]
+        bboxes = [t.get_window_extent(fig.canvas.get_renderer()).expanded(1.05, 1.1) for t in texts]
         for i in range(len(texts)):
             for j in range(i+1, len(texts)):
                 if not bboxes[i].overlaps(bboxes[j]):
                     continue
                 moved = True
-                dx = step if (i % 2 == 0) else -step
-                dy = (step * 0.35) if (j % 2 == 0) else -(step * 0.35)
+                # Very small nudges to avoid obscuring, not relocate
+                dx = step * 0.5 if (i % 2 == 0) else -step * 0.5
+                dy = (step * 0.3) if (j % 2 == 0) else -(step * 0.3)
                 for t, ddx, ddy in ((texts[i], dx, dy), (texts[j], -dx, -dy)):
                     x, y = t.get_position()
                     inv = ax.transData.inverted()
@@ -147,7 +152,7 @@ def _repel_labels(ax: plt.Axes, max_iter: int = 280, step: float = 1.0) -> None:
         if not moved:
             break
 
-    # clamp within axes area
+    # Keep labels within visible area
     x0, x1 = ax.get_xlim()
     y0, y1 = ax.get_ylim()
     for t in texts:
@@ -182,7 +187,7 @@ def plot_venn_diagram(config_data: Dict[str, Set[str]], ax, color_map: Dict[str,
     n_configs = len(config_data)
 
     if n_configs == 0:
-        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', fontsize=14)
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', fontsize=28)
         ax.axis('off')
         return
 
@@ -191,7 +196,7 @@ def plot_venn_diagram(config_data: Dict[str, Set[str]], ax, color_map: Dict[str,
         display_name = CONFIG_NAME_MAP.get(config_name, config_name)
         count = len(list(config_data.values())[0])
         ax.text(0.5, 0.5, f'{display_name}\n{count}', ha='center', va='center',
-                fontsize=16, bbox=dict(boxstyle='circle',
+                fontsize=32, bbox=dict(boxstyle='circle',
                                       facecolor=color_map.get(config_name, CONFIG_COLORS.get(config_name, "#A8E6CF")),
                                       alpha=ALPHA, edgecolor='none'))
         ax.axis('off')
@@ -222,14 +227,17 @@ def plot_venn_diagram(config_data: Dict[str, Set[str]], ax, color_map: Dict[str,
         _hide_zero_labels(ax)
 
         # Emphasize region counts - larger text
+        # The venn library positions labels correctly in each region
+        # We only style them, not move them
         for t in ax.texts:
-            t.set_fontsize(15)
+            t.set_fontsize(38)
             t.set_fontweight('bold')
             t.set_color("#1d232a")
-            t.set_path_effects([pe.withStroke(linewidth=1.5, foreground="white")])
+            t.set_path_effects([pe.withStroke(linewidth=3.0, foreground="white")])
 
-        # Repel overlapping labels
-        _repel_labels(ax, max_iter=200, step=0.8)
+        # Only repel if there are actual overlaps causing readability issues
+        # Use minimal repelling to preserve correct region positioning
+        _repel_labels(ax, max_iter=50, step=0.5)
 
         # Clean frame
         for sp in ax.spines.values():
@@ -264,7 +272,7 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
     script_dir = Path(__file__).parent.parent.parent
 
     if output_dir is None:
-        output_dir = script_dir / "analysis" / "figures" / "venn_resolved"
+        output_dir = script_dir / "analysis" / "figures" 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     n_datasets = len(datasets)
@@ -273,9 +281,9 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
     # Create color map for configs using predefined colors
     color_map = {config: CONFIG_COLORS.get(config, "#A8E6CF") for config in configs}
 
-    # Compact figure with shared labels
-    fig_width = 4.5 * n_models
-    fig_height = 4.0 * n_datasets
+    # Larger figure with compact spacing
+    fig_width = 10 * n_models
+    fig_height = 9 * n_datasets
     fig, axes = plt.subplots(n_datasets, n_models, figsize=(fig_width, fig_height),
                              squeeze=False)
 
@@ -302,11 +310,11 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
             # Add column title (model) on top row
             if i == 0:
                 model_display = MODEL_NAME_MAP.get(model, model)
-                ax.set_title(model_display, fontsize=18, fontweight='bold', pad=6)
+                ax.set_title(model_display, fontsize=38, fontweight='bold', pad=5)
 
             # Add row label (dataset) on left column
             if j == 0:
-                ax.set_ylabel(dataset_display, fontsize=18, fontweight='bold',
+                ax.set_ylabel(dataset_display, fontsize=38, fontweight='bold',
                              rotation=90, labelpad=10)
 
     # Create legend for configs
@@ -319,13 +327,13 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
     ]
 
     fig.legend(handles=legend_handles, loc='lower center', ncol=len(active_configs),
-              frameon=False, fontsize=17, bbox_to_anchor=(0.5, -0.01),
-              columnspacing=1.8, handlelength=1.8,
-              prop={'weight': 'bold', 'size': 17})
+              frameon=False, fontsize=36, bbox_to_anchor=(0.5, 0.05),
+              columnspacing=2.2, handlelength=2.2,
+              prop={'weight': 'bold', 'size': 36})
 
-    # Minimal spacing between subplots
-    plt.subplots_adjust(left=0.09, right=0.99, top=0.96, bottom=0.08,
-                       wspace=0.0, hspace=0.02)
+    # Minimal spacing between subplots for compactness
+    plt.subplots_adjust(left=0.08, right=0.99, top=0.97, bottom=0.08,
+                       wspace=0.03, hspace=0.08)
 
     output_file = output_dir / f"venn_resolved.pdf"
     plt.savefig(output_file, format="pdf", dpi=300, bbox_inches='tight')
@@ -335,7 +343,7 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
 
 def main():
     parser = argparse.ArgumentParser(description='Generate Venn diagrams for resolved instances across configs')
-    parser.add_argument('--datasets', nargs='+', default=['swebench', 'swebench-pro'],
+    parser.add_argument('--datasets', nargs='+', default=['swebench-pro', 'swebench'],
                        help='Dataset names (default: swebench swebench-pro)')
     parser.add_argument('--models', nargs='+',
                        default=['deepseek-chat-v3-0324', 'gemini-2.5-flash', 'minimax-m2.5'],

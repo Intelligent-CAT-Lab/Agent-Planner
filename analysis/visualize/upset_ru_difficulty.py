@@ -17,13 +17,29 @@ warnings.filterwarnings("ignore")
 # Constants and Configuration
 # ============================
 
-BASE_DIR = Path("../../")
+BASE_DIR = Path(__file__).parent.parent.parent
 CONFIG1 = "default"
 CONFIG2 = "refiner"
-MODELS = ['MiniMax-M2.5', 'Gemini-2.5-Flash', 'DeepSeek-V3']
 DIFFICULTY_COLORS = ["#88CCEE", "#DDCC77", "#CC6677", "#117733"]
 SWE_PRO_SAMPLED = BASE_DIR / "SWE-bench_Pro-os" / "SWE-agent" / "script" / "sample-data" / "samples" / "python" / "swebench-pro" / "sampled_instances.yaml"
 SWE_PRO_GOLD = BASE_DIR / "analysis" / "analysis-results" / "swebench-pro_gold_patch_file_analysis.csv"
+
+# Load name mappings
+def load_name_maps():
+    """Load name mappings from name_map.json."""
+    name_map_path = Path(__file__).parent / "name_map.json"
+    with open(name_map_path) as f:
+        maps = json.load(f)
+    return maps['MODEL_NAME_MAP'], maps['DATASET_NAME_MAP'], maps['CONFIG_NAME_MAP']
+
+MODEL_NAME_MAP, DATASET_NAME_MAP, CONFIG_NAME_MAP = load_name_maps()
+
+# Model file prefixes
+MODEL_FILES = {
+    'minimax-m2.5': 'minimax-m2.5',
+    'gemini-2.5-flash': 'gemini-2.5-flash',
+    'deepseek-chat-v3-0324': 'deepseek-chat-v3-0324'
+}
 
 # ============================
 # Core Data Processing Functions
@@ -115,20 +131,29 @@ def create_dataset(path1, config1, path2, config2, benchmark_type="verified"):
 # Visualization Functions
 # ============================
 
-def create_upset_image(df, config1, config2):
+def create_upset_image(df, config1, config2, show_difficulty_title=True):
     """Render UpSet plot and return as image array."""
-    df = df.set_index([config1, config2])
-    
+    # Map config names to display names
+    config1_display = CONFIG_NAME_MAP.get(config1, config1)
+    config2_display = CONFIG_NAME_MAP.get(config2, config2)
+
+    # Rename columns for display
+    df_display = df.rename(columns={config1: config1_display, config2: config2_display})
+    df_display = df_display.set_index([config1_display, config2_display])
+
     upset = UpSet(
-        df,
+        df_display,
         intersection_plot_elements=0,
         show_counts=True,
         sort_categories_by=None,
     )
+
+    # Only show difficulty title if requested
+    difficulty_title = "Instances by Difficulty" if show_difficulty_title else ""
     upset.add_stacked_bars(
-        by="difficulty", 
-        colors=DIFFICULTY_COLORS, 
-        title="Instances by Difficulty", 
+        by="difficulty",
+        colors=DIFFICULTY_COLORS,
+        title=difficulty_title,
         elements=10
     )
     upset.plot()
@@ -162,31 +187,41 @@ def create_upset_image(df, config1, config2):
                 text.set_position((x, y + 5))
                 text.set_va('bottom')
     
-    # Save to buffer
+    # Save to buffer as PNG for composite
     buf = BytesIO()
     fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
     plt.close(fig)
     buf.seek(0)
-    img = mpimg.imread(buf)
+    img = mpimg.imread(buf, format='png')
     buf.close()
     return img
 
-def create_composite_figure(images, titles):
-    """Create composite figure with images for multiple models."""
+def create_composite_figure(images, model_names, dataset_names):
+    """Create composite figure with images for multiple models and dataset row labels."""
     n_models = len(images[0])
-    fig, axes = plt.subplots(2, n_models, figsize=(10, 12))
-    
+    n_datasets = len(images)
+    fig, axes = plt.subplots(n_datasets, n_models, figsize=(11, 10))
+
     for row_idx, row_images in enumerate(images):
-        for col_idx, (ax, img, title) in enumerate(zip(axes[row_idx], row_images, titles)):
+        for col_idx, (ax, img) in enumerate(zip(axes[row_idx], row_images)):
             ax.imshow(img)
             ax.set_xticks([])
             ax.set_yticks([])
             for spine in ax.spines.values():
                 spine.set_visible(False)
-            
-            if row_idx == 1:  # Only bottom row gets labels
-                ax.set_xlabel(title, fontsize=15, fontweight='bold', labelpad=10)
-    
+
+            # Column title (model name) on top row
+            if row_idx == 0:
+                ax.set_title(model_names[col_idx], fontsize=16, fontweight='bold', pad=10)
+
+            # Row label (dataset name) - positioned to avoid overlap
+            if col_idx == 0:
+                # Use text positioned outside the axis instead of ylabel
+                ax.text(0.3, 0.5, dataset_names[row_idx],
+                       transform=ax.transAxes,
+                       fontsize=16, fontweight='bold',
+                       rotation=90, va='center', ha='right')
+
     # Add legend
     legend_elements = [
         Patch(facecolor=DIFFICULTY_COLORS[i], label=label)
@@ -198,12 +233,12 @@ def create_composite_figure(images, titles):
         fontsize=14,
         frameon=True,
         ncol=4,
-        bbox_to_anchor=(0.5, 0.89),
+        bbox_to_anchor=(0.5, 0.97),
         handleheight=1.0,
         handlelength=1.0,
     )
-    
-    plt.subplots_adjust(wspace=0.02, hspace=-0.15, left=0.01, right=0.99, bottom=0.08)
+
+    plt.subplots_adjust(wspace=0.02, hspace=-0.1, left=0.08, right=0.99, top=0.93, bottom=0.02)
     return fig
 
 # ============================
@@ -213,35 +248,43 @@ def create_composite_figure(images, titles):
 def main():
     verified_images = []
     pro_images = []
-    
-    # Define file pairs
-    model_files = [
-        ('minimax-m2.5', 'minimax-m2.5'),
-        ('gemini-2.5-flash', 'gemini-2.5-flash'),
-        ('deepseek-chat-v3-0324', 'deepseek-chat-v3-0324')
+
+    # Get model display names in order
+    model_display_names = [MODEL_NAME_MAP[m] for m in MODEL_FILES.keys()]
+
+    # Get dataset display names
+    dataset_display_names = [
+        DATASET_NAME_MAP['swebench'],
+        DATASET_NAME_MAP['swebench-pro']
     ]
-    
+
     # Process Verified benchmark
-    for model_name, file_prefix in model_files:
-        file1 = BASE_DIR / "SWE-agent" / "reports" / "default" / "swebench" / model_name / f"{file_prefix}.run-1.json"
-        file2 = BASE_DIR / "SWE-agent" / "reports" / "refiner" / "version-5" / "swebench" / model_name / f"{file_prefix}.run-1.json"
+    for idx, (model_key, file_prefix) in enumerate(MODEL_FILES.items()):
+        file1 = BASE_DIR / "SWE-agent" / "reports" / "default" / "swebench" / model_key / f"{file_prefix}.run-1.json"
+        file2 = BASE_DIR / "SWE-agent" / "reports" / "refiner" / "version-5" / "swebench" / model_key / f"{file_prefix}.run-1.json"
         df = create_dataset(file1, CONFIG1, file2, CONFIG2, benchmark_type="verified")
-        verified_images.append(create_upset_image(df, CONFIG1, CONFIG2))
-    
+        # Only show difficulty title on the first (leftmost) subplot
+        verified_images.append(create_upset_image(df, CONFIG1, CONFIG2, show_difficulty_title=(idx == 0)))
+
     # Process PRO benchmark
-    for model_name, file_prefix in model_files:
-        file1 = BASE_DIR / "SWE-bench_Pro-os" / "SWE-agent" / "reports" / "default" / "swebench-pro" / "python" / model_name / "run-1" / "eval_results.json"
-        file2 = BASE_DIR / "SWE-bench_Pro-os" / "SWE-agent" / "reports" / "refiner" / "version-5" / "swebench-pro" / "python" / model_name / "run-1" / "eval_results.json"
+    for idx, (model_key, file_prefix) in enumerate(MODEL_FILES.items()):
+        file1 = BASE_DIR / "SWE-bench_Pro-os" / "SWE-agent" / "reports" / "default" / "swebench-pro" / "python" / model_key / "run-1" / "eval_results.json"
+        file2 = BASE_DIR / "SWE-bench_Pro-os" / "SWE-agent" / "reports" / "refiner" / "version-5" / "swebench-pro" / "python" / model_key / "run-1" / "eval_results.json"
         df = create_dataset(file1, CONFIG1, file2, CONFIG2, benchmark_type="pro")
-        pro_images.append(create_upset_image(df, CONFIG1, CONFIG2))
-    
+        # Only show difficulty title on the first (leftmost) subplot
+        pro_images.append(create_upset_image(df, CONFIG1, CONFIG2, show_difficulty_title=(idx == 0)))
+
     # Create and save composite figure
-    fig = create_composite_figure([verified_images, pro_images], MODELS)
-    output_path = BASE_DIR / "analysis" / "figures" / "upset_ru_difficulty.png"
+    fig = create_composite_figure(
+        [verified_images, pro_images],
+        model_display_names,
+        dataset_display_names
+    )
+    output_path = BASE_DIR / "analysis" / "figures" / "upset_ru_difficulty.pdf"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=300, bbox_inches='tight', pad_inches=0.1)
+    fig.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
-    
+
     print(f"Figure saved to {output_path}")
 
 if __name__ == "__main__":

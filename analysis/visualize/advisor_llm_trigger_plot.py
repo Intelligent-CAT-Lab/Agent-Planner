@@ -23,7 +23,6 @@ def load_name_maps():
         maps = json.load(f)
     return maps['MODEL_NAME_MAP'], maps['DATASET_NAME_MAP'], maps['CONFIG_NAME_MAP']
 
-
 MODEL_NAME_MAP, DATASET_NAME_MAP, CONFIG_NAME_MAP = load_name_maps()
 
 
@@ -134,17 +133,31 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
         print("No valid data to plot (need at least 2 configs per dataset-model pair)")
         return
 
-    # Create figure with 2-column layout for proper 2x2 grid
+    # Create figure with adaptive layout: 1 row if 3 or fewer subplots, otherwise 2 columns
     n_pairs = len(valid_pairs)
-    ncols = 2
-    nrows = (n_pairs + ncols - 1) // ncols
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(13, 5.2 * nrows))
-    fig.subplots_adjust(hspace=0.30, wspace=0.15, left=0.09, right=0.91, top=0.88, bottom=0.08)
+    if n_pairs <= 3:
+        # Use 1 row layout for 3 or fewer subplots
+        ncols = n_pairs
+        nrows = 1
+        fig, axes = plt.subplots(nrows, ncols, figsize=(15 * ncols, 12))
+        fig.subplots_adjust(hspace=0.30, wspace=0.20, left=0.09, right=0.92, top=0.92, bottom=0.22)
 
-    # Ensure axes is always 2D array
-    if nrows == 1:
-        axes = axes.reshape(1, -1)
+        # Ensure axes is always 2D array
+        if ncols == 1:
+            axes = np.array([[axes]])
+        else:
+            axes = axes.reshape(1, -1)
+    else:
+        # Use 2-column layout for more subplots
+        ncols = 2
+        nrows = (n_pairs + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(14, 5.2 * nrows))
+        fig.subplots_adjust(hspace=0.30, wspace=0.15, left=0.09, right=0.91, top=0.88, bottom=0.08)
+
+        # Ensure axes is always 2D array
+        if nrows == 1:
+            axes = axes.reshape(1, -1)
 
     # Colors for configs
     colors = {'refiner-only': '#3b82f6', 'refiner': '#10b981'}
@@ -163,6 +176,10 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
     y1_max = max_avg * 1.25
     y2_max = 100  # Percentage should always be 0-100
 
+    # Check if all pairs have the same dataset (for title display logic)
+    unique_datasets = set(d for d, m in valid_pairs)
+    single_dataset = len(unique_datasets) == 1
+
     # Track twin axes for each subplot
     twin_axes = {}
 
@@ -178,7 +195,8 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
 
         if not available_configs:
             ax1.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax1.transAxes)
-            ax1.set_title(f"{model}\n{dataset}", fontsize=10, fontweight='bold')
+            # ax1.set_title(f"{model}\n{dataset}", fontsize=12, fontweight='bold')
+            ax1.set_title(f"{model}", fontsize=12, fontweight='bold')
             continue
 
         x_pos = np.arange(len(available_configs))
@@ -203,37 +221,37 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
             height = bar.get_height()
             # Place text inside the bar
             ax1.text(bar.get_x() + bar.get_width()/2., height * 0.5,
-                    f'{val:.2f}', ha='center', va='center', fontsize=14, fontweight='bold',
+                    f'{val:.2f}', ha='center', va='center', fontsize=48, fontweight='bold',
                     color='black')
 
         for i, (bar, val) in enumerate(zip(bars2, percentages)):
             height = bar.get_height()
             # Place text inside the bar
             ax2.text(bar.get_x() + bar.get_width()/2., height * 0.5,
-                    f'{val:.1f}%', ha='center', va='center', fontsize=14, fontweight='bold',
+                    f'{val:.1f}%', ha='center', va='center', fontsize=48, fontweight='bold',
                     color='black')
 
         # Configure axes
         ax1.set_xticks(x_pos)
         # Map config names for display
         display_configs = [CONFIG_NAME_MAP.get(c, c) for c in available_configs]
-        ax1.set_xticklabels(display_configs, fontsize=15, fontweight='bold')
+        ax1.set_xticklabels(display_configs, fontsize=46, fontweight='bold')
 
-        # Only show y-axis labels on leftmost (col 0) and rightmost (col 1) subplots
+        # Only show y-axis labels on leftmost (col 0) and rightmost (last col) subplots
         if col == 0:
-            ax1.set_ylabel('Avg. Interventions\nper Instance', fontsize=15, fontweight='bold', color='black')
+            ax1.set_ylabel('Avg. Interventions\nper Instance', fontsize=46, fontweight='bold', color='black')
         else:
             ax1.set_ylabel('')
             ax1.tick_params(axis='y', labelleft=False)
 
         if col == ncols - 1:
-            ax2.set_ylabel('% Instances\nwith Planner', fontsize=15, fontweight='bold', color='black')
+            ax2.set_ylabel('% Instances\nwith Advisor', fontsize=46, fontweight='bold', color='black')
         else:
             ax2.set_ylabel('')
             ax2.tick_params(axis='y', labelright=False)
 
-        ax1.tick_params(axis='y', labelsize=13)
-        ax2.tick_params(axis='y', labelsize=13)
+        ax1.tick_params(axis='y', labelsize=44)
+        ax2.tick_params(axis='y', labelsize=44)
 
         # Use shared y-axis limits
         ax1.set_ylim(0, y1_max)
@@ -245,7 +263,12 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
         # Title with mapped names
         model_display = MODEL_NAME_MAP.get(model, model)
         dataset_display = DATASET_NAME_MAP.get(dataset, dataset)
-        ax1.set_title(f"{model_display}\n{dataset_display}", fontsize=16, fontweight='bold', pad=12)
+
+        # Only show dataset in title if there are multiple datasets
+        if single_dataset:
+            ax1.set_title(f"{model_display}", fontsize=48, fontweight='bold', pad=20)
+        else:
+            ax1.set_title(f"{model_display}\n{dataset_display}", fontsize=48, fontweight='bold', pad=20)
 
     # Hide unused subplots
     for row in range(nrows):
@@ -265,11 +288,16 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
         mpatches.Patch(facecolor='gray', edgecolor='black', linewidth=0.5,
                       label='Avg. Interventions (solid)', alpha=0.8),
         mpatches.Patch(facecolor='gray', edgecolor='black', linewidth=0.5, hatch='//',
-                      label='% with Planner (hatched)', alpha=0.4)
+                      label='% with Advisor (hatched)', alpha=0.4)
     ]
 
-    fig.legend(handles=legend_elements, loc='upper center', ncol=4,
-              frameon=True, fontsize=13, bbox_to_anchor=(0.5, 0.97), edgecolor='black')
+    # Place legend below the plot for single-row layout, above for multi-row
+    if n_pairs <= 3:
+        fig.legend(handles=legend_elements, loc='lower center', ncol=4,
+                  frameon=True, fontsize=46, bbox_to_anchor=(0.5, 0.03), edgecolor='black')
+    else:
+        fig.legend(handles=legend_elements, loc='upper center', ncol=4,
+                  frameon=True, fontsize=46, bbox_to_anchor=(0.5, 0.98), edgecolor='black')
 
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"\nFigure saved to: {output_path}")
@@ -281,7 +309,7 @@ def main():
         description="Visualize refiner LLM intervention statistics"
     )
     parser.add_argument("--datasets", nargs="+",
-                       default=['swebench', 'swebench-pro'],
+                       default=['swebench-pro'],
                        help="Datasets to analyze")
     parser.add_argument("--models", nargs="+",
                        default=['deepseek-chat-v3-0324', 'gemini-2.5-flash', 'minimax-m2.5'],

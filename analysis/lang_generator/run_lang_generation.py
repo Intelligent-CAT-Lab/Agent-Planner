@@ -17,7 +17,13 @@ Example entry:
       "L_reproduce_newly_generated_test_2",
       "P_1",
       "V_newly_generated_test_2"
-    ]
+    ],
+    "compliance_score": {
+      "s1_vocabulary": 1.0,
+      "s2_coverage": 1.0,
+      "s3_order": 1.0,
+      "final_score": 1.0
+    }
   }
 """
 
@@ -30,6 +36,7 @@ from tqdm import tqdm
 
 from plan_monitor.commandParser import CommandParser
 from analysis.lang_generator.buildLang import build_lang_sequence, build_lang_sequence_rle
+from analysis.lang_generator.continuous_plan_compliance_score import compute_compliance_score
 
 
 def get_resolution_status(report_path: Path, instance_id: str, dataset: str) -> str:
@@ -113,7 +120,7 @@ def process_instance(
         use_rle: Whether to use run-length encoding
 
     Returns:
-        Dictionary with instance_id, resolution_status, and langutory
+        Dictionary with instance_id, resolution_status, langutory, and compliance_score
     """
     instance_id = instance_dir.name
     traj_file = instance_dir / f"{instance_id}.traj"
@@ -189,10 +196,20 @@ def process_instance(
         # Get resolution status
         resolution_status = get_resolution_status(report_path, instance_id, dataset)
 
+        # Compute compliance score with default expected order
+        expected_order = ("L_navigate", "L_reproduce", "P", "V")
+        score = compute_compliance_score(langutory, expected_order)
+
         return {
             'instance_id': instance_id,
             'resolution_status': resolution_status,
-            'langutory': langutory
+            'langutory': langutory,
+            'compliance_score': {
+                's1_vocabulary': score.s1_vocabulary,
+                's2_coverage': score.s2_coverage,
+                's3_order': score.s3_order,
+                'final_score': score.final_score
+            }
         }
 
     except Exception as e:
