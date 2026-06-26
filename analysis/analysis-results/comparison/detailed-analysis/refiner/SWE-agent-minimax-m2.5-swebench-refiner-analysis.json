@@ -19,12 +19,12 @@
         "dwell_L_reproduce": 135,
         "monitor_repeated_view": 55,
         "oscillation_self_loop": 25,
-        "plan_compliance": 28,
-        "monitor_oscillation": 29,
-        "monitor_unknown": 4,
+        "plan_violation": 28,
+        "monitor_oscillation_self_loop": 29,
+        "monitor_oscillation_max_repeats": 4,
         "dwell_P": 4,
         "monitor_plan_violation": 3,
-        "monitor_long_stagnation": 2
+        "monitor_dwell_L_navigate": 2
       },
       "avg_interventions": 2.6112359550561797,
       "avg_monitor_count": 0.20898876404494382,
@@ -877,7 +877,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n<new_plan>\n\n### Next Step Plan\nLocate the two validator classes in `contrib/auth/validators.py` (`ASCIIUsernameValidator` and `UnicodeUsernameValidator`) and update their `regex` attributes to use `\\A` and `\\Z` anchors instead of `^` and `$`. Specifically, change:\n- `r'^[\\w.@+-]+$'` to `r'\\A[\\w.@+-]+\\Z'` in `ASCIIUsernameValidator`\n- `r'^[\\w.@+-]+$'` to `r'\\A[\\w.@+-]+\\Z'` in `UnicodeUsernameValidator`\n\nAfter making the change, verify by running the existing test suite for `django.contrib.auth.validators` to ensure no regressions, and consider adding a test case that confirms a username ending in `\\n` is now rejected by both validators.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -1221,7 +1221,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -1229,7 +1229,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -1237,7 +1237,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -1245,7 +1245,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "If you cannot make further progress, stop or submit your patch.",
-                  "pattern": "unknown",
+                  "pattern": "oscillation_max_repeats",
                   "next_action": "submit",
                   "next_thought": ""
                 }
@@ -1318,7 +1318,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -1326,7 +1326,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -1334,7 +1334,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -1342,7 +1342,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "If you cannot make further progress, stop or submit your patch.",
-                  "pattern": "unknown",
+                  "pattern": "oscillation_max_repeats",
                   "next_action": "submit",
                   "next_thought": ""
                 }
@@ -1784,7 +1784,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n<new_plan>\n\n### Next Step Plan\nSince no actions have been taken yet, the immediate next step is to locate the Django authentication backend code that contains the `ModelBackend.authenticate()` method referenced in the issue. The agent should:\n\n1. **Identify the relevant source file** in the Django repository that defines `ModelBackend` and its `authenticate()` method (this lives in the `django.contrib.auth` package, in the backends module).\n2. **Read the current implementation** of `ModelBackend.authenticate()` to confirm it matches the snippet in the issue description, paying particular attention to:\n   - The initial handling of `username` being `None` (where it falls back to `kwargs.get(UserModel.USERNAME_FIELD)`).\n   - The `try/except` block that calls `UserModel._default_manager.get_by_natural_key(username)` and `UserModel().set_password(password)`.\n3. **Scan for any existing tests** related to `ModelBackend.authenticate()` behavior with `None` credentials, to understand the current test coverage and determine whether new tests will need to be added or existing ones updated.\n4. **Confirm understanding of related code paths**, such as how `UserModel.USERNAME_FIELD` interacts with the lookup, and whether other authentication backends in the same file need similar treatment (per the issue's reasoning about timing differences across backends).\n\nThe goal of this step is purely investigative",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "find /testbed -type f -name \"*.py\" | xargs grep -l \"ModelBackend\" | head -20",
                   "next_thought": "",
@@ -1918,7 +1918,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nLocate and inspect the current implementation of the `_check_list_display_item` method inside `django/contrib/admin/checks.py` to confirm the exact code that needs to be modified. Before editing, the agent should:\n1. Open `django/contrib/admin/checks.py` and read the entire `_check_list_display_item` method along with its imports (ensuring `FieldDoesNotExist` and `models.ManyToManyField` are already imported, and add them if missing).\n2. Cross-check the method's current logic against the truth table in the issue description to confirm the buggy branches (the ones using `hasattr(obj.model, item)` to short-circuit before trying `get_field`, and the ones that conflate `field is None` with `getattr` raising `AttributeError`).\n3. Identify all call sites of `_check_list_display_item` to ensure the new return shape (a list of errors or an empty list) remains compatible, and locate any existing tests under `tests/admin_checks/` that exercise this method so they can be re-run after the fix.\n\nThis preparatory step is necessary because the recent trajectory is empty — the agent has not yet viewed the source — and the issue's proposed patch must be applied against the actual current code rather than guessed. Once the file is read and the surrounding context (imports, related helper methods, existing tests) is understood, the next step can be to apply the corrected logic.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -2039,7 +2039,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nSince no actions have been taken yet, the first step is to locate the buggy function in the Django codebase. The issue mentions `simplify_regexp()` and `replace_named_groups()`, which are used in Django's URL resolver to transform regex patterns (specifically for named groups) into a simpler form (likely for the route representation shown in `WARNING...your URL pattern...` debug output and for the `URL_PATTERN` of the route).\n\n1. Search the Django repository for the definitions of `simplify_regexp` and `replace_named_groups`. These are most likely located in `django/urls/resolvers.py` (where the `URLPattern`/`URLResolver` classes live, and which is what DRF references in the linked issue #6888). Use a search like:\n   - `grep -rn \"def simplify_regexp\" django/`\n   - `grep -rn \"def replace_named_groups\" django/`\n   - Also look for any related helper such as `_route_to_regex` or similar that may be involved.\n\n2. Once the file and function are located, read the entire `simplify_regexp` function (and any helpers it calls, including `replace_named_groups`) to understand the current logic. Pay particular attention to:\n   - How it iterates over named groups in the regex.\n   - Why a trailing group at the end of the pattern (with no trailing characters such as `/`) might be missed — likely the function loops using `re.finditer` or consumes characters after the named group (e.g., expects a `/` or another group after it), and the loop terminates before processing the last group when there's no trailing character to consume after it.\n\n3. Report back the file path, line numbers, and the current source of the relevant function(s) so the next step can plan a precise fix (e.g., changing the loop so it does not require a trailing character after the last named group, or ensuring the final iteration is processed even when the pattern ends with the named group).\n\nDo NOT modify any files or run tests in this step — the goal is purely discovery: find the code so we know exactly what to change in the next step.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "cd /testbed && grep -rn \"def simplify_regexp\" --include=\"*.py\"",
                   "next_thought": "",
@@ -2339,7 +2339,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n<new_plan>\n\n### Next Step Plan\n\nThe agent has not yet taken any action, so the first step must be to locate and inspect the relevant code in the Django repository to understand the current implementation of `parse_http_date` before making any changes.\n\n**Step: Locate and read the `parse_http_date` function in `django/utils/http.py`**\n\nSpecifically, the agent should:\n\n1. Open `django/utils/http.py` and find the `parse_http_date` function.\n2. Identify the branch/code that handles the RFC 850 date format (the one that parses a two-digit year). This is the section that currently contains logic such as:\n   - If year < 70 → year = year + 2000\n   - Else → year = year + 1900\n3. Confirm the exact variable names, surrounding code context, and how `datetime.datetime` is constructed (so the fix integrates cleanly).\n4. Also check the existing tests for this function (likely in `tests/utils_tests/test_http.py`) to understand expected behaviors, so any fix remains backward-compatible and the test suite is not blindly modified.\n\n**Concrete action:** Use the file-reading tool to open `django/utils/http.py`, scroll to/find the `parse_http_date` function, and display its full body along with any helpers it calls (such as the RFC 850 regex). This will give the agent the necessary context to design the correct 50-year-future comparison logic per RFC 7231 in the subsequent step.\n\nDo NOT modify any code or tests yet — only inspect the existing implementation. This is the foundational step needed before planning and applying the actual fix.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -2638,7 +2638,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nBegin by locating and examining the `resolve_lookup_value` method within the Django ORM's `Query` class to understand the current implementation. Since the issue is rooted in changes from PR #30687 where list values are being coerced into tuples, the immediate focus should be on:\n\n1. Searching the Django codebase to identify the file containing the `Query` class and specifically the `resolve_lookup_value` method (typically located in `django/db/models/sql/query.py`).\n2. Reading the current implementation of `resolve_lookup_value` to pinpoint exactly where and how the input value is being converted to a tuple (e.g., usage of `tuple()` or similar coercion).\n3. Reviewing the git history or blame for that method to confirm which lines were introduced or modified by PR #30687, so the change is understood in context.\n4. Identifying the exact code path that handles the conversion of an incoming `list` to a `tuple`, and noting any related logic (such as the use of `self.annotation_select` or `values()` operations) that interacts with this coercion.\n\nThis step is foundational because the root cause must be precisely located before any fix can be proposed. Once the offending coercion is identified, subsequent steps can focus on designing a fix that preserves the original iterable type (e.g., by returning a list when the input was a list) and verifying it with tests covering cases like `PickledField` and similar type-sensitive fields.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -2839,7 +2839,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nLocate the `trim_docstring` function in the Django repository (it resides in `django/contrib/admindocs/utils.py`) and inspect its current implementation. Confirm that the indentation calculation uses the comprehension `min(len(line) - len(line.lstrip()) for line in lines if line.lstrip())` and verify that `lines` comes from `docstring.expandtabs().splitlines()`. Once the exact code is identified, prepare to modify the comprehension to skip the first line by using `lines[1:]` instead of `lines` so that the minimum indent is computed from the body of the docstring rather than from a potentially unindented first line. After editing, plan to verify the change by re-reading the modified function and ensuring the surrounding logic (e.g., `inspect.cleandoc` removal and the `if not indent` branch) still behaves correctly. Do not run any commands yet; this step is purely about locating and reading the relevant source so the fix can be applied accurately in the following step.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -3571,7 +3571,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nBegin the refactoring by locating the `DatabaseOperations.execute_sql_flush()` method in the Django codebase. Search for the method definition (likely in `django/db/backends/base/operations.py`) and identify all call sites that pass a `using` argument (commonly `connection.ops.execute_sql_flush(connection.alias, sql_flush)` patterns, including in `django/db/backends/base/client.py` or similar flush-related modules). Read the surrounding context to confirm the intended new signature is `execute_sql_flush(self, sql_list)` and that `self.connection.alias` can be safely used inside the method. This investigation step is essential before making any edits, ensuring the full set of files needing changes is known.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "find /testbed -type f -name \"*.py\" | xargs grep -l \"execute_sql_flush\" 2>/dev/null",
                   "next_thought": "",
@@ -4217,7 +4217,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nSince no actions have been taken yet, the agent should begin by locating and reviewing the relevant validation code in the Django codebase. Specifically:\n\n1. **Inspect the ForeignKey validation code**: Read the implementation of `ForeignKey.validate()` (and the related `RelatedField.validate()` method) in `django/db/models/fields/related.py`, focusing on the area around the lines referenced in the issue (around line 917) where the queryset lookup against `_default_manager` is performed.\n\n2. **Understand the manager semantics**: Confirm how `_base_manager` differs from `_default_manager` and verify that switching the validation to use `_base_manager.all()` (or an equivalent lookup) will correctly resolve the issue without breaking existing behavior (e.g., soft-deletion via default managers should not affect FK validation, but other default-manager filters should be bypassed only for validation purposes).\n\n3. **Identify the exact change required**: Determine the precise code change—replacing the use of `self.remote_field.model._default_manager` (or the relevant queryset obtained from the field) with `self.remote_field.model._base_manager` in the validation path so that the form-defined queryset (using `_base_manager`) and the internal validation agree.\n\n4. **Check for related tests**: Look for existing tests covering `ForeignKey.validate()` and `ModelForm` validation behavior with custom managers (e.g., tests in `model_forms/tests.py` or `validation/tests.py`) to understand how the change will be exercised and where new test coverage may be needed.\n\nOnce this exploration is complete, the agent will be positioned to make a minimal, correct code change (switching to `_base_manager`) and add a regression test that demonstrates validation now succeeds for objects filtered out by the default manager but accessible via the base manager.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -4760,7 +4760,7 @@
                   "step": 98,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff",
                   "next_thought": ""
                 }
@@ -5399,7 +5399,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nSince no actions have been taken yet, the agent should begin by locating and examining the `PasswordResetTokenGenerator` class in the Django codebase. Specifically:\n\n1. **Locate the relevant file**: Find `django/contrib/auth/tokens.py` which contains the `PasswordResetTokenGenerator` class.\n\n2. **Examine the current implementation**: Read the `_make_hash_value()` method to understand what fields are currently included in the hash (typically user ID, timestamp, password, and last login).\n\n3. **Review related tests**: Look at `django/contrib/auth/tests/test_tokens.py` (or equivalent) to understand the existing test patterns for token generation and validation, so the fix can be properly validated.\n\n4. **Understand the email field handling**: Since the issue notes that \"Nothing forces a user to even have an email as per AbstractBaseUser,\" the agent should also check how `get_session_auth_hash()` handles this concern (likely using `getattr(user, \"email\", None)` or similar defensive coding) to apply a consistent pattern.\n\nThis exploration step is essential before making any code changes, as it will inform the correct approach for modifying `_make_hash_value()` to include the user's email address while handling users without email fields gracefully.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -5477,7 +5477,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nSince no actions have been taken yet, the first step is to locate and examine the implementation of the `auth.E003` system check in the Django codebase. Specifically:\n\n1. **Locate the auth checks module**: Find the file responsible for auth system checks, which is typically `django/contrib/auth/checks.py`. Identify the function that emits `auth.E003` (likely something like `check_user_model` or a helper that validates the `USERNAME_FIELD`).\n\n2. **Read the current logic**: Understand exactly how the check currently determines whether the `USERNAME_FIELD` is unique — it almost certainly inspects `field.unique` on the model field. Note the surrounding context (how the model is obtained, how the field name is resolved, how the error is constructed and returned).\n\n3. **Identify the constraints API**: Confirm how `Model._meta.constraints` is structured — specifically that each entry is a `UniqueConstraint` instance with a `fields` attribute (a list/tuple of field names). This is needed to extend the check to also accept a `UniqueConstraint` covering the `USERNAME_FIELD`.\n\n4. **Plan the modification (do not apply yet)**: Sketch the change so the check passes when either:\n   - `field.unique is True`, OR\n   - there exists a `UniqueConstraint` in `model._meta.constraints` whose `fields` list contains the `USERNAME_FIELD` (and, if `condition` is supported, only when the constraint is unconditional, since conditional unique constraints don't enforce global uniqueness).\n\nThe immediate next action is purely investigative: open `django/contrib/auth/checks.py`, find the `auth.E003` emission site, and read enough surrounding code to understand the exact data structures involved before proposing any code change.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -5633,7 +5633,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nThe issue is in `django/db/models/sql/query.py` within the `resolve_lookup_value` method. When this method encounters a tuple (including named tuples), it iterates over its elements to resolve lookups on each one, then attempts to reconstruct the tuple by passing the resulting iterator to the original tuple's constructor. Named tuples do not accept a single iterable argument in their constructor — they require the elements to be unpacked positionally (e.g., `Point(*resolved_values)` instead of `Point(resolved_values)`).\n\nSince no actions have been taken yet in this run, the immediate next step is to locate and inspect the relevant code so the fix can be applied precisely. Specifically:\n\n1. Open `django/db/models/sql/query.py` and locate the `resolve_lookup_value` method.\n2. Identify the exact code block where the tuple is being reconstructed after resolving lookup values on its elements. This is the spot where the original tuple's `type(...)` is invoked with the resolved iterator.\n3. Confirm the current behavior matches the issue description (i.e., the constructor is called with the iterator rather than unpacked elements).\n4. Note the surrounding logic (how `values` is built, what types are handled, and whether `list`/`tuple` reconstruction is also affected) so the fix can be applied consistently without breaking the existing list/tuple handling.\n\nThis inspection step is essential before making any code change, because the fix must preserve correct behavior for plain tuples and lists while also handling named tuples correctly. Once the exact lines are identified, the fix will be to change the tuple reconstruction to use `*` unpacking of the resolved iterator when calling the original tuple's constructor.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -5710,7 +5710,7 @@
                   "step": 23,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git status",
                   "next_thought": ""
                 }
@@ -5819,7 +5819,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nSince no actions have been taken yet, the first step is to **locate and examine the current implementation of `ReadOnlyPasswordHashField`** in `django/contrib/auth/forms.py` to understand:\n\n1. The current class definition and its parent class (likely `forms.Field`)\n2. How `disabled` is currently handled (or not) in the field\n3. How the field is instantiated in `UserChangeForm` and any other places it's used\n4. The existing `clean_password` method in `UserChangeForm` that would become redundant\n\nSpecifically, the agent should:\n- Read `django/contrib/auth/forms.py` to find the `ReadOnlyPasswordHashField` class definition\n- Identify the `__init__` method and the `widget` attribute\n- Check how `disabled` is passed through (or not) in the current implementation\n- Note any existing tests for this field (e.g., in `tests/auth_tests/test_forms.py`) to understand expected behavior\n\nThis reconnaissance step is essential before making any code changes, because:\n- The `disabled` attribute needs to be set on the widget (via `widget.attrs['disabled'] = True`) or passed to the field's `__init__` so it's properly applied to the rendered HTML\n- We need to confirm whether setting `disabled=True` by default will break any existing behavior or tests\n- We need to identify all call sites that might need updating (e.g., `UserCreationForm`, `AdminPasswordChangeForm`, etc.)\n\nOnce this exploration is complete, the subsequent steps would be: (a) modify `ReadOnlyPasswordHashField` to set `disabled=True` by default, (b) remove the now-redundant `clean_password` method from `UserChangeForm`, and (c) update the documentation referenced in the issue. But the immediate next step is purely investigative — read the relevant source file first.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -6141,7 +6141,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff",
                   "next_thought": "Let me verify the current state of the fix one more time before submitting:\n\n"
                 },
@@ -6149,7 +6149,7 @@
                   "step": 26,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff",
                   "next_thought": "Let me verify the current state of the fix one more time before submitting:\n\n"
                 }
@@ -6422,7 +6422,7 @@
                   "step": 33,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -6430,7 +6430,7 @@
                   "step": 33,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -6438,7 +6438,7 @@
                   "step": 33,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -6446,7 +6446,7 @@
                   "step": 33,
                   "planner_type": "monitor",
                   "content": "If you cannot make further progress, stop or submit your patch.",
-                  "pattern": "unknown",
+                  "pattern": "oscillation_max_repeats",
                   "next_action": "submit",
                   "next_thought": ""
                 }
@@ -6710,7 +6710,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nSince no actions have been taken yet, the agent should begin by locating and examining the relevant source code to understand the current implementation of `HashedFilesMixin.post_process()`.\n\n**Concrete actions for this step:**\n\n1. **Locate the relevant file**: Find `django/contrib/staticfiles/storage.py` in the repository, which contains the `HashedFilesMixin` class along with `ManifestStaticFilesStorage` and `CachedStaticFilesStorage`.\n\n2. **Read and analyze the current `post_process()` implementation**: Carefully examine the method to understand:\n   - How the multiple passes are structured (the loop that iterates until no changes occur)\n   - Where exactly the `yield` statements are placed that cause duplicate yields\n   - The relationship between `self.hashed_files` (the dictionary tracking hashed names) and the yielded values\n   - How `original_name` and `hashed_name` are tracked across passes\n\n3. **Identify the root cause**: Based on the issue description, the problem is that `post_process()` yields `(original_name, hashed_name, processed)` tuples inside the pass loop, so each pass that touches a file yields it again. The fix needs to ensure each original file is yielded exactly once with its final hashed name (or `False` if no hashing was needed).\n\n4. **Note the expected behavior**: The yielded tuple should reflect the final state — if a file was hashed, yield `(original_name, final_hashed_name, True)`; if it was never hashed, yield `(original_name, original_name, False)`. Intermediate hashed names from earlier passes should not be yielded.\n\n5. **Do NOT modify any code yet** — this step is purely investigative. The goal is to have a complete understanding of the current logic before proposing the actual fix in subsequent steps.\n\nThis investigation step is essential because the fix requires careful handling of the multi-pass loop logic, and any premature code change without understanding the full flow could break the nested-reference handling that the multi-pass approach was designed to solve (as referenced in PR #6507 and ticket #24452).",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -6906,7 +6906,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n<new_plan>\n\n### Next Step Plan\n\nThe issue is that Django's `AutoFieldMeta.__subclasscheck__` does not recognize subclasses of `BigAutoField` and `SmallAutoField` as valid `AutoField` subclasses when validating `DEFAULT_AUTO_FIELD`. The fix needs to be made in the `AutoFieldMeta` metaclass within `django/db/models/fields/__init__.py` (or wherever `AutoFieldMeta` is defined).\n\n**Next Step:** Locate and examine the `AutoFieldMeta` class definition in the Django codebase, specifically focusing on:\n1. The `_subclasses` property/method that tracks registered auto field subclasses\n2. The `__subclasscheck__` method that performs the isinstance/issubclass check\n3. How `BigAutoField` and `SmallAutoField` are registered (or not registered) as subclasses of `AutoField`\n\nThe goal is to understand why a subclass of `BigAutoField` (like `MyBigAutoField` in the example) fails the `issubclass()` check against `AutoField`. The investigation should confirm that `BigAutoField` and `SmallAutoField` are not being added to the `_subclasses` collection, or that the `__subclasscheck__` logic doesn't traverse the MRO properly to recognize indirect subclasses.\n\nOnce the root cause is confirmed, the fix should ensure that when `BigAutoField` and `SmallAutoField` are defined, they (and by extension their subclasses) are properly recognized as `AutoField` subclasses. This may involve modifying the `_subclasses` registration mechanism in `AutoFieldMeta` to include `BigAutoField` and `SmallAutoField` as recognized auto field types, so that any subclass of them passes the `DEFAULT_AUTO_FIELD` validation in `Options._get_default_pk_class()`.\n\nStart by reading the `AutoFieldMeta` class implementation to understand the current subclass registration logic before proposing code changes.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -7249,7 +7249,7 @@
                   "step": 19,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff django/contrib/staticfiles/storage.py",
                   "next_thought": "Let me verify the fix is still in place and then submit:\n"
                 },
@@ -7257,7 +7257,7 @@
                   "step": 19,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff django/contrib/staticfiles/storage.py",
                   "next_thought": "Let me verify the fix is still in place and then submit:\n"
                 },
@@ -7265,7 +7265,7 @@
                   "step": 19,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff django/contrib/staticfiles/storage.py",
                   "next_thought": "Let me verify the fix is still in place and then submit:\n"
                 }
@@ -7846,7 +7846,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nSince no actions have been taken yet, the agent should begin by locating and examining the `AutocompleteJsonView` class in the Django codebase. Specifically:\n\n1. **Locate the file**: Find `django/contrib/admin/views/autocomplete.py` (the file containing `AutocompleteJsonView`).\n\n2. **Read the current implementation**: Examine the `AutocompleteJsonView` class, focusing on the `get()` method to understand:\n   - How `process_request()` is called and what it returns\n   - How `get_queryset()` and `get_context_data()` are used\n   - The exact lines that construct the `JsonResponse` dictionary with `'results'` and `'pagination'` keys\n   - The current structure of the result dictionary (`{'id': ..., 'text': ...}`)\n\n3. **Identify the refactoring target**: Pinpoint the exact lines inside `JsonResponse({...})` that build the list comprehension for `'results'`, which currently looks like:\n   ```python\n   {'id': str(getattr(obj, to_field_name)), 'text': str(obj)}\n   ```\n\n4. **Plan the refactor**: Based on the issue description, extract this object-to-dict conversion into a new method `serialize_result(self, obj, to_field_name)` on the `AutocompleteJsonView` class, and replace the inline dict construction in `get()` with a call to `self.serialize_result(obj, to_field_name)`.\n\nThis exploratory step is essential before making any edits, as it ensures the agent understands the existing code structure, imports, and method signatures needed to perform the refactor correctly and consistently with Django's coding style. No file edits should be made until this analysis is complete.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -8668,7 +8668,7 @@
                   "step": 21,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git diff",
                   "next_thought": "Let me verify the current state of the fix is correct:\n"
                 }
@@ -10318,7 +10318,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nSince no actions have been taken yet, the agent should begin by locating the source file that defines `UserChangeForm` (where the broken `\"../password/\"` help_text is constructed) so it can be modified. Specifically:\n\n1. **Locate the `UserChangeForm` definition**: Search the Django repository for the class `UserChangeForm`. Based on standard Django layout, it resides in `django/contrib/auth/forms.py`. The agent should open and inspect that file, paying particular attention to the `__init__` method where `password.help_text.format(\"../password/\")` is set, and confirm the exact current line that needs changing.\n\n2. **Understand the surrounding context**: Verify that `self.instance` is available and is a `User` instance with a usable `pk` at that point in `__init__`, so the proposed fix `f\"../../{self.instance.pk}/password/\"` is safe to use. The agent should also check whether the same pattern occurs elsewhere in the codebase (e.g., other admin change forms that may hardcode relative URLs) to determine the scope of the change.\n\n3. **Identify the test file**: Find the existing tests for `UserChangeForm` (likely in `django/contrib/auth/tests.py` or `tests/auth_tests/test_forms.py`) to understand how this help_text is currently tested, so the agent can later extend coverage to include the `to_field` case.\n\n4. **Do NOT modify any code or tests yet** in this step — this step is purely investigative. The actual code edit and the addition of a regression test should be performed in subsequent steps once the file, line, and test location are confirmed.\n\nIn short: the very next single step is to open `django/contrib/auth/forms.py`, locate the `UserChangeForm.__init__` method, and confirm the exact line that hardcodes the `\"../password/\"` relative URL, along with identifying the corresponding test file. This sets up the actual fix and regression test in the following steps.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -10675,7 +10675,7 @@
                   "step": 19,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "str_replace_editor view /testbed/django/utils/timesince.py  --view_range 90 110",
                   "next_thought": "Let me verify the current state of the fix is correct:\n"
                 }
@@ -10871,7 +10871,7 @@
                   "step": 17,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"str_replace_editor create /testbed/test_fix.py --file_text [{'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, ['django.contrib.contentt",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cat > /testbed/test_fix.py << 'EOF'\n\"\"\"\nTest script to verify the fix for show_save_as_new permission issue.\n\"\"\"\nimport os\nimport sys\nimport django\nfrom django.conf import settings\n\n# Configure Django settings\nif not settings.configured:\n    settings.configure(\n        DEBUG=True,\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=[\n            'django.contrib.contenttypes',\n            'django.contrib.auth',\n            'django.contrib.admin',\n            'django.contrib.sessions',\n            'django.contrib.messages',\n        ],\n        SECRET_KEY='test-secret-key',\n    )\n\ndjango.setup()\n\n# Test the submit_row function logic\nfrom django.template.context import Context\nfrom django.contrib.admin.templatetags.admin_modify import submit_row\n\n# Test case 1: User has change permission but NOT add permission\n# show_save_as_new should be False\ncontext1 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': False,  # No add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult1 = submit_row(context1)\nshow_save_as_new_1 = result1['show_save_as_new']\n\nprint(f\"Test 1 - User without add permission:\")\nprint(f\"  has_add_permission: {context1['has_add_permission']}\")\nprint(f\"  has_change_permission: {context1['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_1}\")\nprint(f\"  Expected: False\")\nprint(f\"  Result: {'PASS' if show_save_as_new_1 == False else 'FAIL'}\")\nprint()\n\n# Test case 2: User has both change AND add permission\n# show_save_as_new should be True\ncontext2 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': True,  # Has add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult2 = submit_row(context2)\nshow_save_as_new_2 = result2['show_save_as_new']\n\nprint(f\"Test 2 - User with add permission:\")\nprint(f\"  has_add_permission: {context2['has_add_permission']}\")\nprint(f\"  has_change_permission: {context2['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_2}\")\nprint(f\"  Expected: True\")\nprint(f\"  Result: {'PASS' if show_save_as_new_2 == True else 'FAIL'}\")\nprint()\n\n# Summary\nif show_save_as_new_1 == False and show_save_as_new_2 == True:\n    print(\"All tests PASSED!\")\n    sys.exit(0)\nelse:\n    print(\"Some tests FAILED!\")\n    sys.exit(1)\nEOF",
                   "next_thought": ""
                 },
@@ -10879,7 +10879,7 @@
                   "step": 17,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"str_replace_editor create /testbed/test_fix.py --file_text [{'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, ['django.contrib.contentt",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cat > /testbed/test_fix.py << 'EOF'\n\"\"\"\nTest script to verify the fix for show_save_as_new permission issue.\n\"\"\"\nimport os\nimport sys\nimport django\nfrom django.conf import settings\n\n# Configure Django settings\nif not settings.configured:\n    settings.configure(\n        DEBUG=True,\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=[\n            'django.contrib.contenttypes',\n            'django.contrib.auth',\n            'django.contrib.admin',\n            'django.contrib.sessions',\n            'django.contrib.messages',\n        ],\n        SECRET_KEY='test-secret-key',\n    )\n\ndjango.setup()\n\n# Test the submit_row function logic\nfrom django.template.context import Context\nfrom django.contrib.admin.templatetags.admin_modify import submit_row\n\n# Test case 1: User has change permission but NOT add permission\n# show_save_as_new should be False\ncontext1 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': False,  # No add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult1 = submit_row(context1)\nshow_save_as_new_1 = result1['show_save_as_new']\n\nprint(f\"Test 1 - User without add permission:\")\nprint(f\"  has_add_permission: {context1['has_add_permission']}\")\nprint(f\"  has_change_permission: {context1['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_1}\")\nprint(f\"  Expected: False\")\nprint(f\"  Result: {'PASS' if show_save_as_new_1 == False else 'FAIL'}\")\nprint()\n\n# Test case 2: User has both change AND add permission\n# show_save_as_new should be True\ncontext2 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': True,  # Has add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult2 = submit_row(context2)\nshow_save_as_new_2 = result2['show_save_as_new']\n\nprint(f\"Test 2 - User with add permission:\")\nprint(f\"  has_add_permission: {context2['has_add_permission']}\")\nprint(f\"  has_change_permission: {context2['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_2}\")\nprint(f\"  Expected: True\")\nprint(f\"  Result: {'PASS' if show_save_as_new_2 == True else 'FAIL'}\")\nprint()\n\n# Summary\nif show_save_as_new_1 == False and show_save_as_new_2 == True:\n    print(\"All tests PASSED!\")\n    sys.exit(0)\nelse:\n    print(\"Some tests FAILED!\")\n    sys.exit(1)\nEOF",
                   "next_thought": ""
                 },
@@ -10887,7 +10887,7 @@
                   "step": 17,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"str_replace_editor create /testbed/test_fix.py --file_text [{'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, ['django.contrib.contentt",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cat > /testbed/test_fix.py << 'EOF'\n\"\"\"\nTest script to verify the fix for show_save_as_new permission issue.\n\"\"\"\nimport os\nimport sys\nimport django\nfrom django.conf import settings\n\n# Configure Django settings\nif not settings.configured:\n    settings.configure(\n        DEBUG=True,\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=[\n            'django.contrib.contenttypes',\n            'django.contrib.auth',\n            'django.contrib.admin',\n            'django.contrib.sessions',\n            'django.contrib.messages',\n        ],\n        SECRET_KEY='test-secret-key',\n    )\n\ndjango.setup()\n\n# Test the submit_row function logic\nfrom django.template.context import Context\nfrom django.contrib.admin.templatetags.admin_modify import submit_row\n\n# Test case 1: User has change permission but NOT add permission\n# show_save_as_new should be False\ncontext1 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': False,  # No add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult1 = submit_row(context1)\nshow_save_as_new_1 = result1['show_save_as_new']\n\nprint(f\"Test 1 - User without add permission:\")\nprint(f\"  has_add_permission: {context1['has_add_permission']}\")\nprint(f\"  has_change_permission: {context1['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_1}\")\nprint(f\"  Expected: False\")\nprint(f\"  Result: {'PASS' if show_save_as_new_1 == False else 'FAIL'}\")\nprint()\n\n# Test case 2: User has both change AND add permission\n# show_save_as_new should be True\ncontext2 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': True,  # Has add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult2 = submit_row(context2)\nshow_save_as_new_2 = result2['show_save_as_new']\n\nprint(f\"Test 2 - User with add permission:\")\nprint(f\"  has_add_permission: {context2['has_add_permission']}\")\nprint(f\"  has_change_permission: {context2['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_2}\")\nprint(f\"  Expected: True\")\nprint(f\"  Result: {'PASS' if show_save_as_new_2 == True else 'FAIL'}\")\nprint()\n\n# Summary\nif show_save_as_new_1 == False and show_save_as_new_2 == True:\n    print(\"All tests PASSED!\")\n    sys.exit(0)\nelse:\n    print(\"Some tests FAILED!\")\n    sys.exit(1)\nEOF",
                   "next_thought": ""
                 },
@@ -10895,7 +10895,7 @@
                   "step": 17,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"str_replace_editor create /testbed/test_fix.py --file_text [{'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, ['django.contrib.contentt",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cat > /testbed/test_fix.py << 'EOF'\n\"\"\"\nTest script to verify the fix for show_save_as_new permission issue.\n\"\"\"\nimport os\nimport sys\nimport django\nfrom django.conf import settings\n\n# Configure Django settings\nif not settings.configured:\n    settings.configure(\n        DEBUG=True,\n        DATABASES={\n            'default': {\n                'ENGINE': 'django.db.backends.sqlite3',\n                'NAME': ':memory:',\n            }\n        },\n        INSTALLED_APPS=[\n            'django.contrib.contenttypes',\n            'django.contrib.auth',\n            'django.contrib.admin',\n            'django.contrib.sessions',\n            'django.contrib.messages',\n        ],\n        SECRET_KEY='test-secret-key',\n    )\n\ndjango.setup()\n\n# Test the submit_row function logic\nfrom django.template.context import Context\nfrom django.contrib.admin.templatetags.admin_modify import submit_row\n\n# Test case 1: User has change permission but NOT add permission\n# show_save_as_new should be False\ncontext1 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': False,  # No add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult1 = submit_row(context1)\nshow_save_as_new_1 = result1['show_save_as_new']\n\nprint(f\"Test 1 - User without add permission:\")\nprint(f\"  has_add_permission: {context1['has_add_permission']}\")\nprint(f\"  has_change_permission: {context1['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_1}\")\nprint(f\"  Expected: False\")\nprint(f\"  Result: {'PASS' if show_save_as_new_1 == False else 'FAIL'}\")\nprint()\n\n# Test case 2: User has both change AND add permission\n# show_save_as_new should be True\ncontext2 = {\n    'add': False,\n    'change': True,\n    'is_popup': False,\n    'save_as': True,\n    'show_save': True,\n    'show_save_and_add_another': True,\n    'show_save_and_continue': True,\n    'has_add_permission': True,  # Has add permission\n    'has_change_permission': True,\n    'has_view_permission': True,\n    'has_editable_inline_admin_formsets': False,\n}\n\nresult2 = submit_row(context2)\nshow_save_as_new_2 = result2['show_save_as_new']\n\nprint(f\"Test 2 - User with add permission:\")\nprint(f\"  has_add_permission: {context2['has_add_permission']}\")\nprint(f\"  has_change_permission: {context2['has_change_permission']}\")\nprint(f\"  show_save_as_new: {show_save_as_new_2}\")\nprint(f\"  Expected: True\")\nprint(f\"  Result: {'PASS' if show_save_as_new_2 == True else 'FAIL'}\")\nprint()\n\n# Summary\nif show_save_as_new_1 == False and show_save_as_new_2 == True:\n    print(\"All tests PASSED!\")\n    sys.exit(0)\nelse:\n    print(\"Some tests FAILED!\")\n    sys.exit(1)\nEOF",
                   "next_thought": ""
                 },
@@ -11553,7 +11553,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nSince no actions have been taken yet, the first priority is to locate the existing XOR implementation in the Django codebase to understand how the fallback SQL is currently generated for databases without native XOR support.\n\n**Step 1: Explore the codebase to find the XOR-related code**\n\nSpecifically, investigate the following likely locations:\n\n1. **`django/db/models/lookups.py`** — Look for an `Xor` lookup class. This is the primary location where XOR lookup logic is defined. Pay close attention to how it detects whether the database backend supports XOR natively (e.g., via a `features.supports_xor` or similar flag) and how it falls back when not supported.\n\n2. **`django/db/models/sql/where.py`** — Look for any `Xor` node class in the SQL `WhereNode` tree (analogous to `AndNode`/`OrNode`). This is where the `Q(...) ^ Q(...) ^ Q(...)` chained-XOR gets translated into a SQL tree. The bug likely lives in the `split` or `as_sql` method of this node, which probably treats a chain of XOR children as \"exactly one\" rather than \"odd number of inputs are true.\"\n\n3. **Database feature flags** — Check `django/db/backends/*/features.py` (especially `postgresql/features.py` and `mysql/features.py`) to confirm which backends support XOR natively. The fallback path is what needs fixing.\n\n4. **Existing tests** — Locate the test file (likely `tests/queries/test_qs_combinators.py`, `tests/expressions/tests.py`, or a `tests/lookup/`/`tests/queries/` file) that tests XOR behavior. These tests will help reproduce the bug and validate the fix. Do NOT modify these tests, but read them to understand expected behavior and to know where to add a new test case if appropriate.\n\n5. **The referenced PR #29865** — Search the git log for the commit that introduced this code so the agent understands the original intent and can identify the precise lines that need correction.\n\n**Deliverable of this step:** A clear understanding of (a) where the buggy XOR fallback code lives, (b) what the current incorrect SQL output looks like for `Q(a) ^ Q(b) ^ Q(c)`, and (c) what the correct parity-based SQL should be. Once these are known, the subsequent step can be to design and implement the fix (e.g., using nested XOR pairs, or generating `(a + b + c) % 2 = 1` style logic, depending on the approach already used for two-argument XOR).",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "find /testbed -type f -name \"*.py\" | xargs grep -l \"Xor\" 2>/dev/null | head -20",
                   "next_thought": "",
@@ -12460,7 +12460,7 @@
                   "step": 24,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -12468,7 +12468,7 @@
                   "step": 24,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -12476,7 +12476,7 @@
                   "step": 24,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "submit",
                   "next_thought": ""
                 },
@@ -12484,7 +12484,7 @@
                   "step": 24,
                   "planner_type": "monitor",
                   "content": "If you cannot make further progress, stop or submit your patch.",
-                  "pattern": "unknown",
+                  "pattern": "oscillation_max_repeats",
                   "next_action": "submit",
                   "next_thought": ""
                 }
@@ -14284,7 +14284,7 @@
                   "step": 29,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git status",
                   "next_thought": ""
                 },
@@ -14292,7 +14292,7 @@
                   "step": 29,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git status",
                   "next_thought": ""
                 }
@@ -16653,7 +16653,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the implementation of `_log_reg_scoring_path` and identify how the temporary `LogisticRegression` instance is constructed, then determine which parameters (at minimum `multi_class`) must be propagated to align its `predict_proba` behavior with the parent `LogisticRegressionCV` settings.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -17270,7 +17270,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the implementation of the sparse SVM fitting path (the _sparse_fit logic in the SVM base class) to pinpoint where it computes `dual_coef_indices.size / n_class` and identify how `n_class` becomes zero when `support_vectors_` is empty, then determine the appropriate guard/branch to handle the empty-support-vector case consistently with the dense path.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -20730,7 +20730,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nInspect the implementation of `posify` to see how it constructs new symbols and which assumptions it copies or drops, focusing on where assumption dictionaries are filtered or rebuilt, so you can identify why `finite` (and similar assumptions) are lost.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "find /testbed -type f -name \"*.py\" | xargs grep -l \"def posify\" 2>/dev/null | head -20",
                   "next_thought": "",
@@ -21503,7 +21503,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the implementation of `kernS` in the sympy core sympify module to locate where the local variable `kern` is assigned and referenced, and identify the specific control flow path that can reference it before assignment.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -22344,7 +22344,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nReview the implementation of `kahane_simplify()` to locate where leading uncontracted gamma matrices are removed and later reinserted, and identify the specific loop/order that reverses them so you can confirm the exact spot that needs correction.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -23095,7 +23095,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\nThe agent has not yet taken any action. The first concrete step should be to locate the `Contains` class in the SymPy codebase and examine its current `as_set` method implementation. Specifically:\n\n1. Search for the `Contains` class definition (likely in `sympy/sets/contains.py` or similar).\n2. Read the current implementation of `as_set` on the `Contains` class to understand why it returns a `Contains` object instead of raising an error.\n3. Confirm that `Contains` inherits from `BooleanFunction` (a predicate, not a `Set`), which is why `as_set` is semantically invalid for it.\n\nThis investigation step is necessary before making any code changes, because the fix depends on understanding the existing structure (e.g., whether `as_set` is inherited from a parent class or defined directly on `Contains`). Once located, the fix will be to override `as_set` on `Contains` to raise `NotImplementedError`, since `Contains` represents a boolean condition, not a set. After the fix, the agent should verify by reproducing the original failing examples from the issue (`Contains(x, Reals).as_set()` and the `Piecewise` example) to confirm the bug is resolved.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "find /testbed -type f -name \"*.py\" | xargs grep -l \"class Contains\" 2>/dev/null | head -20",
                   "next_thought": "",
@@ -23378,7 +23378,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n<new_plan>\n\n### Next Step Plan\nSince no actions have been taken yet, the immediate next step is to locate and inspect the `django/utils/numberformat.py` source file to identify the hardcoded cut-off point that triggers exponential notation for very small decimals. Specifically, the agent should read the `format` function (and any internal helper it calls) to determine:\n\n1. The exact condition/logic that decides when to switch to scientific/exponential notation (likely a comparison like `decimal_pos > some_threshold` or a check on the exponent of the Decimal value).\n2. How `decimal_pos` is currently used in the function, and what happens when the Decimal's exponent is more negative than `-decimal_pos`.\n3. The structure of the return path that should be modified so that when `decimal_pos` is explicitly provided and the absolute value of the number is too small to be represented with that many decimal places, the function returns a string of the form `\"0.\" + \"0\" * decimal_pos` instead of falling back to the Decimal's default `str()` representation (which uses exponential notation).\n\nThis is a purely investigative/read step — no edits yet. Once the relevant code section is identified, the agent will be in a position to design a minimal, targeted patch that removes or adjusts the hardcoded cut-off while preserving the existing behavior when `decimal_pos` is not supplied.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -24976,7 +24976,7 @@
                   "step": 204,
                   "planner_type": "monitor",
                   "content": "You seem to navigate between files and code locations in the past 7 steps. You have the following options to explore next, which increases your chance to solve the problem: (1) keep exploring the code",
-                  "pattern": "long_stagnation",
+                  "pattern": "dwell_L_navigate",
                   "next_action": "str_replace_editor str_replace /testbed/sphinx/util/docfields.py   --old_str '# but if this has a type then we can at least link it\n                if (typedesc and is_typefield and content and\n                        len(content) == 1 and isinstance(content[0], nodes.Text)):\n                    typed_field = cast(TypedField, typedesc)\n                    target = content[0].astext()\n                    xrefs = typed_field.make_xrefs(\n                        typed_field.typerolename,\n                        self.directive.domain,\n                        target,\n                        contnode=content[0],\n                    )' --new_str '# but if this has a type then we can at least link it\n                if (typedesc and is_typefield and content and\n                        len(content) == 1 and isinstance(content[0], nodes.Text)):\n                    typed_field = cast(TypedField, typedesc)\n                    target = content[0].astext()\n                    env = self.directive.state.document.settings.env\n                    xrefs = typed_field.make_xrefs(\n                        typed_field.typerolename,\n                        self.directive.domain,\n                        target,\n                        contnode=content[0],\n                        env=env,\n                    )'",
                   "next_thought": "Now I understand the issue! Looking at the `DocFieldTransformer.transform` method in `sphinx/util/docfields.py`, when it calls `make_xrefs` for type fields (lines 293-298), it doesn't pass the `env` parameter. This means `process_field_xref` is never called for those xrefs.\n\nLet me implement the fix:\n"
                 },
@@ -26218,7 +26218,7 @@
                   "step": 30,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && git status",
                   "next_thought": ""
                 }
@@ -27746,7 +27746,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\n1. **Locate the `catch_all_view` function in the Django codebase**\n   - Search for the function definition, which is typically in `django/views/defaults.py` (specifically the `page_not_found` view that returns the catch-all redirect, or a separate `catch_all_view` helper).\n   - Confirm whether `catch_all_view` is the helper that builds the `'%s/' % request.path_info` redirect URL.\n\n2. **Inspect the current implementation**\n   - Open the file and read the exact lines that construct the redirect URL.\n   - Identify the line that uses `request.path_info` (script name cut off) and note the surrounding logic, imports, and any related tests.\n   - Check for usage of `request.path` elsewhere in the same module to ensure consistency.\n\n3. **Verify the intended fix scope**\n   - Confirm that changing `request.path_info` to `request.path` will preserve the `SCRIPT_NAME` (and respect `FORCE_SCRIPT_NAME`) in the redirect target.\n   - Verify that the `request` object is available in the function's arguments (as it must be used to build the URL).\n\n4. **Write/extend a regression test (without modifying existing project config files)**\n   - Add a small test case (either inline via a temporary scratch test file or by appending to the existing test module) that:\n     - Sets a `script_name` on the request (e.g., via `RequestFactory` with `SCRIPT_NAME='/foo'` or by setting `request.META['SCRIPT_NAME']` and constructing a `RequestSite`-style request).\n     - Invokes `catch_all_view` (or the equivalent redirect-building code path) for a path that lacks a trailing slash.\n     - Asserts that the resulting redirect URL starts with `/foo/...` (i.e., the script name is preserved), not just the bare path.\n\n5. **Report findings before editing**\n   - Document the file path, line numbers, and the exact one-line change to apply (`request.path_info` → `request.path`).\n   - Confirm the proposed change matches the referenced PR (django/django#14404) and does not break other call sites.\n\nThis step ensures the agent has a complete picture of the bug location, validates the fix conceptually with a focused test, and is ready to apply a minimal, correct patch in the subsequent step.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "find /testbed -type f -name \"*.py\" | xargs grep -l \"catch_all_view\" 2>/dev/null",
                   "next_thought": "",
@@ -27824,7 +27824,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n### Next Step Plan\n\nThe recent trajectory shows no actions have been taken yet, so the agent must begin by understanding the relevant code. The next single step should be to **locate and inspect the `_prepare_tzname_delta()` method in the PostgreSQL database operations backend**, since this is the specific function identified in the issue as producing the wrong output for `Etc/GMT-` style zone names.\n\nSpecifically, the agent should:\n\n1. Find the PostgreSQL database operations file (typically `django/db/backends/postgresql/operations.py`).\n2. Read the current implementation of `_prepare_tzname_delta()` and any related helpers (e.g., the `TimezoneMixin` `get_tzname()` method, likely in `django/db/models/functions/mixins.py`).\n3. Confirm the exact input/output behavior described in the issue by tracing the logic: when `get_tzname()` returns the literal string `\"Etc/GMT-10\"` (or `\"Etc/GMT+10\"`), the delta-prepare method should not strip and re-apply a sign, because `Etc/GMT±N` zones already follow the POSIX sign convention (inverted from ISO 8601). Stripping and re-inverting the sign causes the offset to flip direction.\n4. Note the set of cases `_prepare_tzname_delta()` must correctly handle: plain `+HH`/`-HH` offsets (the legacy path), and full named zones like `Etc/GMT-10` / `Etc/GMT+10` (and equivalent `Etc/GMT` variants) where the sign must be preserved as-is. The fix needs to detect that the input is already a named zone (not a bare offset) and return it unchanged (or otherwise avoid inverting the sign).\n\nThis inspection is a prerequisite to writing any test or patch, and it directly addresses the root cause described in the issue. No code edits or test runs should be attempted until this code has been read and the exact misbehavior confirmed.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -31430,7 +31430,7 @@
                   "planner_type": "refiner",
                   "content": "[Plan Refiner Guidance]\n\n<new_plan>\n\n### Next Step Plan\n\n1. **Locate the `needs_extensions` implementation**: Search the Sphinx repository for the `needs_extensions` function and its associated version-checking logic. The goal is to find the exact location where the version comparison happens (likely in `sphinx/extension.py` or a similar utility module, but verify by searching).\n\n2. **Understand the current comparison logic**: Once located, examine how the function parses the required version (e.g., the `0.6.0` in the error message) and how it compares it against the actually loaded version of the extension. The bug report indicates this is done lexicographically (as strings) rather than as semantic versions, which causes `\"0.10.0\" < \"0.6.0\"` under string comparison.\n\n3. **Identify the parsing/format issues**: Determine whether the required version is split on `.` and compared component-by-component as strings, or passed whole to a comparison operator. This is key to understanding what kind of fix is needed (e.g., converting each component to an integer, or using `packaging.version.parse` / `pkg_resources.parse_version`).\n\n4. **Plan the fix approach**: Based on the structure found, the next concrete step will be to replace the string-based comparison with a proper version-aware comparison (e.g., using `packaging.version.Version` or `distutils.version.LooseVersion`/equivalent), ensuring that `0.10.0` is correctly recognized as newer than `0.6.0`.\n\nSince the trajectory shows no actions have been taken yet, the immediate priority is purely exploration: find the `needs_extensions` code path and understand exactly how the version strings are currently being compared, so a targeted, minimal fix can be designed in the subsequent step. Do not yet modify code — only locate and read the relevant logic.",
                   "rule_ids": [
-                    "plan_compliance"
+                    "plan_violation"
                   ],
                   "next_action": "str_replace_editor view /testbed",
                   "next_thought": "",
@@ -32191,7 +32191,7 @@
                   "step": 20,
                   "planner_type": "monitor",
                   "content": "You seem to navigate between files and code locations in the past 7 steps. You have the following options to explore next, which increases your chance to solve the problem: (1) keep exploring the code",
-                  "pattern": "long_stagnation",
+                  "pattern": "dwell_L_navigate",
                   "next_action": "cd /testbed && python -c \"\nfrom sympy.sets import FiniteSet, ProductSet\na = FiniteSet(1, 2)\nb = ProductSet(a, a)\nc = FiniteSet((1, 1), (1, 2), (2, 1), (2, 2))\n\n# Test the issue\nprint('b.is_subset(c):', b.is_subset(c))  # Should be True, but returns None\nprint('c.is_subset(b):', c.is_subset(b))  # Should be True, returns True\n\n# Let's also check iteration\nprint('Elements of b:')\nfor elem in b:\n    print(' ', elem, 'in c?', c._contains(elem))\n\"",
                   "next_thought": "Now I understand the issue. There's no handler for `ProductSet` vs `FiniteSet` in the `issubset.py` file. Let me create a reproduction script first to confirm the issue, then implement the fix.\n"
                 },
@@ -32508,7 +32508,7 @@
                   "step": 51,
                   "planner_type": "monitor",
                   "content": "It seems that you are repeating action \"submit\" in the last trajectory steps. Very likely, the observation has not been changed. Concretely reason if this action can help you resolve the issue. If not",
-                  "pattern": "oscillation",
+                  "pattern": "oscillation_self_loop",
                   "next_action": "cd /testbed && python -c \"\nfrom sympy.parsing.latex import parse_latex\n\n# Original issue\nresult = parse_latex(r'\\frac{\\frac{a^3+b}{c}}{\\frac{1}{c^2}}')\nprint(f'Result: {result}')\n\n# Expected from PR\nprint('Expected: ((a**3 + b)/c)/(1/(c**2))')\n\"",
                   "next_thought": "Let me re-read the PR description more carefully. The issue states:\n\n- Actual: `((a**3 + b)/c)/1/(c**2)`  \n- Expected: `((a**3 + b)/c)/(1/(c**2))`\n\nThe fix should produce output with explicit brackets around the denominator fraction. Let me check if my current fix actually matches this expected output:\n"
                 }

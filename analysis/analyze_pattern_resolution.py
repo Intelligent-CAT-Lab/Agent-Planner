@@ -349,20 +349,47 @@ class PatternAnalyzer:
 
     def _classify_monitor_trigger(self, content: str) -> str:
         """
-        Classify monitor trigger content into pattern categories.
-        Reuses logic from collect_pattern_resolution.py.
+        Classify monitor trigger content into specific rule IDs from default_rules.json.
+
+        Uses refiner naming convention for consistency:
+        - oscillation_self_loop (not oscillations_self_loop)
+        - oscillation_two_plus_node (not oscillations_two_node_cycle)
+        - thought_oscillation_self_loop
+        - thought_oscillation_cycle
         """
         content_lower = content.lower()
 
-        if 'plan compliance' in content_lower or 'skipped phases' in content_lower or 'expected to' in content_lower:
+        # plan_compliance (line 8)
+        if 'plan compliance' in content_lower or 'skipped phases' in content_lower:
             return 'plan_violation'
-        if ('repeating action' in content_lower or 'repeated actions' in content_lower or
-            'repeating the same reasoning' in content_lower or 'oscillating between' in content_lower or
-            'stuck in a loop' in content_lower):
-            return 'oscillation'
-        if ('seem to navigate' in content_lower or 'trying to reproduce' in content_lower or
-            ('spent the last' in content_lower and ('steps editing' in content_lower or 'steps validating' in content_lower))):
-            return 'long_stagnation'
+
+        # dwell_times rules (lines 26-43)
+        if 'seem to navigate' in content_lower or 'navigate between files' in content_lower:
+            return 'dwell_L_navigate'
+        if 'trying to reproduce' in content_lower:
+            return 'dwell_L_reproduce'
+        if 'spent the last' in content_lower and 'editing' in content_lower:
+            return 'dwell_P'
+        if 'spent the last' in content_lower and 'validating' in content_lower:
+            return 'dwell_V'
+
+        # oscillations rules (lines 45-59) - use refiner naming
+        if 'repeating action' in content_lower and 'last trajectory' in content_lower:
+            return 'oscillation_self_loop'
+        if 'repeated actions' in content_lower and 'revisiting' in content_lower:
+            return 'oscillation_two_plus_node'
+
+        # thought_oscillation rules (lines 68-82)
+        if 'repeating the same reasoning' in content_lower or 'circular reasoning' in content_lower:
+            return 'thought_oscillation_self_loop'
+        if 'oscillating between' in content_lower and 'reasoning patterns' in content_lower:
+            return 'thought_oscillation_cycle'
+
+        # max_repeats_rule (shared by oscillations line 50 and thought_oscillation line 72)
+        if 'cannot make further progress' in content_lower:
+            return 'oscillation_max_repeats'
+
+        # repeated_action.repeated_view (line 63)
         if 'already reviewed this location' in content_lower or 'have already reviewed' in content_lower:
             return 'repeated_view'
 
@@ -526,7 +553,7 @@ class PatternAnalyzer:
                         else:
                             rule_ids.append(str(trigger))
                 else:
-                    rule_ids = ['plan_compliance']
+                    rule_ids = ['plan_violation']
 
                 intervention_details.append({
                     'step': step_idx,

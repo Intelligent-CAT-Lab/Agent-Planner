@@ -290,7 +290,7 @@ def generate_latex_table(data: Dict, datasets: List[str], models: List[str],
         (r"$\quad$ \textit{Total}", "blocking_total", True),
         (r"\textbf{Non-blocking}", None, False),
         (r"$\quad$ Long Stagnation", "long_stagnation", False),
-        (r"$\quad$ Repeated View", "repeated_view", False),
+        (r"$\quad$ Repeated Action", "repeated_view", False),
         (r"$\quad$ \textit{Total}", "non_blocking_total", True),
         (r"\textbf{Any Pattern}", "any_pattern", False)
     ]
@@ -370,7 +370,7 @@ def generate_markdown_table(data: Dict, datasets: List[str], models: List[str],
         ("&nbsp;&nbsp;*Total*", "blocking_total"),
         ("**Non-blocking**", None),
         ("&nbsp;&nbsp;Long Stagnation", "long_stagnation"),
-        ("&nbsp;&nbsp;Repeated View", "repeated_view"),
+        ("&nbsp;&nbsp;Repeated Action", "repeated_view"),
         ("&nbsp;&nbsp;*Total*", "non_blocking_total"),
         ("**Any Pattern**", "any_pattern")
     ]
@@ -412,7 +412,7 @@ def generate_heatmap(data: Dict, datasets: List[str], models: List[str],
         ("Oscillation", "oscillation", "blocking"),
         ("Total", "blocking_total", "blocking"),
         ("Long Stagnation", "long_stagnation", "non-blocking"),
-        ("Repeated View", "repeated_view", "non-blocking"),
+        ("Repeated Action", "repeated_view", "non-blocking"),
         ("Total", "non_blocking_total", "non-blocking"),
         ("Any Pattern", "any_pattern", "any")
     ]

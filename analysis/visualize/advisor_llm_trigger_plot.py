@@ -137,11 +137,11 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
     n_pairs = len(valid_pairs)
 
     if n_pairs <= 3:
-        # Use 1 row layout for 3 or fewer subplots
+        # Use 1 row layout for 3 or fewer subplots - taller for better readability
         ncols = n_pairs
         nrows = 1
-        fig, axes = plt.subplots(nrows, ncols, figsize=(15 * ncols, 12))
-        fig.subplots_adjust(hspace=0.30, wspace=0.20, left=0.09, right=0.92, top=0.92, bottom=0.22)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(10 * ncols, 12))
+        fig.subplots_adjust(hspace=0.30, wspace=0.28, left=0.08, right=0.92, top=0.92, bottom=0.20)
 
         # Ensure axes is always 2D array
         if ncols == 1:
@@ -159,8 +159,12 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
         if nrows == 1:
             axes = axes.reshape(1, -1)
 
-    # Colors for configs
-    colors = {'refiner-only': '#3b82f6', 'refiner': '#10b981'}
+    # Colors for configs and metrics - use divergence plot style colors
+    # Avg interventions: blues, % with planner: oranges (match phase colors)
+    config_colors = {
+        'refiner-only': {'interventions': '#08519c', 'percentage': '#d94801'},  # dark blue, dark orange
+        'refiner': {'interventions': '#6baed6', 'percentage': '#fdae6b'}         # light blue, light orange
+    }
 
     # Track global min/max for shared y-axes
     all_avg_interventions = []
@@ -199,59 +203,83 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
             ax1.set_title(f"{model}", fontsize=12, fontweight='bold')
             continue
 
-        x_pos = np.arange(len(available_configs))
-        width = 0.35
+        # Prepare bar positions - wider spacing to avoid overlap
+        positions = []
+        pos_counter = 0
+        bar_colors_interventions = []
+        bar_colors_percentage = []
+
+        for config in available_configs:
+            positions.extend([pos_counter, pos_counter + 1.0])
+            bar_colors_interventions.extend([config_colors[config]['interventions'], 'none'])
+            bar_colors_percentage.extend(['none', config_colors[config]['percentage']])
+            pos_counter += 2.5  # Wider gap between configs
+
+        width = 1.0  # Wider bars
+
+        # Prepare data arrays
+        plot_data_interventions = []
+        plot_data_percentage = []
+        for config in available_configs:
+            plot_data_interventions.extend([model_data[config]['avg_interventions_per_instance'], 0])
+            plot_data_percentage.extend([0, model_data[config]['percentage_with_planner']])
 
         # Bar 1: Average interventions per instance (left y-axis)
-        avg_interventions = [model_data[c]['avg_interventions_per_instance'] for c in available_configs]
-        bars1 = ax1.bar(x_pos - width/2, avg_interventions, width,
+        bars1 = ax1.bar([p for i, p in enumerate(positions) if i % 2 == 0],
+                       [model_data[c]['avg_interventions_per_instance'] for c in available_configs],
+                       width,
                        label='Avg. Interventions',
-                       color=[colors[c] for c in available_configs],
-                       alpha=0.8, edgecolor='black', linewidth=0.5)
+                       color=[config_colors[c]['interventions'] for c in available_configs],
+                       alpha=0.8, edgecolor='black', linewidth=2)
 
         # Bar 2: Percentage with planner (right y-axis)
-        percentages = [model_data[c]['percentage_with_planner'] for c in available_configs]
-        bars2 = ax2.bar(x_pos + width/2, percentages, width,
+        bars2 = ax2.bar([p for i, p in enumerate(positions) if i % 2 == 1],
+                       [model_data[c]['percentage_with_planner'] for c in available_configs],
+                       width,
                        label='% with Planner',
-                       color=[colors[c] for c in available_configs],
-                       alpha=0.4, edgecolor='black', linewidth=0.5, hatch='//')
+                       color=[config_colors[c]['percentage'] for c in available_configs],
+                       alpha=0.8, edgecolor='black', linewidth=2)
 
         # Add value labels inside bars
+        avg_interventions = [model_data[c]['avg_interventions_per_instance'] for c in available_configs]
+        percentages = [model_data[c]['percentage_with_planner'] for c in available_configs]
+
         for i, (bar, val) in enumerate(zip(bars1, avg_interventions)):
             height = bar.get_height()
             # Place text inside the bar
             ax1.text(bar.get_x() + bar.get_width()/2., height * 0.5,
-                    f'{val:.2f}', ha='center', va='center', fontsize=48, fontweight='bold',
+                    f'{val:.2f}', ha='center', va='center', fontsize=32, fontweight='bold',
                     color='black')
 
         for i, (bar, val) in enumerate(zip(bars2, percentages)):
             height = bar.get_height()
             # Place text inside the bar
             ax2.text(bar.get_x() + bar.get_width()/2., height * 0.5,
-                    f'{val:.1f}%', ha='center', va='center', fontsize=48, fontweight='bold',
+                    f'{val:.1f}%', ha='center', va='center', fontsize=32, fontweight='bold',
                     color='black')
 
-        # Configure axes
-        ax1.set_xticks(x_pos)
+        # Configure axes - center tick positions between intervention and percentage bars
+        config_tick_positions = [positions[i*2] + 0.4 for i in range(len(available_configs))]
+        ax1.set_xticks(config_tick_positions)
         # Map config names for display
         display_configs = [CONFIG_NAME_MAP.get(c, c) for c in available_configs]
-        ax1.set_xticklabels(display_configs, fontsize=46, fontweight='bold')
+        ax1.set_xticklabels(display_configs, fontsize=36, fontweight='bold')
 
         # Only show y-axis labels on leftmost (col 0) and rightmost (last col) subplots
         if col == 0:
-            ax1.set_ylabel('Avg. Interventions\nper Instance', fontsize=46, fontweight='bold', color='black')
+            ax1.set_ylabel('Avg. Interventions\nper Instance', fontsize=38, fontweight='bold', color='black')
         else:
             ax1.set_ylabel('')
             ax1.tick_params(axis='y', labelleft=False)
 
         if col == ncols - 1:
-            ax2.set_ylabel('% Instances\nwith Advisor', fontsize=46, fontweight='bold', color='black')
+            ax2.set_ylabel('% Instances\nwith Advisor', fontsize=38, fontweight='bold', color='black')
         else:
             ax2.set_ylabel('')
             ax2.tick_params(axis='y', labelright=False)
 
-        ax1.tick_params(axis='y', labelsize=44)
-        ax2.tick_params(axis='y', labelsize=44)
+        ax1.tick_params(axis='y', labelsize=34)
+        ax2.tick_params(axis='y', labelsize=34)
 
         # Use shared y-axis limits
         ax1.set_ylim(0, y1_max)
@@ -266,9 +294,9 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
 
         # Only show dataset in title if there are multiple datasets
         if single_dataset:
-            ax1.set_title(f"{model_display}", fontsize=48, fontweight='bold', pad=20)
+            ax1.set_title(f"{model_display}", fontsize=40, fontweight='bold', pad=20)
         else:
-            ax1.set_title(f"{model_display}\n{dataset_display}", fontsize=48, fontweight='bold', pad=20)
+            ax1.set_title(f"{model_display}\n{dataset_display}", fontsize=40, fontweight='bold', pad=20)
 
     # Hide unused subplots
     for row in range(nrows):
@@ -279,25 +307,25 @@ def create_visualization(data: Dict[Tuple[str, str], Dict[str, Dict]],
                 if (row, col) in twin_axes:
                     twin_axes[(row, col)].axis('off')
 
-    # Create custom legend with mapped config names
+    # Create custom legend with mapped config names - match divergence plot style
     legend_elements = [
-        mpatches.Patch(facecolor=colors['refiner-only'], edgecolor='black', linewidth=0.5,
-                      label=CONFIG_NAME_MAP.get('refiner-only', 'Refiner-only'), alpha=0.8),
-        mpatches.Patch(facecolor=colors['refiner'], edgecolor='black', linewidth=0.5,
-                      label=CONFIG_NAME_MAP.get('refiner', 'Refiner'), alpha=0.8),
-        mpatches.Patch(facecolor='gray', edgecolor='black', linewidth=0.5,
-                      label='Avg. Interventions (solid)', alpha=0.8),
-        mpatches.Patch(facecolor='gray', edgecolor='black', linewidth=0.5, hatch='//',
-                      label='% with Advisor (hatched)', alpha=0.4)
+        mpatches.Patch(facecolor=config_colors['refiner-only']['interventions'], edgecolor='black', linewidth=1.5,
+                      label=f"{CONFIG_NAME_MAP.get('refiner-only', 'Refiner-only')} Interventions", alpha=0.8),
+        mpatches.Patch(facecolor=config_colors['refiner-only']['percentage'], edgecolor='black', linewidth=1.5,
+                      label=f"{CONFIG_NAME_MAP.get('refiner-only', 'Refiner-only')} %", alpha=0.8),
+        mpatches.Patch(facecolor=config_colors['refiner']['interventions'], edgecolor='black', linewidth=1.5,
+                      label=f"{CONFIG_NAME_MAP.get('refiner', 'Refiner')} Interventions", alpha=0.8),
+        mpatches.Patch(facecolor=config_colors['refiner']['percentage'], edgecolor='black', linewidth=1.5,
+                      label=f"{CONFIG_NAME_MAP.get('refiner', 'Refiner')} %", alpha=0.8)
     ]
 
     # Place legend below the plot for single-row layout, above for multi-row
     if n_pairs <= 3:
         fig.legend(handles=legend_elements, loc='lower center', ncol=4,
-                  frameon=True, fontsize=46, bbox_to_anchor=(0.5, 0.03), edgecolor='black')
+                  frameon=True, fontsize=34, bbox_to_anchor=(0.5, 0.02), edgecolor='black')
     else:
         fig.legend(handles=legend_elements, loc='upper center', ncol=4,
-                  frameon=True, fontsize=46, bbox_to_anchor=(0.5, 0.98), edgecolor='black')
+                  frameon=True, fontsize=34, bbox_to_anchor=(0.5, 0.98), edgecolor='black')
 
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"\nFigure saved to: {output_path}")

@@ -157,8 +157,8 @@ def generate_latex_table(results: Dict, datasets: list, models: list, configs: l
     lines.append("\\centering")
     lines.append("\\small")
     lines.append("\\caption{Resolution Transition Matrix comparing methods against Vanilla actor baseline. "
-                 "RR: both resolved, UU: both unresolved, RU: baseline only, UR: config only. "
-                 "Total: 264 for SWE-bench Pro, 500 for SWE-bench Verified. SR denotes Success Rate (\%).}")
+                 "RU: baseline resolved only (regression), UR: config resolved only (improvement). "
+                 "Total: 264 for SWE-bench Pro, 500 for SWE-bench Verified. SR denotes Success Rate (\\%).}")
     lines.append("\\label{tab:ru_transition}")
 
     # Column spec: Config | Metric | [models per dataset] with | separators between datasets
@@ -188,10 +188,10 @@ def generate_latex_table(results: Dict, datasets: list, models: list, configs: l
     lines.append(header2)
     lines.append("\\midrule")
 
-    # Metric order: R-R, U-U, R-U, U-R
-    metrics = ['R-R', 'U-U', 'R-U', 'U-R']
+    # Metric order: R-U, U-R only
+    metrics = ['R-U', 'U-R']
 
-    # Data rows - one config at a time with 5 rows (4 metrics + SR)
+    # Data rows - one config at a time with 3 rows (2 metrics + SR)
     for i, config in enumerate(available_configs):
         config_display = CONFIG_NAME_MAP.get(config, config)
 
@@ -199,11 +199,11 @@ def generate_latex_table(results: Dict, datasets: list, models: list, configs: l
         if i > 0:
             lines.append("\\midrule")
 
-        # Four rows for metrics
+        # Two rows for metrics
         for j, metric in enumerate(metrics):
             if j == 0:
-                # First row shows config name with rowspan 5 (4 metrics + 1 SR row)
-                row = f"\\multirow{{5}}{{*}}{{{config_display}}} & {metric}"
+                # First row shows config name with rowspan 3 (2 metrics + 1 SR row)
+                row = f"\\multirow{{3}}{{*}}{{{config_display}}} & {metric}"
             else:
                 row = f" & {metric}"
 
@@ -281,10 +281,8 @@ def generate_markdown_table(results: Dict, datasets: list, models: list, configs
     lines.append("# Resolution Transition Matrix")
     lines.append("")
     lines.append("Comparing configurations against Vanilla actor baseline:")
-    lines.append("- **RR**: Both resolved")
-    lines.append("- **RU**: Baseline resolved only")
-    lines.append("- **UR**: Config resolved only")
-    lines.append("- **UU**: Both unresolved")
+    lines.append("- **RU**: Baseline resolved only (regression)")
+    lines.append("- **UR**: Config resolved only (improvement)")
     lines.append("")
     lines.append("Incomplete instances are treated as unresolved.")
     lines.append("Total: 264 for SWE-bench Pro, 500 for SWE-bench Verified.")
@@ -306,9 +304,9 @@ def generate_markdown_table(results: Dict, datasets: list, models: list, configs
     for config in available_configs:
         config_display = CONFIG_NAME_MAP.get(config, config)
 
-        # Four rows for each metric
-        for metric in ['RR', 'RU', 'UR', 'UU']:
-            if metric == 'RR':
+        # Two rows for each metric
+        for metric in ['RU', 'UR']:
+            if metric == 'RU':
                 row = f"| {config_display} | {metric} |"
             else:
                 row = f"|  | {metric} |"

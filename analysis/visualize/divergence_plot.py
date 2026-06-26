@@ -188,14 +188,16 @@ def create_divergence_boxplot(
     configs: List[str],
     models: List[str],
     datasets: List[str],
-    output_path: Path
+    output_path: Path,
+    include_action: bool = False
 ):
     """
     Create boxplot figure showing divergence across datasets and models.
 
     Layout: 2 rows (datasets) x 1 column
-    Each subplot shows boxplots for each model with prefix/full action/phase similarities
-    Order per model: prefix action, full action, prefix phase, full phase
+    Each subplot shows boxplots for each model with prefix/full phase similarities (and optionally action similarities)
+    Default order per model: prefix phase, full phase
+    With action: prefix action, full action, prefix phase, full phase
     """
     # Reorder datasets: swebench-pro first
     ordered_datasets = ['swebench-pro', 'swebench']
@@ -205,22 +207,29 @@ def create_divergence_boxplot(
         print("No datasets to plot")
         return
 
-    # Create figure with subplots - more compact
+    # Create figure with subplots - more compact, larger for readability
     n_rows = len(ordered_datasets)
-    fig, axes = plt.subplots(n_rows, 1, figsize=(15, 5 * n_rows))
+    fig, axes = plt.subplots(n_rows, 1, figsize=(18, 6 * n_rows))
 
     if n_rows == 1:
         axes = [axes]
 
     # Colors: more differentiable while keeping similar tones
-    # Action: blues (dark for prefix, lighter for full)
-    # Phase: oranges (dark for prefix, lighter for full)
-    colors = {
-        'prefix_action': '#08519c',  # dark blue
-        'full_action': '#6baed6',    # light blue
-        'prefix_phase': '#d94801',   # dark orange
-        'full_phase': '#fdae6b'      # light orange
-    }
+    if include_action:
+        # Action: blues (dark for prefix, lighter for full)
+        # Phase: oranges (dark for prefix, lighter for full)
+        colors = {
+            'prefix_action': '#08519c',  # dark blue
+            'full_action': '#6baed6',    # light blue
+            'prefix_phase': '#d94801',   # dark orange
+            'full_phase': '#fdae6b'      # light orange
+        }
+    else:
+        # Only phase colors when action is excluded
+        colors = {
+            'prefix_phase': '#d94801',   # dark orange
+            'full_phase': '#fdae6b'      # light orange
+        }
 
     for row_idx, dataset in enumerate(ordered_datasets):
         ax = axes[row_idx]
@@ -241,58 +250,81 @@ def create_divergence_boxplot(
 
                 data = similarity_data[key]
 
-                # Order: prefix action, full action, prefix phase, full phase
-                plot_data.append(data['prefix_action'])
-                plot_data.append(data['full_action'])
-                plot_data.append(data['prefix_phase'])
-                plot_data.append(data['full_phase'])
+                if include_action:
+                    # Order: prefix action, full action, prefix phase, full phase
+                    plot_data.append(data['prefix_action'])
+                    plot_data.append(data['full_action'])
+                    plot_data.append(data['prefix_phase'])
+                    plot_data.append(data['full_phase'])
 
-                # Positions: tighter spacing within group, larger gap between models
-                positions.extend([pos_counter, pos_counter + 0.4, pos_counter + 0.9, pos_counter + 1.3])
+                    # Positions: tighter spacing within group, larger gap between models
+                    positions.extend([pos_counter, pos_counter + 0.4, pos_counter + 0.9, pos_counter + 1.3])
+                    model_tick_positions.append(pos_counter + 0.65)
+                    pos_counter += 2.5  # Gap between models
+                else:
+                    # Only phase: prefix phase, full phase
+                    plot_data.append(data['prefix_phase'])
+                    plot_data.append(data['full_phase'])
 
-                # Mark model center position
-                model_tick_positions.append(pos_counter + 0.65)
+                    # Positions: tighter spacing, smaller gap between models
+                    positions.extend([pos_counter, pos_counter + 0.5])
+                    model_tick_positions.append(pos_counter + 0.25)
+                    pos_counter += 1.5  # Smaller gap between models
+
                 model_display = MODEL_NAME_MAP.get(model, model)
                 model_tick_labels.append(model_display)
-
-                pos_counter += 2.5  # Gap between models
 
         if not plot_data:
             continue
 
-        # Create boxplot with thinner boxes
+        # Create boxplot with appropriate box width
+        box_width = 0.35 if include_action else 0.4
         bp = ax.boxplot(plot_data,
                        positions=positions,
-                       widths=0.35,  # Thinner boxes
+                       widths=box_width,
                        patch_artist=True,
                        showfliers=False,
-                       medianprops=dict(color='black', linewidth=3),
-                       boxprops=dict(linewidth=1.5),
-                       whiskerprops=dict(linewidth=1.5),
-                       capprops=dict(linewidth=1.5))
+                       medianprops=dict(color='black', linewidth=3.5),
+                       boxprops=dict(linewidth=2),
+                       whiskerprops=dict(linewidth=2),
+                       capprops=dict(linewidth=2))
 
         # Color boxes by similarity type
-        sim_order = ['prefix_action', 'full_action', 'prefix_phase', 'full_phase']
-        for i, box in enumerate(bp['boxes']):
-            sim_type_idx = i % 4
-            sim_type = sim_order[sim_type_idx]
-            box.set_facecolor(colors[sim_type])
-            box.set_alpha(0.8)
-            box.set_edgecolor('black')
+        if include_action:
+            sim_order = ['prefix_action', 'full_action', 'prefix_phase', 'full_phase']
+            for i, box in enumerate(bp['boxes']):
+                sim_type_idx = i % 4
+                sim_type = sim_order[sim_type_idx]
+                box.set_facecolor(colors[sim_type])
+                box.set_alpha(0.8)
+                box.set_edgecolor('black')
+        else:
+            sim_order = ['prefix_phase', 'full_phase']
+            for i, box in enumerate(bp['boxes']):
+                sim_type_idx = i % 2
+                sim_type = sim_order[sim_type_idx]
+                box.set_facecolor(colors[sim_type])
+                box.set_alpha(0.8)
+                box.set_edgecolor('black')
 
-        # Set x-axis labels (model names)
+        # Set x-axis labels (model names) - only on last row for shared labels
         ax.set_xticks(model_tick_positions)
-        ax.set_xticklabels(model_tick_labels, fontsize=24, fontweight='bold')
+        if row_idx == len(ordered_datasets) - 1:
+            # Last row: show model names
+            ax.set_xticklabels(model_tick_labels, fontsize=32, fontweight='bold')
+        else:
+            # Other rows: hide labels
+            ax.set_xticklabels([])
 
         # Y-axis
-        ax.set_ylabel('LCS Similarity', fontsize=26, fontweight='bold')
+        ax.set_ylabel('LCS Similarity', fontsize=34, fontweight='bold')
         ax.set_ylim(0, 1.05)
-        ax.tick_params(axis='y', labelsize=22)
-        ax.grid(axis='y', alpha=0.3, linestyle='--', linewidth=0.8)
+        ax.tick_params(axis='y', labelsize=30)
+        ax.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
 
         # Dataset title
         dataset_display = DATASET_NAME_MAP.get(dataset, dataset)
-        ax.set_title(dataset_display, fontsize=28, fontweight='bold', pad=15)
+        ax.set_title(dataset_display, fontsize=36, fontweight='bold', pad=20)
 
         # Add vertical lines to separate models - correct position
         for i in range(1, len(model_tick_positions)):
@@ -300,20 +332,28 @@ def create_divergence_boxplot(
             ax.axvline(x=separator_pos, color='gray', linestyle=':', linewidth=1.5, alpha=0.6)
 
     # Add legend to the bottom with better spacing
-    legend_elements = [
-        mpatches.Patch(facecolor=colors['prefix_action'], edgecolor='black', alpha=0.8, label='Prefix Action'),
-        mpatches.Patch(facecolor=colors['full_action'], edgecolor='black', alpha=0.8, label='Full Action'),
-        mpatches.Patch(facecolor=colors['prefix_phase'], edgecolor='black', alpha=0.8, label='Prefix Phase'),
-        mpatches.Patch(facecolor=colors['full_phase'], edgecolor='black', alpha=0.8, label='Full Phase')
-    ]
+    if include_action:
+        legend_elements = [
+            mpatches.Patch(facecolor=colors['prefix_action'], edgecolor='black', alpha=0.8, label='Prefix Action'),
+            mpatches.Patch(facecolor=colors['full_action'], edgecolor='black', alpha=0.8, label='Full Action'),
+            mpatches.Patch(facecolor=colors['prefix_phase'], edgecolor='black', alpha=0.8, label='Prefix Phase'),
+            mpatches.Patch(facecolor=colors['full_phase'], edgecolor='black', alpha=0.8, label='Full Phase')
+        ]
+        ncol = 4
+    else:
+        legend_elements = [
+            mpatches.Patch(facecolor=colors['prefix_phase'], edgecolor='black', alpha=0.8, label='Prefix Phase'),
+            mpatches.Patch(facecolor=colors['full_phase'], edgecolor='black', alpha=0.8, label='Full Phase')
+        ]
+        ncol = 2
 
-    fig.legend(handles=legend_elements, loc='lower center', ncol=4,
-              fontsize=22, frameon=True, bbox_to_anchor=(0.5, -0.01),
+    fig.legend(handles=legend_elements, loc='lower center', ncol=ncol,
+              fontsize=30, frameon=True, bbox_to_anchor=(0.5, -0.02),
               edgecolor='black', fancybox=False)
 
-    # Adjust layout to be more compact and prevent text overlap
-    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
-    plt.subplots_adjust(hspace=0.3)  # Vertical spacing between subplots
+    # Adjust layout to provide more space between bottom plot and legend
+    plt.tight_layout(rect=[0, 0.08, 1, 0.98])
+    plt.subplots_adjust(hspace=0.25)  # Vertical spacing between subplots
 
     # Save figure
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -349,6 +389,8 @@ def main():
                        help="Skip analysis and only use cached results")
     parser.add_argument("--num-workers", type=int, default=8,
                        help="Number of parallel workers for analysis")
+    parser.add_argument("--include-action", action="store_true",
+                       help="Include action-level similarity in the plot (default: only phase similarity)")
 
     args = parser.parse_args()
 
@@ -402,7 +444,8 @@ def main():
         args.configs,
         args.models,
         args.datasets,
-        args.output
+        args.output,
+        include_action=args.include_action
     )
 
     print(f"\n{'='*70}")

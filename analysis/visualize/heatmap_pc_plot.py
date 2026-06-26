@@ -132,8 +132,8 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
                     if score is not None:
                         matrix[i, j] = score
 
-    # Create figure with compact layout
-    fig, ax = plt.subplots(figsize=(len(configs) * 2.0 + 2.5, len(rows) * 0.5 + 0.8))
+    # Create figure with wider cells to accommodate horizontal config names
+    fig, ax = plt.subplots(figsize=(len(configs) * 3.5 + 3.5, len(rows) * 0.7 + 1.2))
 
     # Create colormap: green (high) -> yellow -> orange -> red (low)
     cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
@@ -148,16 +148,21 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
         vmin=0.5,
         vmax=1.0,
         cbar=True,
-        cbar_kws={'shrink': 0.7, 'pad': 0.02},
+        cbar_kws={'shrink': 0.7, 'pad': 0.02, 'label': 'Compliance Score'},
         xticklabels=False,
         yticklabels=False,
-        linewidths=1.5,
+        linewidths=2,
         linecolor='white',
         ax=ax,
         mask=np.isnan(matrix),
         square=False,
-        annot_kws={'size': 18, 'weight': 'bold'}
+        annot_kws={'size': 28, 'weight': 'bold'}
     )
+
+    # Configure colorbar
+    cbar = ax.collections[0].colorbar
+    cbar.ax.tick_params(labelsize=26)
+    cbar.set_label('Compliance Score', fontsize=28, fontweight='bold')
 
     # Handle missing data
     for i in range(len(rows)):
@@ -165,13 +170,13 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
             if np.isnan(matrix[i, j]):
                 ax.text(j + 0.5, i + 0.5, '-',
                        ha='center', va='center',
-                       color='gray', fontsize=16, fontweight='bold')
+                       color='gray', fontsize=26, fontweight='bold')
 
-    # Add config names at the top (horizontal, bold, larger)
+    # Add config names at the top (horizontal, readable font size)
     for j, config_name in enumerate(col_labels):
-        ax.text(j + 0.5, -0.25, config_name,
+        ax.text(j + 0.5, -0.3, config_name,
                ha='center', va='bottom',
-               fontsize=13, fontweight='bold',
+               fontsize=22, fontweight='bold',
                transform=ax.transData)
 
     # Remove axis labels and ticks
@@ -192,9 +197,9 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
             # Count rows for this dataset
             dataset_rows = sum(1 for d, _, _ in rows if d == dataset)
             dataset_y = i + dataset_rows / 2 - 0.5
-            ax.text(-0.3, dataset_y, dataset_name,
+            ax.text(-0.35, dataset_y, dataset_name,
                    ha='center', va='center',
-                   fontsize=18, fontweight='bold',
+                   fontsize=28, fontweight='bold',
                    rotation=90,
                    transform=ax.transData)
             prev_dataset = dataset
@@ -203,16 +208,16 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
         if status == 'resolved':
             # Position at i+1.0 to be exactly between row i and row i+1
             model_y = i + 1.0
-            ax.text(-0.45, model_y, model_name,
+            ax.text(-0.55, model_y, model_name,
                    ha='right', va='center',
-                   fontsize=18, fontweight='bold',
+                   fontsize=26, fontweight='bold',
                    transform=ax.transData)
 
         # Add status label (R/U)
         status_label = 'R' if status == 'resolved' else 'U'
-        ax.text(-0.1, i + 0.5, status_label,
+        ax.text(-0.15, i + 0.5, status_label,
                ha='right', va='center',
-               fontsize=18,
+               fontsize=26, fontweight='bold',
                transform=ax.transData)
 
     plt.tight_layout()
@@ -226,7 +231,7 @@ def main():
         description="Generate plan compliance heatmap"
     )
     parser.add_argument("--datasets", nargs="+",
-                       default=['swebench', 'swebench-pro'],
+                       default=['swebench-pro'],
                        help="Datasets to include")
     parser.add_argument("--models", nargs="+",
                        default=['deepseek-chat-v3-0324', 'gemini-2.5-flash', 'minimax-m2.5'],

@@ -167,13 +167,13 @@ def create_upset_image(df, config1, config2, show_difficulty_title=True):
             leg.remove()
         
         # Set font sizes
-        ax.xaxis.label.set_fontsize(20)
-        ax.yaxis.label.set_fontsize(20)
-        ax.tick_params(axis='x', labelsize=22)
-        ax.tick_params(axis='y', labelsize=8)
-        ax.tick_params(axis='both', labelsize=12)
+        ax.xaxis.label.set_fontsize(24)
+        ax.yaxis.label.set_fontsize(24)
+        ax.tick_params(axis='x', labelsize=26)
+        ax.tick_params(axis='y', labelsize=12)
+        ax.tick_params(axis='both', labelsize=16)
         if ax.get_title():
-            ax.set_title(ax.get_title(), fontsize=14, fontweight='bold')
+            ax.set_title(ax.get_title(), fontsize=18, fontweight='bold')
     
     # Adjust text positions
     for i, ax in enumerate(fig.get_axes(), 1):
@@ -212,14 +212,14 @@ def create_composite_figure(images, model_names, dataset_names):
 
             # Column title (model name) on top row
             if row_idx == 0:
-                ax.set_title(model_names[col_idx], fontsize=16, fontweight='bold', pad=10)
+                ax.set_title(model_names[col_idx], fontsize=18, fontweight='bold', pad=10)
 
             # Row label (dataset name) - positioned to avoid overlap
             if col_idx == 0:
                 # Use text positioned outside the axis instead of ylabel
                 ax.text(0.3, 0.5, dataset_names[row_idx],
                        transform=ax.transAxes,
-                       fontsize=16, fontweight='bold',
+                       fontsize=18, fontweight='bold',
                        rotation=90, va='center', ha='right')
 
     # Add legend
@@ -230,10 +230,10 @@ def create_composite_figure(images, model_names, dataset_names):
     fig.legend(
         handles=legend_elements,
         loc='upper center',
-        fontsize=14,
+        fontsize=15,
         frameon=True,
         ncol=4,
-        bbox_to_anchor=(0.5, 0.97),
+        bbox_to_anchor=(0.5, 0.99),
         handleheight=1.0,
         handlelength=1.0,
     )
