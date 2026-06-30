@@ -521,13 +521,14 @@ def generate_heatmap(data: Dict, datasets: List[str], models: List[str],
     }
 
     # Define patterns (only individual patterns, no totals or any pattern)
+    # Use complete names for better readability
     base_patterns = [
         ("[B] Plan Violation", "plan_violation", "blocking"),
         ("[B] Oscillation", "oscillation", "blocking"),
-        ("Nav.", "dwell_L_navigate", "non-blocking"),
-        ("Rep.", "dwell_L_reproduce", "non-blocking"),
-        ("Pat.", "dwell_P", "non-blocking"),
-        ("Val.", "dwell_V", "non-blocking"),
+        ("Navigation", "dwell_L_navigate", "non-blocking"),
+        ("Reproduce", "dwell_L_reproduce", "non-blocking"),
+        ("Patch", "dwell_P", "non-blocking"),
+        ("Validate", "dwell_V", "non-blocking"),
         ("[N] Repeated Action", "repeated_view", "non-blocking")
     ]
 
@@ -599,9 +600,8 @@ def generate_heatmap(data: Dict, datasets: List[str], models: List[str],
     # Plot heatmap
     im = ax.imshow(matrix, cmap=cmap, aspect='auto', vmin=0, vmax=100)
 
-    # Add colorbar
+    # Add colorbar without label to save space
     cbar = plt.colorbar(im, ax=ax, pad=0.02, fraction=0.02)
-    cbar.set_label('Percentage (%)', fontsize=38, fontweight='bold')
     cbar.ax.tick_params(labelsize=36)
 
     # Set ticks and labels
@@ -622,28 +622,39 @@ def generate_heatmap(data: Dict, datasets: List[str], models: List[str],
             ax.text(-0.6, i, label, ha='right', va='center',
                    fontsize=36, fontweight='bold', transform=ax.transData, clip_on=False)
 
-    # Add [N] Long Stagnation (horizontal) to the left of dwell abbreviations
-    # Layout from left to right: Dataset brackets -> [N] Long Stagnation (horizontal) -> All pattern labels (y-axis ticks, close to heatmap) -> Heatmap
-    # Note: All pattern labels ([B] Plan Violation, [B] Oscillation, Nav., Rep., Pat., Val., [N] Repeated Action)
-    #       are already shown as y-axis tick labels at the same distance from heatmap (default matplotlib position)
-    #       Only [N] Long Stagnation is added as a separate horizontal label further left, aligned with dwell rows
+    # Add "[N] Long Stagnation" with bracket grouping for dwell patterns
+    # Layout: Dataset brackets -> [N] Long Stagnation (with bracket) -> Pattern labels -> Heatmap
     for dataset_idx, dataset in enumerate(datasets):
         if split_by_resolution:
             # In split mode: dwell patterns are indices 2-5, each has 2 rows (R and U)
-            dwell_start_row = dataset_idx * n_patterns + 2 * 2  # Start of Nav. R
-            dwell_end_row = dataset_idx * n_patterns + 5 * 2 + 1  # End of Val. U
+            dwell_start_row = dataset_idx * n_patterns + 2 * 2  # Start of Navigation R
+            dwell_end_row = dataset_idx * n_patterns + 5 * 2 + 1  # End of Validate U
             dwell_mid_row = (dwell_start_row + dwell_end_row) / 2
         else:
-            # In non-split mode: dwell patterns are indices 2-5 (Nav., Rep., Pat., Val.)
-            dwell_start_row = dataset_idx * n_patterns + 2  # Start of Nav.
-            dwell_end_row = dataset_idx * n_patterns + 5  # End of Val.
+            # In non-split mode: dwell patterns are indices 2-5 (Navigation, Reproduce, Patch, Validate)
+            dwell_start_row = dataset_idx * n_patterns + 2  # Start of Navigation
+            dwell_end_row = dataset_idx * n_patterns + 5  # End of Validate
             dwell_mid_row = (dwell_start_row + dwell_end_row) / 2
 
-        # Add the shared "[N] Long Stagnation" label HORIZONTALLY, to the left of y-axis tick labels
-        # Position: between dataset brackets (-3.2) and manually positioned y-axis labels (-0.6)
-        # Move slightly further left for better spacing
-        ax.text(-1.95, dwell_mid_row, "[N] Long Stagnation", ha='center', va='center',
-               fontsize=32, fontweight='bold', rotation=0, transform=ax.transData, clip_on=False)
+        # Draw bracket for [N] Long Stagnation grouping
+        bracket_x = -1.8  # Position between dataset brackets and pattern labels
+        bracket_width = 0.12
+
+        # Vertical bar
+        ax.plot([bracket_x, bracket_x], [dwell_start_row - 0.4, dwell_end_row + 0.4],
+               color='black', linewidth=2.0, solid_capstyle='butt', clip_on=False)
+        # Top cap
+        ax.plot([bracket_x, bracket_x + bracket_width], [dwell_start_row - 0.4, dwell_start_row - 0.4],
+               color='black', linewidth=2.0, solid_capstyle='butt', clip_on=False)
+        # Bottom cap
+        ax.plot([bracket_x, bracket_x + bracket_width], [dwell_end_row + 0.4, dwell_end_row + 0.4],
+               color='black', linewidth=2.0, solid_capstyle='butt', clip_on=False)
+
+        # Add two-line label: "[N] Long" on first line, "Stagnation" on second line
+        # Position further left to avoid overlapping with pattern labels
+        ax.text(bracket_x - 0.50, dwell_mid_row, "[N] Long\nStagnation", ha='center', va='center',
+               fontsize=30, fontweight='bold', rotation=0, transform=ax.transData, clip_on=False,
+               linespacing=0.9)
 
     # Add text annotations (cell values)
     for i in range(n_rows):
@@ -682,8 +693,8 @@ def generate_heatmap(data: Dict, datasets: List[str], models: List[str],
         end_row = (dataset_idx + 1) * n_patterns - 0.5
         mid_row = dataset_idx * n_patterns + (n_patterns - 1) / 2
 
-        # Create a bracket
-        bracket_x = -3.2  # Position for bracket
+        # Create a bracket (move right to save space)
+        bracket_x = -2.85  # Position for bracket
         bracket_width = 0.2
 
         # Simple bracket using lines (vertical bar with horizontal ticks)
@@ -717,8 +728,8 @@ def generate_heatmap(data: Dict, datasets: List[str], models: List[str],
             ax.axhline(y=base + 1.5, color='gray', linewidth=1.5, linestyle='--', alpha=0.6)
 
     # Styling - extend left limit to show dataset labels, brackets, and [N] Long Stagnation
-    ax.set_xlim(-3.8, n_cols - 0.5)
-    ax.set_ylim(n_rows - 0.5, -1.5)
+    ax.set_xlim(-3.3, n_cols - 0.5)
+    ax.set_ylim(n_rows - 0.5, -2.5)
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
