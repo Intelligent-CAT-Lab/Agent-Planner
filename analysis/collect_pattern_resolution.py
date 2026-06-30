@@ -16,7 +16,7 @@ For refiner run: additionally record trigger status (planner.json exists) and ov
 For monitor triggers, match the intervention content against rules in plan_monitor/config/default_rules.json:
   - plan_compliance -> plan_violation
   - oscillations (self_loop, two+_node_cycle) or thought_oscillation -> oscillation
-  - dwell_times (dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V) -> long_stagnation
+  - dwell_times: dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V (4 separate patterns)
   - repeated_action (repeated_view) -> repeated_view
 
 Example usage:
@@ -139,13 +139,16 @@ def process_trajectory(traj_path: Path) -> Dict:
         triggered_patterns = {
             'plan_violation': False,
             'oscillation': False,
-            'long_stagnation': False,
+            'dwell_L_navigate': False,
+            'dwell_L_reproduce': False,
+            'dwell_P': False,
+            'dwell_V': False,
             'repeated_view': False
         }
 
         for event, thought, observation in extractor.extract_actions():
+            # result = monitor.on_step(event, thought=thought, observation=observation)
             result = monitor.check_step_pre_emptively(event, thought=thought)
-
             if result and result.rule_matches:
                 for match in result.rule_matches:
                     rule_id = match.rule_id
@@ -154,8 +157,14 @@ def process_trajectory(traj_path: Path) -> Dict:
                         triggered_patterns['plan_violation'] = True
                     elif 'oscillation' in rule_id or 'cycle' in rule_id:
                         triggered_patterns['oscillation'] = True
-                    elif 'dwell' in rule_id:
-                        triggered_patterns['long_stagnation'] = True
+                    elif 'dwell_L_navigate' in rule_id:
+                        triggered_patterns['dwell_L_navigate'] = True
+                    elif 'dwell_L_reproduce' in rule_id:
+                        triggered_patterns['dwell_L_reproduce'] = True
+                    elif 'dwell_P' in rule_id:
+                        triggered_patterns['dwell_P'] = True
+                    elif 'dwell_V' in rule_id:
+                        triggered_patterns['dwell_V'] = True
                     elif 'repeated' in rule_id:
                         triggered_patterns['repeated_view'] = True
 
@@ -178,7 +187,10 @@ def process_trajectory(traj_path: Path) -> Dict:
             'patterns': {
                 'plan_violation': False,
                 'oscillation': False,
-                'long_stagnation': False,
+                'dwell_L_navigate': False,
+                'dwell_L_reproduce': False,
+                'dwell_P': False,
+                'dwell_V': False,
                 'repeated_view': False
             },
             'cost': 0.0,
@@ -190,10 +202,11 @@ def process_trajectory(traj_path: Path) -> Dict:
 
 def classify_monitor_trigger(content: str) -> str:
     """
-    Classify monitor trigger content into pattern categories.
+    Classify monitor trigger content into specific pattern categories.
 
     Returns:
-        One of: 'plan_violation', 'oscillation', 'long_stagnation', 'repeated_view', or 'unknown'
+        One of: 'plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce',
+        'dwell_P', 'dwell_V', 'repeated_view', or 'unknown'
     """
     content_lower = content.lower()
 
@@ -209,11 +222,15 @@ def classify_monitor_trigger(content: str) -> str:
         'stuck in a loop' in content_lower):
         return 'oscillation'
 
-    # Long stagnation (dwell_times)
-    if ('seem to navigate' in content_lower or
-        'trying to reproduce' in content_lower or
-        ('spent the last' in content_lower and ('steps editing' in content_lower or 'steps validating' in content_lower))):
-        return 'long_stagnation'
+    # Dwell patterns (4 separate sub-patterns)
+    if 'seem to navigate' in content_lower or 'navigate between files' in content_lower:
+        return 'dwell_L_navigate'
+    if 'trying to reproduce' in content_lower:
+        return 'dwell_L_reproduce'
+    if 'spent the last' in content_lower and 'editing' in content_lower:
+        return 'dwell_P'
+    if 'spent the last' in content_lower and 'validating' in content_lower:
+        return 'dwell_V'
 
     # Repeated view
     if 'already reviewed this location' in content_lower or 'have already reviewed' in content_lower:
@@ -232,7 +249,10 @@ def extract_monitor_patterns(planner_file: Path) -> Dict[str, bool]:
     patterns = {
         'plan_violation': False,
         'oscillation': False,
-        'long_stagnation': False,
+        'dwell_L_navigate': False,
+        'dwell_L_reproduce': False,
+        'dwell_P': False,
+        'dwell_V': False,
         'repeated_view': False
     }
 
@@ -264,7 +284,10 @@ def extract_refiner_patterns(planner_file: Path) -> Dict[str, bool]:
     patterns = {
         'plan_violation': False,
         'oscillation': False,
-        'long_stagnation': False,
+        'dwell_L_navigate': False,
+        'dwell_L_reproduce': False,
+        'dwell_P': False,
+        'dwell_V': False,
         'repeated_view': False
     }
 
@@ -290,8 +313,14 @@ def extract_refiner_patterns(planner_file: Path) -> Dict[str, bool]:
                     patterns['plan_violation'] = True
                 elif 'oscillation' in rule_id or 'cycle' in rule_id:
                     patterns['oscillation'] = True
-                elif 'dwell' in rule_id:
-                    patterns['long_stagnation'] = True
+                elif 'dwell_L_navigate' in rule_id:
+                    patterns['dwell_L_navigate'] = True
+                elif 'dwell_L_reproduce' in rule_id:
+                    patterns['dwell_L_reproduce'] = True
+                elif 'dwell_P' in rule_id:
+                    patterns['dwell_P'] = True
+                elif 'dwell_V' in rule_id:
+                    patterns['dwell_V'] = True
                 elif 'repeated' in rule_id:
                     patterns['repeated_view'] = True
 
@@ -389,7 +418,8 @@ def compute_overlapping_issues(run1_patterns: Dict, run2_patterns: Dict) -> List
         return []
 
     overlaps = []
-    pattern_names = ['plan_violation', 'oscillation', 'long_stagnation', 'repeated_view']
+    pattern_names = ['plan_violation', 'oscillation',
+                     'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated_view']
 
     for pattern in pattern_names:
         if run1_patterns.get(pattern, False) and run2_patterns.get(pattern, False):
@@ -432,29 +462,29 @@ def generate_csv(
         header_row3 = ['']
 
         if has_vanilla1:
-            header_row1.extend(['Vanilla Run', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
-            header_row3.extend(['', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+            header_row1.extend(['Vanilla Run', '', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', 'plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated view', '', '', '', ''])
 
         if has_sage:
-            header_row1.extend(['Sage Run', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
-            header_row3.extend(['', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+            header_row1.extend(['Sage Run', '', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Resolution \nStatus', 'Has Issue?', 'Trajectory Issue', '', '', '', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', 'plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated view', '', '', '', ''])
 
         if has_monitor:
-            header_row1.extend(['Monitor Run', '', '', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
-            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+            header_row1.extend(['Monitor Run', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated view', '', '', '', ''])
 
         if has_refiner_only:
-            header_row1.extend(['Refiner-Only Run', '', '', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
-            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+            header_row1.extend(['Refiner-Only Run', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated view', '', '', '', ''])
 
         if has_refiner:
-            header_row1.extend(['Live-Plan Run', '', '', '', '', '', '', '', '', '', '', ''])
-            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
-            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'long_stagnation', 'repeated view', '', '', '', ''])
+            header_row1.extend(['Live-Plan Run', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+            header_row2.extend(['Trigger \nStatus', 'Resolution \nStatus', 'Has Issue?', 'Overlapping \nissues', 'Trajectory Issue', '', '', '', '', '', '', 'Lang', 'Unique Phases', 'Cost\n($)', 'Steps'])
+            header_row3.extend(['', '', '', '', 'plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated view', '', '', '', ''])
 
         # Write header rows
         writer.writerow(header_row1)
@@ -475,7 +505,10 @@ def generate_csv(
                         has_issue,
                         1 if data['patterns']['plan_violation'] else 0,
                         1 if data['patterns']['oscillation'] else 0,
-                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['dwell_L_navigate'] else 0,
+                        1 if data['patterns']['dwell_L_reproduce'] else 0,
+                        1 if data['patterns']['dwell_P'] else 0,
+                        1 if data['patterns']['dwell_V'] else 0,
                         1 if data['patterns']['repeated_view'] else 0,
                         data['lang'],
                         data['unique_phases'],
@@ -483,7 +516,7 @@ def generate_csv(
                         data['steps']
                     ])
                 else:
-                    row.extend(['', '', '', '', '', '', '', '', '', ''])
+                    row.extend([''] * 13)
 
             # Sage Run
             if has_sage:
@@ -495,7 +528,10 @@ def generate_csv(
                         has_issue,
                         1 if data['patterns']['plan_violation'] else 0,
                         1 if data['patterns']['oscillation'] else 0,
-                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['dwell_L_navigate'] else 0,
+                        1 if data['patterns']['dwell_L_reproduce'] else 0,
+                        1 if data['patterns']['dwell_P'] else 0,
+                        1 if data['patterns']['dwell_V'] else 0,
                         1 if data['patterns']['repeated_view'] else 0,
                         data['lang'],
                         data['unique_phases'],
@@ -503,7 +539,7 @@ def generate_csv(
                         data['steps']
                     ])
                 else:
-                    row.extend(['', '', '', '', '', '', '', '', '', ''])
+                    row.extend([''] * 13)
 
             # Monitor Run
             if has_monitor:
@@ -527,7 +563,10 @@ def generate_csv(
                         overlapping_str,
                         1 if data['patterns']['plan_violation'] else 0,
                         1 if data['patterns']['oscillation'] else 0,
-                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['dwell_L_navigate'] else 0,
+                        1 if data['patterns']['dwell_L_reproduce'] else 0,
+                        1 if data['patterns']['dwell_P'] else 0,
+                        1 if data['patterns']['dwell_V'] else 0,
                         1 if data['patterns']['repeated_view'] else 0,
                         data['lang'],
                         data['unique_phases'],
@@ -535,7 +574,7 @@ def generate_csv(
                         data['steps']
                     ])
                 else:
-                    row.extend(['', '', '', '', '', '', '', '', '', '', '', ''])
+                    row.extend([''] * 15)
 
             # Refiner-Only Run
             if has_refiner_only:
@@ -559,7 +598,10 @@ def generate_csv(
                         overlapping_str,
                         1 if data['patterns']['plan_violation'] else 0,
                         1 if data['patterns']['oscillation'] else 0,
-                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['dwell_L_navigate'] else 0,
+                        1 if data['patterns']['dwell_L_reproduce'] else 0,
+                        1 if data['patterns']['dwell_P'] else 0,
+                        1 if data['patterns']['dwell_V'] else 0,
                         1 if data['patterns']['repeated_view'] else 0,
                         data['lang'],
                         data['unique_phases'],
@@ -567,7 +609,7 @@ def generate_csv(
                         data['steps']
                     ])
                 else:
-                    row.extend(['', '', '', '', '', '', '', '', '', '', '', ''])
+                    row.extend([''] * 15)
 
             # Refiner Run
             if has_refiner:
@@ -591,7 +633,10 @@ def generate_csv(
                         overlapping_str,
                         1 if data['patterns']['plan_violation'] else 0,
                         1 if data['patterns']['oscillation'] else 0,
-                        1 if data['patterns']['long_stagnation'] else 0,
+                        1 if data['patterns']['dwell_L_navigate'] else 0,
+                        1 if data['patterns']['dwell_L_reproduce'] else 0,
+                        1 if data['patterns']['dwell_P'] else 0,
+                        1 if data['patterns']['dwell_V'] else 0,
                         1 if data['patterns']['repeated_view'] else 0,
                         data['lang'],
                         data['unique_phases'],
@@ -599,7 +644,7 @@ def generate_csv(
                         data['steps']
                     ])
                 else:
-                    row.extend(['', '', '', '', '', '', '', '', '', '', '', ''])
+                    row.extend([''] * 15)
 
             writer.writerow(row)
 

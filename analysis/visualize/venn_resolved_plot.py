@@ -283,7 +283,7 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
 
     # Larger figure with compact spacing
     fig_width = 10 * n_models
-    fig_height = 9 * n_datasets
+    fig_height = 8.5 * n_datasets
     fig, axes = plt.subplots(n_datasets, n_models, figsize=(fig_width, fig_height),
                              squeeze=False)
 
@@ -310,12 +310,12 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
             # Add column title (model) on top row
             if i == 0:
                 model_display = MODEL_NAME_MAP.get(model, model)
-                ax.set_title(model_display, fontsize=38, fontweight='bold', pad=5)
+                ax.set_title(model_display, fontsize=42, fontweight='bold', pad=8)
 
             # Add row label (dataset) on left column
             if j == 0:
                 ax.set_ylabel(dataset_display, fontsize=38, fontweight='bold',
-                             rotation=90, labelpad=10)
+                             rotation=90, labelpad=12)
 
     # Create legend for configs
     from matplotlib.patches import Patch
@@ -326,14 +326,14 @@ def generate_venn_plots(datasets: List[str], models: List[str], configs: List[st
         for config in active_configs
     ]
 
-    fig.legend(handles=legend_handles, loc='lower center', ncol=len(active_configs),
-              frameon=False, fontsize=36, bbox_to_anchor=(0.5, 0.05),
+    fig.legend(handles=legend_handles, loc='upper center', ncol=len(active_configs),
+              frameon=False, fontsize=36, bbox_to_anchor=(0.5, 1.03),
               columnspacing=2.2, handlelength=2.2,
               prop={'weight': 'bold', 'size': 36})
 
     # Minimal spacing between subplots for compactness
-    plt.subplots_adjust(left=0.08, right=0.99, top=0.97, bottom=0.08,
-                       wspace=0.03, hspace=0.08)
+    plt.subplots_adjust(left=0.08, right=0.99, top=0.94, bottom=0.01,
+                       wspace=0.03, hspace=0.01)
 
     output_file = output_dir / f"venn_resolved.pdf"
     plt.savefig(output_file, format="pdf", dpi=300, bbox_inches='tight')

@@ -352,7 +352,8 @@ def main():
 
     args = parser.parse_args()
 
-    base_dir = Path("/home/shuyang/Agent-Planner")
+    # Determine base directory (project root)
+    base_dir = Path(__file__).parent.parent.parent
     output_dir = base_dir / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 

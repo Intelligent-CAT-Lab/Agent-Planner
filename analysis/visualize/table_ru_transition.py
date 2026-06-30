@@ -25,6 +25,31 @@ def load_name_maps():
 MODEL_NAME_MAP, DATASET_NAME_MAP, CONFIG_NAME_MAP = load_name_maps()
 
 
+def has_planner_trigger(agent_dir: Path, config: str, dataset: str, model: str,
+                        instance_id: str, run_id: int, version: str = '5') -> bool:
+    """
+    Check if an instance has a planner.json file (i.e., was triggered).
+
+    Returns:
+        True if planner.json exists, False otherwise
+    """
+    # Configs without planner: all instances are considered "triggered"
+    if config in ['default', 'sage']:
+        return True
+
+    dataset_path = dataset if dataset != 'swebench-pro' else f"{dataset}/python"
+
+    # Map config to trajectory path
+    if config in ['refiner', 'refiner-only'] and version:
+        planner_path = (agent_dir / "trajectories" / config / f"version-{version}" /
+                      dataset_path / model / f"run-{run_id}" / instance_id / f"{instance_id}.planner.json")
+    else:
+        planner_path = (agent_dir / "trajectories" / config / dataset_path /
+                      model / f"run-{run_id}" / instance_id / f"{instance_id}.planner.json")
+
+    return planner_path.exists()
+
+
 def load_report(agent_dir: Path, config: str, dataset: str, model: str,
                 run_id: int, version: str = '5'):
     """
@@ -84,31 +109,72 @@ def load_report(agent_dir: Path, config: str, dataset: str, model: str,
     return None
 
 
-def compute_transitions(baseline_resolved: Set[str], config_resolved: Set[str],
-                       dataset: str) -> Dict[str, int]:
+def get_all_instance_ids(agent_dir: Path, dataset: str, model: str, run_id: int) -> Set[str]:
     """
-    Compute R-R, R-U, U-R, U-U transitions on all instances in the dataset.
+    Get all instance IDs for a dataset from the default config report.
+
+    Returns:
+        Set of all instance IDs
+    """
+    dataset_path = dataset if dataset != 'swebench-pro' else f"{dataset}/python"
+
+    # For swebench-pro, get from eval_results.json
+    if dataset == 'swebench-pro':
+        report_path = agent_dir / "reports" / "default" / dataset_path / model / f"run-{run_id}" / "eval_results.json"
+        if report_path.exists():
+            try:
+                with open(report_path, 'r') as f:
+                    data = json.load(f)
+                    return set(data.keys())
+            except Exception as e:
+                print(f"Warning: Error loading {report_path}: {e}")
+
+    # For swebench, get from report json
+    reports_dir = agent_dir / "reports" / "default" / dataset_path / model
+    if reports_dir.exists():
+        possible_names = [
+            f"{model}.run_{run_id}.json",
+            f"{model}.run-{run_id}.json",
+            f"{model}.{run_id}.json",
+        ]
+        for name in possible_names:
+            report_path = reports_dir / name
+            if report_path.exists():
+                try:
+                    with open(report_path, 'r') as f:
+                        data = json.load(f)
+                        resolved = set(data.get('resolved_ids', []))
+                        unresolved = set(data.get('unresolved_ids', []))
+                        return resolved | unresolved
+                except Exception as e:
+                    print(f"Warning: Error loading {report_path}: {e}")
+
+    # Fallback to full dataset size
+    return set()
+
+
+def compute_transitions(baseline_resolved: Set[str], config_resolved: Set[str],
+                       triggered_instances: Set[str], dataset: str) -> Dict[str, int]:
+    """
+    Compute R-R, R-U, U-R, U-U transitions on triggered instances only.
     Incomplete instances are treated as unresolved.
 
     Args:
         baseline_resolved: Resolved IDs from baseline (default) config
         config_resolved: Resolved IDs from comparison config
-        dataset: Dataset name (to determine total instances)
+        triggered_instances: Instance IDs that have planner.json (triggered)
+        dataset: Dataset name (for reference)
 
     Returns:
         Dict with counts for R-R, R-U, U-R, U-U
     """
-    # Total instances in dataset
-    total = 264 if dataset == 'swebench-pro' else 500
+    # Only consider triggered instances
+    r_r = len(triggered_instances & baseline_resolved & config_resolved)
+    r_u = len(triggered_instances & baseline_resolved - config_resolved)
+    u_r = len(triggered_instances & config_resolved - baseline_resolved)
+    u_u = len(triggered_instances - baseline_resolved - config_resolved)
 
-    # All instances that are resolved in either config
-    all_resolved = baseline_resolved | config_resolved
-
-    # Compute transitions
-    r_r = len(baseline_resolved & config_resolved)
-    r_u = len(baseline_resolved - config_resolved)
-    u_r = len(config_resolved - baseline_resolved)
-    u_u = total - r_r - r_u - u_r  # All remaining instances are unresolved by both
+    total = r_r + r_u + u_r + u_u
 
     return {
         'R-R': r_r,
@@ -120,126 +186,127 @@ def compute_transitions(baseline_resolved: Set[str], config_resolved: Set[str],
 
 
 def generate_latex_table(results: Dict, datasets: list, models: list, configs: list, output_path: Path):
-    """Generate a compact LaTeX table with configs as rows and hierarchical dataset-model columns."""
+    """Generate a compact LaTeX table with dataset-method rows and metric-model columns."""
 
     # Reorder datasets: swebench-pro first, then swebench
     ordered_datasets = ['swebench-pro', 'swebench']
     ordered_datasets = [d for d in ordered_datasets if d in datasets]
 
-    # Build dataset -> models mapping (only pairs with data)
-    dataset_models = {}
+    # Determine which configs are actually used for each dataset
+    dataset_configs = {}
     for dataset in ordered_datasets:
-        dataset_models[dataset] = []
-        for model in models:
-            if (dataset, model) in results and results[(dataset, model)]:
-                dataset_models[dataset].append(model)
+        dataset_configs[dataset] = []
+        for config in configs:
+            # Check if this config has data for any model in this dataset
+            has_data = False
+            for model in models:
+                if (dataset, model) in results and config in results[(dataset, model)]:
+                    has_data = True
+                    break
+            if has_data:
+                dataset_configs[dataset].append(config)
 
-    # Filter to datasets that have at least one model
-    dataset_models = {d: ms for d, ms in dataset_models.items() if ms}
-
-    if not dataset_models:
+    if not dataset_configs or all(not cs for cs in dataset_configs.values()):
         print("No data found")
         return
 
-    # Determine which configs are actually used
-    used_configs = set()
-    for (dataset, model), model_data in results.items():
-        used_configs.update(model_data.keys())
+    # Determine which models actually have data
+    models_with_data = []
+    for model in models:
+        has_data = False
+        for dataset in ordered_datasets:
+            if (dataset, model) in results and results[(dataset, model)]:
+                has_data = True
+                break
+        if has_data:
+            models_with_data.append(model)
 
-    available_configs = [c for c in configs if c in used_configs]
+    num_models = len(models_with_data)
 
-    if not available_configs:
-        print("No configs with data found")
-        return
+    # Model abbreviation mapping
+    model_abbrev_map = {
+        'deepseek-chat-v3-0324': 'DS',
+        'gemini-2.5-flash': 'GF',
+        'minimax-m2.5': 'MM'
+    }
 
     lines = []
-    lines.append("\\begin{table*}[t]")
+    lines.append("\\begin{table}[t]")
     lines.append("\\centering")
     lines.append("\\small")
-    lines.append("\\caption{Resolution Transition Matrix comparing methods against Vanilla actor baseline. "
-                 "RU: baseline resolved only (regression), UR: config resolved only (improvement). "
-                 "Total: 264 for SWE-bench Pro, 500 for SWE-bench Verified. SR denotes Success Rate (\\%).}")
+    lines.append("\\caption{Resolution Transition Matrix comparing methods against Vanilla baseline. "
+                 "R$\\rightarrow$U: baseline resolved only (regression), U$\\rightarrow$R: compared method resolved only (improvement).}")
     lines.append("\\label{tab:ru_transition}")
 
-    # Column spec: Config | Metric | [models per dataset] with | separators between datasets
-    col_spec = "ll"
-    for i, (dataset, ms) in enumerate(dataset_models.items()):
-        if i > 0:
-            col_spec += "|"  # Separator between datasets
-        col_spec += "r" * len(ms)  # One column per model
+    # Column spec: Dataset | Method | R→U (N models) | U→R (N models)
+    col_spec = f"ll{'r' * num_models}{'r' * num_models}"
     lines.append(f"\\begin{{tabular}}{{@{{}}{col_spec}@{{}}}}")
     lines.append("\\toprule")
 
-    # Two-level header: Dataset (spanning models) and Model sub-headers
-    header1 = "\\textbf{Method} & \\textbf{Metric}"
-    for dataset, ms in dataset_models.items():
-        dataset_display = DATASET_NAME_MAP.get(dataset, dataset)
-        header1 += f" & \\multicolumn{{{len(ms)}}}{{c}}{{\\textbf{{{dataset_display}}}}}"
+    # Two-level header
+    # Level 1: Metrics (R→U and U→R spanning N columns each)
+    header1 = "\\textbf{Dataset} & \\textbf{Method}"
+    header1 += f" & \\multicolumn{{{num_models}}}{{c}}{{\\textbf{{R$\\rightarrow$U $\\downarrow$}}}}"
+    header1 += f" & \\multicolumn{{{num_models}}}{{c}}{{\\textbf{{U$\\rightarrow$R $\\uparrow$}}}}"
     header1 += " \\\\"
     lines.append(header1)
 
-    # Second header row with model names
+    # Level 2: Model abbreviations
     header2 = " & "
-    for dataset, ms in dataset_models.items():
-        for model in ms:
-            model_display = MODEL_NAME_MAP.get(model, model)
-            header2 += f" & \\textbf{{{model_display}}}"
+    for _ in range(2):  # Two metric groups
+        for model in models_with_data:
+            abbrev = model_abbrev_map.get(model, model[:3].upper())
+            header2 += f" & \\textbf{{{abbrev}}}"
     header2 += " \\\\"
     lines.append(header2)
     lines.append("\\midrule")
 
-    # Metric order: R-U, U-R only
-    metrics = ['R-U', 'U-R']
+    # Data rows - grouped by dataset
+    first_dataset = True
+    for dataset in ordered_datasets:
+        if dataset not in dataset_configs or not dataset_configs[dataset]:
+            continue
 
-    # Data rows - one config at a time with 3 rows (2 metrics + SR)
-    for i, config in enumerate(available_configs):
-        config_display = CONFIG_NAME_MAP.get(config, config)
+        dataset_display = DATASET_NAME_MAP.get(dataset, dataset)
+        configs_in_dataset = dataset_configs[dataset]
 
-        # Add separator between configs
-        if i > 0:
-            lines.append("\\midrule")
+        # First row of dataset shows dataset name with rowspan
+        for i, config in enumerate(configs_in_dataset):
+            config_display = CONFIG_NAME_MAP.get(config, config)
 
-        # Two rows for metrics
-        for j, metric in enumerate(metrics):
-            if j == 0:
-                # First row shows config name with rowspan 3 (2 metrics + 1 SR row)
-                row = f"\\multirow{{3}}{{*}}{{{config_display}}} & {metric}"
+            row = ""
+            if i == 0:
+                # First config row shows dataset name
+                row = f"\\multirow{{{len(configs_in_dataset)}}}{{*}}{{\\textbf{{{dataset_display}}}}} & {config_display}"
             else:
-                row = f" & {metric}"
+                row = f" & {config_display}"
 
-            # Add data for each dataset-model pair
-            for dataset, ms in dataset_models.items():
-                for model in ms:
-                    if (dataset, model) in results and config in results[(dataset, model)]:
-                        stats = results[(dataset, model)][config]
-                        row += f" & {stats[metric]}"
-                    else:
-                        row += " & --"
+            # Add R-U values for all models
+            for model in models_with_data:
+                if (dataset, model) in results and config in results[(dataset, model)]:
+                    stats = results[(dataset, model)][config]
+                    row += f" & {stats['R-U']}"
+                else:
+                    row += " & --"
+
+            # Add U-R values for all models
+            for model in models_with_data:
+                if (dataset, model) in results and config in results[(dataset, model)]:
+                    stats = results[(dataset, model)][config]
+                    row += f" & {stats['U-R']}"
+                else:
+                    row += " & --"
 
             row += " \\\\"
             lines.append(row)
 
-        # Success Rate row (after the 4 metrics)
-        sr_row = " & \\textbf{SR (\\%)}"
-        for dataset, ms in dataset_models.items():
-            total = 264 if dataset == 'swebench-pro' else 500
-
-            # Add SR for each model in this dataset
-            for model in ms:
-                if (dataset, model) in results and config in results[(dataset, model)]:
-                    stats = results[(dataset, model)][config]
-                    resolved = stats['R-R'] + stats['U-R']
-                    sr = resolved / total * 100
-                    sr_row += f" & {sr:.1f}"
-                else:
-                    sr_row += " & --"
-
-        sr_row += " \\\\"
-        lines.append(sr_row)
+        # Add separator between datasets (but not after the last one)
+        if dataset != ordered_datasets[-1]:
+            lines.append("\\midrule")
 
     lines.append("\\bottomrule")
     lines.append("\\end{tabular}")
-    lines.append("\\end{table*}")
+    lines.append("\\end{table}")
 
     # Write to file
     with open(output_path, 'w') as f:
@@ -347,16 +414,20 @@ def main():
                        help="Configs to compare against default")
     parser.add_argument("--run-id", type=int, default=1, help="Run ID")
     parser.add_argument("--version", default='5', help="Version for refiner configs")
+    parser.add_argument("--all", action='store_true',
+                       help="Compute transitions for all instances (default: only triggered instances)")
     parser.add_argument("--output-dir", default="analysis/tables",
                        help="Output directory for tables")
 
     args = parser.parse_args()
 
-    base_dir = Path("/home/shuyang/Agent-Planner")
+    # Determine base directory (project root)
+    base_dir = Path(__file__).parent.parent.parent
     output_dir = base_dir / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Computing resolution transitions...")
+    mode = "all instances" if args.all else "triggered instances only"
+    print(f"Computing resolution transitions ({mode})...")
     print(f"Datasets: {args.datasets}")
     print(f"Models: {args.models}")
     print(f"Configs: {args.configs}\n")
@@ -375,13 +446,17 @@ def main():
                 agent_dir, 'default', dataset, model, args.run_id, args.version
             )
 
-            total = 264 if dataset == 'swebench-pro' else 500
-
             if baseline_resolved is None:
                 print(f"  No baseline data found, skipping")
                 continue
 
-            print(f"  Baseline (Vanilla actor): {len(baseline_resolved)}/{total} resolved")
+            # Get all instance IDs for this dataset
+            all_instances = get_all_instance_ids(agent_dir, dataset, model, args.run_id)
+            if not all_instances:
+                # Fallback: use resolved + unresolved from both configs
+                all_instances = baseline_resolved.copy()
+
+            print(f"  Baseline (Vanilla actor): {len(baseline_resolved)}/{len(all_instances)} resolved")
 
             model_results = {}
 
@@ -396,17 +471,32 @@ def main():
                     # Don't add to model_results - this will show as -- in table
                     continue
 
-                # Compute transitions on all instances in dataset
+                # Find instances to compute transitions on
+                if args.all:
+                    # Use all instances
+                    instances_to_compute = all_instances
+                else:
+                    # Find triggered instances (instances with planner.json)
+                    # For configs without planner (sage), all instances are considered triggered
+                    instances_to_compute = set()
+                    for instance_id in all_instances:
+                        if has_planner_trigger(agent_dir, config, dataset, model, instance_id, args.run_id, args.version):
+                            instances_to_compute.add(instance_id)
+
+                # Compute transitions
                 transitions = compute_transitions(
-                    baseline_resolved, config_resolved, dataset
+                    baseline_resolved, config_resolved, instances_to_compute, dataset
                 )
 
                 model_results[config] = transitions
 
+                total_computed = transitions['total']
+                resolved_in_config = len(config_resolved & instances_to_compute)
+                scope = f"Total: {total_computed}" if args.all else f"Triggered: {total_computed}"
                 print(f"  {CONFIG_NAME_MAP.get(config, config)}: "
-                      f"R-R={transitions['R-R']}, R-U={transitions['R-U']}, "
-                      f"U-R={transitions['U-R']}, U-U={transitions['U-U']} "
-                      f"({len(config_resolved)}/{total} resolved)")
+                      f"{scope}, "
+                      f"R-U={transitions['R-U']}, U-R={transitions['U-R']} "
+                      f"(Resolved: {resolved_in_config}/{total_computed})")
 
             if model_results:
                 results[(dataset, model)] = model_results

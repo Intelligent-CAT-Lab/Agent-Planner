@@ -25,7 +25,7 @@ PREFIX MATCHING (asymmetric):
 - "L_reproduce" does NOT match expected "L_reproduce_regression_test" ✗ (actual insufficient)
 
 Expected Order:
-- plan: L_navigate → L_reproduce → P → V
+- plan: L_navigate → L_reproduce → P → V_newly_generated_test
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class PlanTestConfig:
     models: Optional[List[str]] = None
     setting: str = "plan"
     data_dir: str = "artifacts"
-    expected_order: Tuple[str, ...] = ("L_navigate", "L_reproduce", "P", "V")
+    expected_order: Tuple[str, ...] = ("L_navigate", "L_reproduce", "P", "V_newly_generated_test")
 
 
 @dataclass
@@ -67,7 +67,7 @@ class ComplianceScore:
 
 # Setting to expected order mapping
 SETTING_TO_EXPECTED_ORDER = {
-    "plan": ("L_navigate", "L_reproduce", "P", "V"),
+    "plan": ("L_navigate", "L_reproduce", "P", "V_newly_generated_test"),
 }
 
 

@@ -217,7 +217,7 @@ def create_composite_figure(images, model_names, dataset_names):
             # Row label (dataset name) - positioned to avoid overlap
             if col_idx == 0:
                 # Use text positioned outside the axis instead of ylabel
-                ax.text(0.3, 0.5, dataset_names[row_idx],
+                ax.text(0.3, 0.55, dataset_names[row_idx],
                        transform=ax.transAxes,
                        fontsize=18, fontweight='bold',
                        rotation=90, va='center', ha='right')
@@ -230,15 +230,15 @@ def create_composite_figure(images, model_names, dataset_names):
     fig.legend(
         handles=legend_elements,
         loc='upper center',
-        fontsize=15,
+        fontsize=20,
         frameon=True,
         ncol=4,
-        bbox_to_anchor=(0.5, 0.99),
-        handleheight=1.0,
-        handlelength=1.0,
+        bbox_to_anchor=(0.5, 1.05),
+        handleheight=1.2,
+        handlelength=1.5,
     )
 
-    plt.subplots_adjust(wspace=0.02, hspace=-0.1, left=0.08, right=0.99, top=0.93, bottom=0.02)
+    plt.subplots_adjust(wspace=0.02, hspace=0.05, left=0.08, right=0.99, top=0.93, bottom=0.02)
     return fig
 
 # ============================
@@ -254,17 +254,9 @@ def main():
 
     # Get dataset display names
     dataset_display_names = [
-        DATASET_NAME_MAP['swebench'],
-        DATASET_NAME_MAP['swebench-pro']
+        DATASET_NAME_MAP['swebench-pro'],
+        DATASET_NAME_MAP['swebench']
     ]
-
-    # Process Verified benchmark
-    for idx, (model_key, file_prefix) in enumerate(MODEL_FILES.items()):
-        file1 = BASE_DIR / "SWE-agent" / "reports" / "default" / "swebench" / model_key / f"{file_prefix}.run-1.json"
-        file2 = BASE_DIR / "SWE-agent" / "reports" / "refiner" / "version-5" / "swebench" / model_key / f"{file_prefix}.run-1.json"
-        df = create_dataset(file1, CONFIG1, file2, CONFIG2, benchmark_type="verified")
-        # Only show difficulty title on the first (leftmost) subplot
-        verified_images.append(create_upset_image(df, CONFIG1, CONFIG2, show_difficulty_title=(idx == 0)))
 
     # Process PRO benchmark
     for idx, (model_key, file_prefix) in enumerate(MODEL_FILES.items()):
@@ -274,9 +266,17 @@ def main():
         # Only show difficulty title on the first (leftmost) subplot
         pro_images.append(create_upset_image(df, CONFIG1, CONFIG2, show_difficulty_title=(idx == 0)))
 
+    # Process Verified benchmark
+    for idx, (model_key, file_prefix) in enumerate(MODEL_FILES.items()):
+        file1 = BASE_DIR / "SWE-agent" / "reports" / "default" / "swebench" / model_key / f"{file_prefix}.run-1.json"
+        file2 = BASE_DIR / "SWE-agent" / "reports" / "refiner" / "version-5" / "swebench" / model_key / f"{file_prefix}.run-1.json"
+        df = create_dataset(file1, CONFIG1, file2, CONFIG2, benchmark_type="verified")
+        # Only show difficulty title on the first (leftmost) subplot
+        verified_images.append(create_upset_image(df, CONFIG1, CONFIG2, show_difficulty_title=(idx == 0)))
+
     # Create and save composite figure
     fig = create_composite_figure(
-        [verified_images, pro_images],
+        [pro_images, verified_images],
         model_display_names,
         dataset_display_names
     )

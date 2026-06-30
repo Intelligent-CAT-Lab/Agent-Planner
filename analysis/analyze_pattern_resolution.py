@@ -105,26 +105,22 @@ class CSVParser:
             section_start = current_col
 
             # Determine section width based on config type
-            # Vanilla: 10 columns, Monitor/Refiner: 12 columns
+            # Baseline configs: 13 columns (removed long_stagnation, added 4 dwell sub-patterns = net +3)
+            # Planner configs: 15 columns (removed long_stagnation, added 4 dwell sub-patterns = net +3)
             if 'Vanilla Run' in section_name and 'Re-run' not in section_name and 'Monitor' not in section_name:
-                # Vanilla: no trigger status, 10 columns
-                section_width = 10
+                section_width = 13  # Updated from 10: 2 + 7 patterns + 4 = 13
                 config_sections['vanilla'] = (section_start, section_start + section_width)
             elif 'Sage Run' in section_name:
-                # Sage: no trigger status, 10 columns
-                section_width = 10
+                section_width = 13  # Updated from 10: 2 + 7 patterns + 4 = 13
                 config_sections['sage'] = (section_start, section_start + section_width)
             elif 'Monitor Run' in section_name or 'Monitor' in section_name:
-                # Monitor: has trigger status, 12 columns
-                section_width = 12
+                section_width = 15  # Updated from 12: 4 + 7 patterns + 4 = 15
                 config_sections['monitor'] = (section_start, section_start + section_width)
             elif 'Refiner-Only Run' in section_name:
-                # Refiner-only: has trigger status, 12 columns
-                section_width = 12
+                section_width = 15  # Updated from 12: 4 + 7 patterns + 4 = 15
                 config_sections['refiner-only'] = (section_start, section_start + section_width)
             elif 'Live-Plan' in section_name or 'Refiner' in section_name:
-                # Refiner: has trigger status, 12 columns
-                section_width = 12
+                section_width = 15  # Updated from 12: 4 + 7 patterns + 4 = 15
                 config_sections['refiner'] = (section_start, section_start + section_width)
             else:
                 # Unknown section, skip
@@ -142,14 +138,14 @@ class CSVParser:
         """
         Parse baseline run data (vanilla or sage) from a row.
 
-        Baseline structure (10 columns):
+        Baseline structure (13 columns):
         0: Resolution Status
         1: Has Issue
-        2-5: Patterns (plan_violation, oscillation, long_stagnation, repeated view)
-        6: Lang
-        7: Unique Phases
-        8: Cost
-        9: Steps
+        2-8: Patterns (plan_violation, oscillation, dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V, repeated view)
+        9: Lang
+        10: Unique Phases
+        11: Cost
+        12: Steps
         """
         if config not in self.column_map:
             return None
@@ -165,13 +161,16 @@ class CSVParser:
             patterns = {
                 'plan_violation': row[start + 2] == '1',
                 'oscillation': row[start + 3] == '1',
-                'long_stagnation': row[start + 4] == '1',
-                'repeated_view': row[start + 5] == '1'
+                'dwell_L_navigate': row[start + 4] == '1',
+                'dwell_L_reproduce': row[start + 5] == '1',
+                'dwell_P': row[start + 6] == '1',
+                'dwell_V': row[start + 7] == '1',
+                'repeated_view': row[start + 8] == '1'
             }
-            lang = row[start + 6] if len(row) > start + 6 else ''
-            unique_phases = row[start + 7] if len(row) > start + 7 else ''
-            cost = float(row[start + 8]) if len(row) > start + 8 and row[start + 8] else 0.0
-            steps = int(row[start + 9]) if len(row) > start + 9 and row[start + 9] else 0
+            lang = row[start + 9] if len(row) > start + 9 else ''
+            unique_phases = row[start + 10] if len(row) > start + 10 else ''
+            cost = float(row[start + 11]) if len(row) > start + 11 and row[start + 11] else 0.0
+            steps = int(row[start + 12]) if len(row) > start + 12 and row[start + 12] else 0
 
             return InstanceData(
                 instance_id=instance_id,
@@ -199,16 +198,16 @@ class CSVParser:
         """
         Parse monitor/refiner run data from a row.
 
-        Structure (12 columns per section):
+        Structure (15 columns per section):
         0: Trigger Status
         1: Resolution Status
         2: Has Issue
         3: Overlapping issues
-        4-7: Patterns (plan_violation, oscillation, long_stagnation, repeated view)
-        8: Lang
-        9: Unique Phases
-        10: Cost
-        11: Steps
+        4-10: Patterns (plan_violation, oscillation, dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V, repeated view)
+        11: Lang
+        12: Unique Phases
+        13: Cost
+        14: Steps
         """
         if config not in self.column_map:
             return None
@@ -227,13 +226,16 @@ class CSVParser:
             patterns = {
                 'plan_violation': row[start + 4] == '1' if len(row) > start + 4 else False,
                 'oscillation': row[start + 5] == '1' if len(row) > start + 5 else False,
-                'long_stagnation': row[start + 6] == '1' if len(row) > start + 6 else False,
-                'repeated_view': row[start + 7] == '1' if len(row) > start + 7 else False
+                'dwell_L_navigate': row[start + 6] == '1' if len(row) > start + 6 else False,
+                'dwell_L_reproduce': row[start + 7] == '1' if len(row) > start + 7 else False,
+                'dwell_P': row[start + 8] == '1' if len(row) > start + 8 else False,
+                'dwell_V': row[start + 9] == '1' if len(row) > start + 9 else False,
+                'repeated_view': row[start + 10] == '1' if len(row) > start + 10 else False
             }
-            lang = row[start + 8] if len(row) > start + 8 else ''
-            unique_phases = row[start + 9] if len(row) > start + 9 else ''
-            cost = float(row[start + 10]) if len(row) > start + 10 and row[start + 10] else 0.0
-            steps = int(row[start + 11]) if len(row) > start + 11 and row[start + 11] else 0
+            lang = row[start + 11] if len(row) > start + 11 else ''
+            unique_phases = row[start + 12] if len(row) > start + 12 else ''
+            cost = float(row[start + 13]) if len(row) > start + 13 and row[start + 13] else 0.0
+            steps = int(row[start + 14]) if len(row) > start + 14 and row[start + 14] else 0
 
             return InstanceData(
                 instance_id=instance_id,
@@ -255,7 +257,7 @@ class CSVParser:
 class PatternAnalyzer:
     """Analyzer for pattern resolution data."""
 
-    PATTERN_TYPES = ['plan_violation', 'oscillation', 'long_stagnation', 'repeated_view']
+    PATTERN_TYPES = ['plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated_view']
     BASELINE_CONFIGS = ['vanilla', 'sage']  # Configs without trigger status (10 columns)
     PLANNER_CONFIGS = ['monitor', 'refiner-only', 'refiner']  # Configs with trigger status (12 columns)
 
@@ -582,11 +584,14 @@ class PatternAnalyzer:
             with_patterns = sum(1 for d in data_dict.values() if any(d.patterns.values()))
             plan_violation = sum(1 for d in data_dict.values() if d.patterns.get('plan_violation', False))
             oscillation = sum(1 for d in data_dict.values() if d.patterns.get('oscillation', False))
-            long_stagnation = sum(1 for d in data_dict.values() if d.patterns.get('long_stagnation', False))
+            dwell_L_navigate = sum(1 for d in data_dict.values() if d.patterns.get('dwell_L_navigate', False))
+            dwell_L_reproduce = sum(1 for d in data_dict.values() if d.patterns.get('dwell_L_reproduce', False))
+            dwell_P = sum(1 for d in data_dict.values() if d.patterns.get('dwell_P', False))
+            dwell_V = sum(1 for d in data_dict.values() if d.patterns.get('dwell_V', False))
             repeated_view = sum(1 for d in data_dict.values() if d.patterns.get('repeated_view', False))
 
             blocking = plan_violation + oscillation
-            non_blocking = long_stagnation + repeated_view
+            non_blocking = dwell_L_navigate + dwell_L_reproduce + dwell_P + dwell_V + repeated_view
 
             stats[name] = {
                 'with_patterns': with_patterns,
@@ -594,7 +599,10 @@ class PatternAnalyzer:
                 'plan_violation': plan_violation,
                 'oscillation': oscillation,
                 'non_blocking': non_blocking,
-                'long_stagnation': long_stagnation,
+                'dwell_L_navigate': dwell_L_navigate,
+                'dwell_L_reproduce': dwell_L_reproduce,
+                'dwell_P': dwell_P,
+                'dwell_V': dwell_V,
                 'repeated_view': repeated_view
             }
 
@@ -861,11 +869,11 @@ class PatternAnalyzer:
         print(f"  Vanilla run-1:")
         print(f"    With patterns: {pattern_stats['vanilla']['with_patterns']}")
         print(f"    Blocking patterns: {pattern_stats['vanilla']['blocking']} (plan_violation: {pattern_stats['vanilla']['plan_violation']}, oscillation: {pattern_stats['vanilla']['oscillation']})")
-        print(f"    Non-blocking patterns: {pattern_stats['vanilla']['non_blocking']} (long_stagnation: {pattern_stats['vanilla']['long_stagnation']}, repeated_view: {pattern_stats['vanilla']['repeated_view']})")
+        print(f"    Non-blocking patterns: {pattern_stats['vanilla']['non_blocking']} (dwell_L_navigate: {pattern_stats['vanilla']['dwell_L_navigate']}, dwell_L_reproduce: {pattern_stats['vanilla']['dwell_L_reproduce']}, dwell_P: {pattern_stats['vanilla']['dwell_P']}, dwell_V: {pattern_stats['vanilla']['dwell_V']}, repeated_view: {pattern_stats['vanilla']['repeated_view']})")
         print(f"  {config_display}:")
         print(f"    With patterns: {pattern_stats[config]['with_patterns']}")
         print(f"    Blocking patterns: {pattern_stats[config]['blocking']} (plan_violation: {pattern_stats[config]['plan_violation']}, oscillation: {pattern_stats[config]['oscillation']})")
-        print(f"    Non-blocking patterns: {pattern_stats[config]['non_blocking']} (long_stagnation: {pattern_stats[config]['long_stagnation']}, repeated_view: {pattern_stats[config]['repeated_view']})")
+        print(f"    Non-blocking patterns: {pattern_stats[config]['non_blocking']} (dwell_L_navigate: {pattern_stats[config]['dwell_L_navigate']}, dwell_L_reproduce: {pattern_stats[config]['dwell_L_reproduce']}, dwell_P: {pattern_stats[config]['dwell_P']}, dwell_V: {pattern_stats[config]['dwell_V']}, repeated_view: {pattern_stats[config]['repeated_view']})")
 
         trigger = summary['trigger_status']
         print(f"\nTrigger Status:")

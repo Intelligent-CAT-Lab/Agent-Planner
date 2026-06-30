@@ -13,6 +13,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
+from scipy.stats import wilcoxon
 from tqdm import tqdm
 
 # Add analysis directory to path for imports
@@ -181,6 +182,59 @@ def extract_similarity_data(results: Dict, configs: List[str], models: List[str]
                     }
 
     return similarity_data
+
+
+def compute_wilcoxon_tests(similarity_data: Dict) -> Dict:
+    """
+    Perform paired one-sided Wilcoxon signed-rank test for phase_lcs.
+
+    For each (config, dataset, model), test the hypothesis:
+        H0: prefix_phase_lcs <= full_phase_lcs
+        Ha: prefix_phase_lcs > full_phase_lcs
+
+    Returns:
+        Dictionary mapping (config, dataset, model) -> {
+            'statistic': float,
+            'p_value': float,
+            'n_pairs': int,
+            'median_diff': float  # median(prefix - full)
+        }
+    """
+    wilcoxon_results = {}
+
+    for key, data in similarity_data.items():
+        prefix_phase = np.array(data['prefix_phase'])
+        full_phase = np.array(data['full_phase'])
+
+        # Ensure paired data
+        assert len(prefix_phase) == len(full_phase), f"Mismatched lengths for {key}"
+
+        # Compute differences: prefix - full
+        differences = prefix_phase - full_phase
+
+        # One-sided test: alternative='greater' tests if prefix > full
+        # wilcoxon automatically handles zero differences by excluding them
+        try:
+            statistic, p_value = wilcoxon(differences, alternative='greater', zero_method='wilcox')
+            median_diff = np.median(differences)
+
+            wilcoxon_results[key] = {
+                'statistic': float(statistic),
+                'p_value': float(p_value),
+                'n_pairs': len(differences),
+                'median_diff': float(median_diff)
+            }
+        except ValueError as e:
+            # Handle edge case where all differences are zero
+            wilcoxon_results[key] = {
+                'statistic': None,
+                'p_value': None,
+                'n_pairs': len(differences),
+                'median_diff': float(np.median(differences)),
+                'error': str(e)
+            }
+
+    return wilcoxon_results
 
 
 def create_divergence_boxplot(
@@ -437,6 +491,31 @@ def main():
     if not similarity_data:
         print("No similarity data to plot. Exiting.")
         return
+
+    # Compute Wilcoxon signed-rank tests for phase_lcs
+    print("\nComputing paired Wilcoxon signed-rank tests (prefix vs. full phase_lcs)...")
+    wilcoxon_results = compute_wilcoxon_tests(similarity_data)
+
+    # Print statistical test results
+    print(f"\n{'='*70}")
+    print("Wilcoxon Signed-Rank Test Results (One-Sided: prefix > full)")
+    print(f"{'='*70}")
+    print(f"{'Model':<20} {'Dataset':<20} {'n':<8} {'Median Δ':<12} {'p-value':<12}")
+    print(f"{'-'*70}")
+
+    for (config, dataset, model), result in sorted(wilcoxon_results.items()):
+        model_display = MODEL_NAME_MAP.get(model, model)
+        dataset_display = DATASET_NAME_MAP.get(dataset, dataset)
+
+        if result.get('error'):
+            print(f"{model_display:<20} {dataset_display:<20} {result['n_pairs']:<8} "
+                  f"{result['median_diff']:>11.4f} {'N/A':<12}")
+        else:
+            p_val_str = f"{result['p_value']:.4e}" if result['p_value'] < 0.0001 else f"{result['p_value']:.6f}"
+            print(f"{model_display:<20} {dataset_display:<20} {result['n_pairs']:<8} "
+                  f"{result['median_diff']:>11.4f} {p_val_str:<12}")
+
+    print(f"{'='*70}\n")
 
     # Create boxplot
     create_divergence_boxplot(

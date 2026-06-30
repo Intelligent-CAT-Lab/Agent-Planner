@@ -197,7 +197,7 @@ def process_instance(
         resolution_status = get_resolution_status(report_path, instance_id, dataset)
 
         # Compute compliance score with default expected order
-        expected_order = ("L_navigate", "L_reproduce", "P", "V")
+        expected_order = ("L_navigate", "L_reproduce", "P", "V_newly_generated_test")
         score = compute_compliance_score(langutory, expected_order)
 
         return {

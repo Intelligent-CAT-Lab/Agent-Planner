@@ -103,37 +103,51 @@ def collect_data(base_dir: Path, datasets: List[str], models: List[str],
 
 
 def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
-    """Generate heatmap visualization."""
+    """Generate heatmap visualization with redesigned layout: configs as rows, model(R/U) as columns, datasets stacked vertically."""
     # Define order: swebench-pro first, then swebench
     dataset_order = ['swebench-pro', 'swebench']
 
-    # Build rows in specific order
+    # Dataset abbreviations
+    DATASET_ABBR = {
+        'swebench-pro': 'Pro',
+        'swebench': 'Verified'
+    }
+
+    # Get models (assume same models for all datasets)
+    models = sorted(set([m for d, m in data.keys()]))
+
+    # Build columns: model (R/U) pairs (no dataset dimension in columns)
+    cols = []
+    col_labels = []
+
+    for model in models:
+        cols.append((model, 'resolved'))
+        col_labels.append('R')
+        cols.append((model, 'unresolved'))
+        col_labels.append('U')
+
+    # Build rows: dataset-config pairs (datasets stacked vertically)
     rows = []
     row_labels = []
 
     for dataset in dataset_order:
-        for model in sorted([m for d, m in data.keys() if d == dataset]):
-            rows.append((dataset, model, 'resolved'))
-            row_labels.append('R')
-            rows.append((dataset, model, 'unresolved'))
-            row_labels.append('U')
+        for config in configs:
+            rows.append((dataset, config))
+            row_labels.append(CONFIG_NAME_MAP.get(config, config))
 
-    col_labels = [CONFIG_NAME_MAP.get(c, c) for c in configs]
+    # Build data matrix: rows = dataset-config, cols = model-status
+    matrix = np.full((len(rows), len(cols)), np.nan)
 
-    # Build data matrix
-    matrix = np.full((len(rows), len(configs)), np.nan)
+    for i, (dataset, config) in enumerate(rows):
+        for j, (model, status) in enumerate(cols):
+            key = (dataset, model)
+            if key in data and config in data[key]:
+                score = data[key][config].get(status)
+                if score is not None:
+                    matrix[i, j] = score
 
-    for i, (dataset, model, status) in enumerate(rows):
-        key = (dataset, model)
-        if key in data:
-            for j, config in enumerate(configs):
-                if config in data[key]:
-                    score = data[key][config].get(status)
-                    if score is not None:
-                        matrix[i, j] = score
-
-    # Create figure with wider cells to accommodate horizontal config names
-    fig, ax = plt.subplots(figsize=(len(configs) * 3.5 + 3.5, len(rows) * 0.7 + 1.2))
+    # Create figure: wider cells and taller for readability
+    fig, ax = plt.subplots(figsize=(len(cols) * 2.2 + 5, len(rows) * 1.1 + 3))
 
     # Create colormap: green (high) -> yellow -> orange -> red (low)
     cmap = sns.diverging_palette(10, 130, s=80, l=55, as_cmap=True)
@@ -156,28 +170,21 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
         ax=ax,
         mask=np.isnan(matrix),
         square=False,
-        annot_kws={'size': 28, 'weight': 'bold'}
+        annot_kws={'size': 32, 'weight': 'bold'}
     )
 
     # Configure colorbar
     cbar = ax.collections[0].colorbar
-    cbar.ax.tick_params(labelsize=26)
-    cbar.set_label('Compliance Score', fontsize=28, fontweight='bold')
+    cbar.ax.tick_params(labelsize=28)
+    cbar.set_label('Compliance Score', fontsize=30, fontweight='bold')
 
     # Handle missing data
     for i in range(len(rows)):
-        for j in range(len(configs)):
+        for j in range(len(cols)):
             if np.isnan(matrix[i, j]):
                 ax.text(j + 0.5, i + 0.5, '-',
                        ha='center', va='center',
-                       color='gray', fontsize=26, fontweight='bold')
-
-    # Add config names at the top (horizontal, readable font size)
-    for j, config_name in enumerate(col_labels):
-        ax.text(j + 0.5, -0.3, config_name,
-               ha='center', va='bottom',
-               fontsize=22, fontweight='bold',
-               transform=ax.transData)
+                       color='gray', fontsize=30, fontweight='bold')
 
     # Remove axis labels and ticks
     ax.set_xlabel('')
@@ -185,43 +192,71 @@ def generate_heatmap(data: Dict, configs: List[str], output_path: Path):
     ax.set_xticks([])
     ax.set_yticks([])
 
-    # Add hierarchical row labels on the left
-    prev_dataset = None
+    # Add R/U labels at the top (closer to heatmap)
+    for j, label in enumerate(col_labels):
+        ax.text(j + 0.5, -0.25, label,
+               ha='center', va='bottom',
+               fontsize=30, fontweight='bold',
+               transform=ax.transData)
 
-    for i, (dataset, model, status) in enumerate(rows):
-        dataset_name = DATASET_NAME_MAP.get(dataset, dataset)
+    # Add model names at top (centered between R and U, with better spacing)
+    for model_idx, model in enumerate(models):
         model_name = MODEL_NAME_MAP.get(model, model)
+        col_idx = model_idx * 2  # Each model has 2 columns (R, U)
+        # Center of R-U pair: column indices are col_idx and col_idx+1
+        # So center is at col_idx + 0.5 (middle of R) + 0.5 = col_idx + 1.0? No wait...
+        # R is at column col_idx (center at col_idx+0.5)
+        # U is at column col_idx+1 (center at col_idx+1.5)
+        # Middle of R and U centers: (col_idx+0.5 + col_idx+1.5)/2 = col_idx + 1.0
+        model_x = col_idx + 1.0
+        ax.text(model_x, -0.85, model_name,
+               ha='center', va='center',
+               fontsize=30, fontweight='bold',
+               transform=ax.transData)
 
-        # Add dataset label vertically on far left (spans multiple models)
+    # Add config names on the left
+    for i, (dataset, config) in enumerate(rows):
+        config_name = CONFIG_NAME_MAP.get(config, config)
+        ax.text(-0.4, i + 0.5, config_name,
+               ha='right', va='center',
+               fontsize=30, fontweight='bold',
+               transform=ax.transData)
+
+    # Add dataset labels on the far left (vertically centered for each dataset section)
+    prev_dataset = None
+    for i, (dataset, config) in enumerate(rows):
         if dataset != prev_dataset:
             # Count rows for this dataset
-            dataset_rows = sum(1 for d, _, _ in rows if d == dataset)
+            dataset_rows = sum(1 for d, _ in rows if d == dataset)
             dataset_y = i + dataset_rows / 2 - 0.5
-            ax.text(-0.35, dataset_y, dataset_name,
+            dataset_abbr = DATASET_ABBR.get(dataset, dataset)
+            ax.text(-1.5, dataset_y, dataset_abbr,
                    ha='center', va='center',
-                   fontsize=28, fontweight='bold',
+                   fontsize=36, fontweight='bold',
                    rotation=90,
                    transform=ax.transData)
             prev_dataset = dataset
 
-        # Add model label exactly centered between R (row i) and U (row i+1)
-        if status == 'resolved':
-            # Position at i+1.0 to be exactly between row i and row i+1
-            model_y = i + 1.0
-            ax.text(-0.55, model_y, model_name,
-                   ha='right', va='center',
-                   fontsize=26, fontweight='bold',
-                   transform=ax.transData)
+    # Draw horizontal separator between datasets
+    # Debug: print row structure
+    # Rows structure: [(dataset, config), ...]
+    # With 2 configs: row 0=(Pro, config1), row 1=(Pro, config2), row 2=(Verified, config1), row 3=(Verified, config2)
+    # Separator should be between row 1 and row 2, which is at y = 1.5
+    # But heatmap cells: row 0 is at y=0 to y=1, row 1 is at y=1 to y=2, etc.
+    # So separator between row 1 and row 2 should be at y = 2.0, not y = 1.5
+    for i in range(1, len(rows)):
+        dataset_curr = rows[i][0]
+        dataset_prev = rows[i-1][0]
+        if dataset_curr != dataset_prev:
+            # In heatmap coordinates, row i starts at y=i, so separator should be at y=i
+            ax.axhline(y=i, color='black', linewidth=3.5, linestyle='-')
 
-        # Add status label (R/U)
-        status_label = 'R' if status == 'resolved' else 'U'
-        ax.text(-0.15, i + 0.5, status_label,
-               ha='right', va='center',
-               fontsize=26, fontweight='bold',
-               transform=ax.transData)
+    # Adjust limits to accommodate labels with proper margins - add extra space on right and bottom
+    ax.set_xlim(-0.5, len(cols) + 0.3)  # Extra space on right
+    ax.set_ylim(len(rows) + 0.3, -1.4)  # Extra space at top and bottom
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', pad_inches=0.5)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', pad_inches=0.6)
     print(f"Heatmap saved to {output_path}")
     plt.close()
 
@@ -231,13 +266,13 @@ def main():
         description="Generate plan compliance heatmap"
     )
     parser.add_argument("--datasets", nargs="+",
-                       default=['swebench-pro'],
+                       default=['swebench-pro', 'swebench'],
                        help="Datasets to include")
     parser.add_argument("--models", nargs="+",
                        default=['deepseek-chat-v3-0324', 'gemini-2.5-flash', 'minimax-m2.5'],
                        help="Models to include")
     parser.add_argument("--configs", nargs="+",
-                       default=['default', 'sage', 'monitor', 'refiner-only', 'refiner'],
+                       default=['default', 'refiner'],
                        help="Configs to include")
     parser.add_argument("--run-id", type=int, default=1, help="Run ID")
     parser.add_argument("--version", type=int, default=5, help="Version for refiner configs")
