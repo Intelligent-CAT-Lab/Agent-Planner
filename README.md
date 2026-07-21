@@ -73,4 +73,4 @@ We provide recorded trajectories for all baselines:
 | `refiner-only` | Periodic LLM advisor on fixed schedule |
 | `refiner` | LivePlan: rule-triggered LLM advisor (proposed) |
 
-**Raw Trajectories**: Hosted on Zenodo due to file size: []().
+**Raw Trajectories**: Hosted on Zenodo due to file size: [https://zenodo.org/records/21465785](https://zenodo.org/records/21465785).
