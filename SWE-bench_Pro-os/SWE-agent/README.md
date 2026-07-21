@@ -1,5 +1,3 @@
-docker exec -it sweagent-shuyang bash
-
 # SWE-agent for SWE-bench Pro
 
 This guide explains how to run SWE-agent on the SWE-bench Pro dataset using Modal. This setup supports both direct command-line execution and a dockerized wrapper.

@@ -4,7 +4,7 @@
 echo "Testing submit command registry import..."
 
 # Simulate the environment that will exist when tools are installed
-export PYTHONPATH="/home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent/tools/registry/lib:$PYTHONPATH"
+export PYTHONPATH="./tools/registry/lib:$PYTHONPATH"
 
 # Test Python import
 python3 <<'EOF'

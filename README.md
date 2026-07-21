@@ -73,4 +73,4 @@ We provide recorded trajectories for all baselines:
 | `refiner-only` | Periodic LLM advisor on fixed schedule |
 | `refiner` | LivePlan: rule-triggered LLM advisor (proposed) |
 
-Trajectories for each method are in `SWE-agent/trajectories/{method}/swebench/` and `SWE-bench_Pro-os/SWE-agent/trajectories/{method}/swebench-pro/`.
+**Raw Trajectories**: Hosted on Zenodo due to file size: []().

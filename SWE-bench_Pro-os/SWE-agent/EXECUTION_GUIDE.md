@@ -1,4 +1,4 @@
-# SWE-agent Execution Guide for SWE-bench Pro (CORRECT)
+# SWE-agent Execution Guide for SWE-bench Pro
 
 ## Understanding the Execution Flow
 
@@ -12,7 +12,7 @@ The **correct** way to run SWE-agent is:
 ## Prerequisites
 
 ✅ **Already Done**:
-- Conda environment: `planner-v1`
+- Conda environment
 - Sample instances: `script/sample-data/samples/python/swebench-pro/sampled_instances.yaml` (266 instances)
 - Configs: `config/default.yaml`, `config/monitor.yaml`, `config/refiner.yaml`
 - Integration: plan_monitor and plan_refiner fully integrated
@@ -26,7 +26,7 @@ This is the **official** method described in the SWE-bench_Pro-os/SWE-agent READ
 #### Step 1: Setup Environment File
 
 ```bash
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent
+cd SWE-bench_Pro-os/SWE-agent
 
 # Create .env file with your API keys
 cat > .env <<EOF
@@ -50,7 +50,6 @@ cat ~/.modal.toml
 
 If missing:
 ```bash
-source /home/shuyang/miniconda3/bin/activate planner-v1
 pip install modal
 modal setup  # Follow prompts
 ```
@@ -127,13 +126,13 @@ sweagent_command: |
 #### Step 4: Build Docker Image (First Time Only)
 
 ```bash
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent
+cd SWE-bench_Pro-os/SWE-agent
 
 # Build the image (only needed first time or after swerex_patches changes)
 just build
 ```
 
-This builds `sweagent-image:shuyang` with all dependencies and patches.
+This builds `sweagent-image:{user}` with all dependencies and patches.
 
 #### Step 5: Run Docker Container
 
@@ -154,11 +153,6 @@ This command:
 **Run Vanilla (no planner):**
 ```bash
 python sweagent_wrapper.py test_vanilla
-```
-
-**Run Monitor:**
-```bash
-python sweagent_wrapper.py test_monitor
 ```
 
 **Run Refiner:**
@@ -189,8 +183,7 @@ For quick testing without Docker overhead.
 #### Step 1: Activate Environment
 
 ```bash
-source /home/shuyang/miniconda3/bin/activate planner-v1
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent
+cd SWE-bench_Pro-os/SWE-agent
 ```
 
 #### Step 2: Set Environment Variables
@@ -210,9 +203,6 @@ Same as Docker method - create YAML files in `sweagent_wrapper_configs/`
 # Run vanilla
 python sweagent_wrapper.py test_vanilla
 
-# Run monitor
-python sweagent_wrapper.py test_monitor
-
 # Run refiner
 python sweagent_wrapper.py test_refiner
 ```
@@ -229,13 +219,6 @@ sweagent_results/
 │   ├── instance_NodeBB__NodeBB-04998908ba6721d64eba79ae3b65a351dcfbc5b5-vnan.traj
 │   ├── instance_X.traj
 │   └── preds.json                    # Auto-merged predictions
-│
-├── test_monitor/
-│   ├── instance_X.traj
-│   ├── instance_X.planner.json       # Monitor interventions!
-│   ├── instance_X.monitor_graph.json # State graph (if enabled)
-│   └── preds.json
-│
 └── test_refiner/
     ├── instance_X.traj
     ├── instance_X.planner.json       # Full planner history with costs!
@@ -287,7 +270,7 @@ sweagent_results/
 The `script/create_wrapper_config.sh` can auto-generate configs:
 
 ```bash
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent/script
+cd SWE-bench_Pro-os/SWE-agent/script
 
 # Generate vanilla config
 ./create_wrapper_config.sh my_test openrouter/deepseek/deepseek-chat-v3-0324 python 25 10
@@ -312,7 +295,7 @@ This creates `sweagent_wrapper_configs/my_test.yaml` with:
 From SWE-bench_Pro-os root:
 
 ```bash
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os
+cd SWE-bench_Pro-os
 
 # Gather vanilla patches
 python helper_code/gather_patches.py \
@@ -356,7 +339,7 @@ python swe_bench_pro_eval.py \
 
 **`output_dir`**: Where results are saved (relative to SWE-agent directory)
 - Example: `sweagent_results/my_run`
-- Results appear in: `/home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent/sweagent_results/my_run/`
+- Results appear in: `SWE-bench_Pro-os/SWE-agent/sweagent_results/my_run/`
 
 **`sweagent_command`**: The full `sweagent run-batch` command
 - Must include `{output_dir}` placeholder (gets replaced at runtime)
@@ -414,7 +397,7 @@ cat sweagent_results/test_refiner/instance_*.planner.json | grep -A 10 '"summary
 
 ```bash
 # 1. Navigate to SWE-agent directory
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent
+cd SWE-bench_Pro-os/SWE-agent
 
 # 2. Create test config for 5 instances
 cat > sweagent_wrapper_configs/quick_test.yaml <<'EOF'
@@ -499,7 +482,7 @@ python3 -c "from plan_monitor import StatefulPhaseMonitor; print('OK')"
 **Symptoms**: `Image build for im-XXX failed`, `DOCKER_USERNAME and DOCKER_PASSWORD not set`  
 **Fix**: Regenerate instances with official Docker Hub username:
 ```bash
-cd /home/shuyang/Agent-Planner/SWE-bench_Pro-os/SWE-agent/script/sample-data
+cd SWE-bench_Pro-os/SWE-agent/script/sample-data
 python sample_py_instances.py --dockerhub_username jefzda --language python
 ```
 

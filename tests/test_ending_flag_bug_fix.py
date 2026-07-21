@@ -11,7 +11,11 @@ This tests the exact scenario from astropy__astropy-13033 where:
 """
 
 import sys
-sys.path.insert(0, '/home/shuyang/Agent-Planner')
+import os
+planner_path = os.path.dirname(os.path.abspath(__file__))
+
+if planner_path not in sys.path:
+    sys.path.insert(0, planner_path)
 
 from plan_monitor import StatefulPhaseMonitor
 from plan_monitor.phases import ActionEvent
