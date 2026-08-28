@@ -7,24 +7,25 @@ RUN_ID="${1:-1}"
 START_IDX="${2:-}"
 END_IDX="${3:-}"
 
+# MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 # MODEL="openrouter/openai/gpt-5.4-mini"
-# MODEL="openrouter/minimax/minimax-m2.5"
-MODEL="openrouter/google/gemini-2.5-flash"
+MODEL="openrouter/minimax/minimax-m2.5"
+# MODEL="openrouter/google/gemini-2.5-flash"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="refiner"
 VERSION_ID="5"
 DATASET="swebench-pro"
-SAMPLE_APPROACH="python"
+SAMPLE_APPROACH="ts"
 COST=2.0
 
 if [ -n "${PATTERN:-}" ]; then
     SAMPLE_DIR="$ROOT_DIR/script/sample-data/samples/$SAMPLE_APPROACH/$DATASET/$MODEL_NAME/$PATTERN"
     OUT_BASE="$ROOT_DIR/trajectories/$CONFIG/version-$VERSION_ID/$DATASET/$SAMPLE_APPROACH/$PATTERN/$MODEL_NAME/run-$RUN_ID"
-elif [ "$SAMPLE_APPROACH" = "python" ]; then
-    SAMPLE_DIR="$ROOT_DIR/script/sample-data/samples/$SAMPLE_APPROACH/$DATASET"
-    OUT_BASE="$ROOT_DIR/trajectories/$CONFIG/version-$VERSION_ID/$DATASET/$SAMPLE_APPROACH/$MODEL_NAME/run-$RUN_ID"
+# elif [ "$SAMPLE_APPROACH" = "python" ]; then
+#     SAMPLE_DIR="$ROOT_DIR/script/sample-data/samples/$SAMPLE_APPROACH/$DATASET"
+#     OUT_BASE="$ROOT_DIR/trajectories/$CONFIG/version-$VERSION_ID/$DATASET/$SAMPLE_APPROACH/$MODEL_NAME/run-$RUN_ID"
 else
-    SAMPLE_DIR="$ROOT_DIR/script/sample-data/samples/$SAMPLE_APPROACH/$DATASET/$MODEL_NAME"
+    SAMPLE_DIR="$ROOT_DIR/script/sample-data/samples/$SAMPLE_APPROACH/$DATASET"
     OUT_BASE="$ROOT_DIR/trajectories/$CONFIG/version-$VERSION_ID/$DATASET/$SAMPLE_APPROACH/$MODEL_NAME/run-$RUN_ID"
 fi
 
@@ -74,6 +75,24 @@ cat > "$WRAPPER_CONFIG_PATH" <<EOF
 # Slice: ${SLICE}
 
 output_dir: ${OUT_BASE}
+# sweagent_command: |
+#   sweagent run-batch \
+#     --config ${CONFIG_PATH} \
+#     --output_dir {output_dir} \
+#     --num_workers 4 \
+#     --agent.model.per_instance_cost_limit ${COST} \
+#     --agent.model.litellm_model_registry litellm_model_registry.json \
+#     --random_delay_multiplier 1 \
+#     --instances.type file \
+#     --instances.path ${SAMPLED_FILE} \
+#     --instances.slice ${SLICE} \
+#     --instances.shuffle=False \
+#     --instances.deployment.type=docker \
+#     --instances.deployment.startup_timeout 1800 \
+#     --agent.model.name ${MODEL} \
+#     --agent.model.api_base https://openrouter.ai/api/v1 \
+#     --agent.model.api_key \$OPENROUTER_API_KEY
+# EOF
 sweagent_command: |
   python -c "import modal; modal.enable_output()" && \\
   sweagent run-batch \\

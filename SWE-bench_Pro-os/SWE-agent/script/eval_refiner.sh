@@ -7,10 +7,10 @@ RUN_ID="${1:-1}"
 # MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 # MODEL="openrouter/anthropic/claude-sonnet-4"
 # MODEL="openrouter/openai/gpt-5.4-mini"
-# MODEL="openrouter/minimax/minimax-m2.5"
-MODEL="openrouter/google/gemini-2.5-flash"
+MODEL="openrouter/minimax/minimax-m2.5"
+# MODEL="openrouter/google/gemini-2.5-flash"
 MODEL_NAME="${MODEL##*/}"
-SAMPLE_APPROACH="python"
+SAMPLE_APPROACH="ts"
 CONFIG="refiner"
 VERSION_ID="5"
 DATASET="swebench-pro"
@@ -81,7 +81,8 @@ python swe_bench_pro_eval.py \
     --output_dir="$REPORT_BASE" \
     --scripts_dir="$SCRIPTS_DIR" \
     --num_workers="$NUM_WORKERS" \
-    --dockerhub_username="$DOCKERHUB_USERNAME"
+    --dockerhub_username="$DOCKERHUB_USERNAME" \
+    --use_local_docker
 
 echo ""
 echo "✓ Evaluation complete!"

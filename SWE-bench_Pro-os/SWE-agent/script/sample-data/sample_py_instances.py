@@ -70,7 +70,8 @@ def sample_instances_by_language(dockerhub_username, language='python', dataset_
     for row in tqdm(lang_instances):
         instance_id = row['instance_id']
         repo_name = row.get('repo', '')
-        image_name = get_dockerhub_image_uri(instance_id, dockerhub_username, repo_name)
+        # image_name = get_dockerhub_image_uri(instance_id, dockerhub_username, repo_name)
+        image_name = f"{dockerhub_username}/sweap-images:{row['dockerhub_tag']}"
         problem_statement = create_problem_statement(row)
 
         instance = {
