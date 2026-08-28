@@ -55,7 +55,30 @@ SRE_EDIT_SUBCMDS: Tuple[str, ...] = ("create", "str_replace", "insert", "undo_ed
 SRE_READONLY_SUBCMDS: Tuple[str, ...] = ("view",)
 PY_CMDS: Tuple[str, ...] = ("python", "python3", "python2", "pytest", "pylint")
 
-_PATHISH = re.compile(r"(^[/~.]|/|\.py$)")
+# Recognize common repository files beyond Python while keeping
+# the original path-like rules (absolute/relative paths or tokens containing "/").
+_PATHISH = re.compile(
+    r"(^[/~.]|/|\.(?:py|pyi|go|rs|java|kt|kts|scala|js|jsx|mjs|cjs|ts|tsx|"
+    r"c|h|cc|cpp|cxx|hpp|hh|cs|rb|php|swift|sh|bash|zsh|lua|sql|yaml|yml|"
+    r"json|toml|xml|mod|sum|lock|gradle)$|(?:makefile|dockerfile|gemfile)$)",
+    re.IGNORECASE,
+)
+
+# Common non-Python test runners. They reuse the existing
+# L_reproduce / V_regression_test phase logic below.
+DIRECT_TEST_CMDS: Set[str] = {"pytest", "py.test", "jest", "vitest", "rspec"}
+TEST_SUBCOMMANDS: Dict[str, Set[str]] = {
+    "go": {"test"},
+    "cargo": {"test"},
+    "npm": {"test"},
+    "yarn": {"test"},
+    "pnpm": {"test"},
+    "mvn": {"test"},
+    "mvnw": {"test"},
+    "gradle": {"test"},
+    "gradlew": {"test"},
+    "dotnet": {"test"},
+}
 
 # --------------------------- Flatten / token helpers ---------------------------
 
@@ -89,7 +112,7 @@ def _extract_paths_generic(*vals: Any) -> List[str]:
     Heuristic path extraction for non-SRE commands:
       - starts with '/', '~', or '.'
       - OR contains '/'
-      - OR endswith '.py'
+      - OR ends with a common repository/source/config extension
     We apply this to command/args/flags in general shell/python use.
     """
     all_toks: List[str] = []
@@ -163,6 +186,13 @@ def _is_test_path(s: str) -> bool:
 def _is_test_related(paths: List[str]) -> bool:
     """Test-related if ANY collected path-like token looks like a test."""
     return any(_is_test_path(p) for p in paths)
+
+def _is_test_command(cmd: str, tokens: List[str]) -> bool:
+    """Recognize common test runners without changing phase semantics."""
+    if cmd in DIRECT_TEST_CMDS:
+        return True
+    subcommands = TEST_SUBCOMMANDS.get(cmd)
+    return bool(subcommands and any(t in subcommands for t in tokens))
 
 # --------------------------- Shell helpers ---------------------------
 
@@ -663,6 +693,19 @@ def get_action_role(
             return "L_navigate"
 
         return role_family  # "general"
+
+    # CHANGE 3: recognize common test runners across languages.
+    # This only broadens detection; pre/post-patch phase semantics are unchanged.
+    if _is_test_command(cmd, tokens) and cmd not in PY_CMDS:
+        test_targets = [p for p in paths if _is_test_path(p)]
+        if has_patch:
+            return _postpatch_validation_kind(
+                test_targets,
+                created_tests=created_tests,
+                dynamic_key=None,
+                created_dynamic_suites=created_dynamic_suites,
+            )
+        return "L_reproduce"
 
     # 2) Python / pytest / pylint / etc.
     if cmd in PY_CMDS:
