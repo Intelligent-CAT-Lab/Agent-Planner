@@ -55,7 +55,7 @@ SRE_EDIT_SUBCMDS: Tuple[str, ...] = ("create", "str_replace", "insert", "undo_ed
 SRE_READONLY_SUBCMDS: Tuple[str, ...] = ("view",)
 PY_CMDS: Tuple[str, ...] = ("python", "python3", "python2", "pytest", "pylint")
 
-# Recognize common repository files beyond Python while keeping
+# CHANGE 1: recognize common repository files beyond Python while keeping
 # the original path-like rules (absolute/relative paths or tokens containing "/").
 _PATHISH = re.compile(
     r"(^[/~.]|/|\.(?:py|pyi|go|rs|java|kt|kts|scala|js|jsx|mjs|cjs|ts|tsx|"
@@ -64,7 +64,7 @@ _PATHISH = re.compile(
     re.IGNORECASE,
 )
 
-# Common non-Python test runners. They reuse the existing
+# CHANGE 2: common non-Python test runners. They reuse the existing
 # L_reproduce / V_regression_test phase logic below.
 DIRECT_TEST_CMDS: Set[str] = {"pytest", "py.test", "jest", "vitest", "rspec"}
 TEST_SUBCOMMANDS: Dict[str, Set[str]] = {
@@ -196,10 +196,40 @@ def _is_test_command(cmd: str, tokens: List[str]) -> bool:
 
 # --------------------------- Shell helpers ---------------------------
 
+_DISCARD_REDIRECT_TARGETS = {"/dev/null", "/dev/stdout", "/dev/stderr"}
+_REDIR_OP = re.compile(r"^\d*(?:>>|>\||<>|>&|>)(.*)$")
+
+def _paths_after_redirection(tokens: List[str]) -> List[str]:
+    """
+    Guess file(s) actually being written: tokens that follow >, >>, 2>, etc.
+    Handles both `> file` (operator and target as separate tokens) and
+    `>file` / `2>/dev/null` (fused into one token). Discard sinks
+    (/dev/null, /dev/stdout, /dev/stderr) are never returned -- redirecting
+    there suppresses output, it does not create or edit a file.
+    """
+    targets: List[str] = []
+    redir_starts = {">", ">>", "1>", "2>", ">|"}
+    i, n = 0, len(tokens)
+    while i < n:
+        t = tokens[i]
+        fused = _REDIR_OP.match(t)
+        if fused and fused.group(1):
+            candidate = fused.group(1)
+        elif t in redir_starts or t.startswith((">", ">>", "1>", "2>")):
+            candidate = tokens[i + 1] if i + 1 < n else ""
+        else:
+            candidate = ""
+        if candidate and candidate not in _DISCARD_REDIRECT_TARGETS and _PATHISH.search(candidate):
+            targets.append(candidate)
+        i += 1
+    return targets
+
 def _contains_redirection(tokens: List[str]) -> bool:
     """
-    Detect shell output redirection / heredocs / tee (== writing).
-    Filters out quoted strings to avoid false positives.
+    Detect shell output redirection that actually writes somewhere (== writing),
+    plus heredocs and tee. Filters out quoted strings to avoid false positives.
+    A `>`-family redirect that only targets a discard sink (e.g. `2>/dev/null`,
+    common noise-suppression on an otherwise read-only command) does not count.
     """
     if not tokens:
         return False
@@ -208,18 +238,11 @@ def _contains_redirection(tokens: List[str]) -> bool:
     unquoted = [t for t in tokens if not ((t.startswith('"') and t.endswith('"')) or
                                            (t.startswith("'") and t.endswith("'"))) or len(t) < 2]
 
-    redir_ops = {">", ">>", "1>", "2>", ">|", "<<<", "<<", "<>", ">&", "2>&1"}
-    if any(t in redir_ops or t.startswith((">", ">>", "1>", "2>")) for t in unquoted):
+    if any("<<" in t for t in unquoted):
         return True
-    embedded_ops = (
-        " <<", "<<",
-        " >>", ">>",
-        " 1>", " 2>", " >", " >|",
-        "<>", ">&", "2>&1"
-    )
-    if any(any(op in t for op in embedded_ops) for t in unquoted):
+    if any("tee" == t or " tee " in t for t in unquoted):
         return True
-    return any("tee" == t or " tee " in t for t in unquoted)
+    return bool(_paths_after_redirection(unquoted))
 
 def _is_piped_readonly_operation(cmd: str, tokens: List[str]) -> bool:
     """
@@ -229,28 +252,6 @@ def _is_piped_readonly_operation(cmd: str, tokens: List[str]) -> bool:
         return False
     has_pipe = "|" in tokens or any("|" in t for t in tokens)
     return has_pipe and not _contains_redirection(tokens)
-
-def _paths_after_redirection(tokens: List[str]) -> List[str]:
-    """
-    Guess file(s) being written: tokens that follow >, >>, etc.
-    """
-    targets: List[str] = []
-    redir_starts = {">", ">>", "1>", "2>", ">|"}
-    i = 0
-    n = len(tokens)
-    while i < n:
-        t = tokens[i]
-        if (
-            t in redir_starts
-            or t.startswith((">", ">>", "1>", "2>"))
-            or (" >" in t)
-        ):
-            if i + 1 < n:
-                nxt = tokens[i + 1]
-                if _PATHISH.search(nxt):
-                    targets.append(nxt)
-        i += 1
-    return targets
 
 # --------------------------- str_replace_editor helpers ---------------------------
 
@@ -512,7 +513,14 @@ def _classify_complex_command(
     # Python heredoc edits (via Path().write_text, open('w'), etc.)
     python_heredoc_edits: List[str] = []
     if 'python' in bash_lower and '<<' in bash_text:
-        for heredoc_match in re.finditer(r"<<['\"]?(\w+)['\"]?\s*\n(.*?)\n\1", bash_text, re.DOTALL):
+        # `\s*` between `<<` and the delimiter matters: `python - << 'EOF'`
+        # (a space before the quote, at least as common in practice as the
+        # unspaced `<<'EOF'`) otherwise never matches at all, silently
+        # dropping every edit this heredoc makes -- a patch that writes a
+        # real source file then gets misclassified as mere reconnaissance
+        # (see mapLang.py's phase docstring), which can hide the whole
+        # localization-to-patch transition from a rule watching for it.
+        for heredoc_match in re.finditer(r"<<-?\s*['\"]?(\w+)['\"]?\s*\n(.*?)\n\1", bash_text, re.DOTALL):
             heredoc_content = heredoc_match.group(2)
             edited_files = _extract_edited_files_from_python_code(heredoc_content)
             python_heredoc_edits.extend(edited_files)
