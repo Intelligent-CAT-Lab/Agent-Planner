@@ -7,15 +7,15 @@ RUN_ID="${1:-1}"
 START_IDX="${2:-}"
 END_IDX="${3:-}"
 
-# MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
+MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 # MODEL="openrouter/openai/gpt-5.4-mini"
-MODEL="openrouter/minimax/minimax-m2.5"
+# MODEL="openrouter/minimax/minimax-m2.5"
 # MODEL="openrouter/google/gemini-2.5-flash"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="refiner"
 VERSION_ID="5"
 DATASET="swebench-pro"
-SAMPLE_APPROACH="ts"
+SAMPLE_APPROACH="js"
 COST=2.0
 
 if [ -n "${PATTERN:-}" ]; then
@@ -89,6 +89,8 @@ output_dir: ${OUT_BASE}
 #     --instances.shuffle=False \
 #     --instances.deployment.type=docker \
 #     --instances.deployment.startup_timeout 1800 \
+#     --instances.deployment.python_standalone_dir=null \
+#     --instances.deployment.docker_args='["--entrypoint", ""]' \
 #     --agent.model.name ${MODEL} \
 #     --agent.model.api_base https://openrouter.ai/api/v1 \
 #     --agent.model.api_key \$OPENROUTER_API_KEY

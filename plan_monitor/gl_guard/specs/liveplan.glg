@@ -1,0 +1,48 @@
+# =============================================================================
+# The ten original LIVEPLAN signals, expressed in GL-Guard.
+#
+# Thresholds and phase groups are configuration (see liveplan.config.json), not
+# language constants. These specifications express the *intended* meaning of each
+# signal; exact agreement with the legacy cycle counters and hook timing is a
+# matter of differential testing against the original monitor (design section 8).
+# =============================================================================
+
+# 1. Premature Patching -- editing before any localization has happened.
+signal premature_patching on propose when
+  phase(q) in Patch and not seen(Localize)
+
+# 2. Skip Patching -- submitting without ever having patched.
+signal skip_patching on propose when
+  kind(q) = submit and not seen(Patch)
+
+# 3. Skip Validation -- submitting without ever having validated.
+signal skip_validation on propose when
+  kind(q) = submit and not seen(Validate)
+
+# 4. Thought Oscillation -- a repeated reasoning motif within the current
+#    reasoning episode (scoped since the last executable action).
+signal thought_oscillation on observe(thought) when
+  repeat(thought, length=m_thought, times=r_thought)
+
+# 5. Action Oscillation -- a repeated action motif at the tail of the trajectory.
+#    length=1 captures self-loops (A A); longer motifs capture A-B-A-B cycles.
+signal action_oscillation on propose when
+  repeat(action, length=m_action, times=r_action)
+
+# 6-9. Prolonged dwell in a single phase: the last theta_* phase occurrences all
+#      belong to one phase group.
+signal prolonged_navigation on propose when
+  run(Navigate) >= theta_N
+
+signal prolonged_reproduction on propose when
+  run(Reproduce) >= theta_R
+
+signal prolonged_patching on propose when
+  run(Patch) >= theta_P
+
+signal prolonged_validation on propose when
+  run(Validate) >= theta_V
+
+# 10. Action Revisit -- re-viewing a code location already visited before.
+signal action_revisit on propose when
+  kind(q) = view and revisit(action)

@@ -1,0 +1,38 @@
+# =============================================================================
+# Representative additional signals (design section 7).
+#
+# These demonstrate composition over the *existing* Graphectory/Langutory
+# observations. They are candidate diagnostics, not proven failures or validated
+# interventions -- each carries an explicit uncertainty note in the design doc.
+# =============================================================================
+
+# 7.1  Stale validation -- a successful edit with no recognized validation after it.
+signal stale_validation on propose when
+  kind(q) = submit and
+  exists x in history(action):
+    kind(x) = edit and outcome(x) = success and
+    not exists y in history(action):
+      before(x, y) and phase(y) in Validate
+
+# 7.2  Repeated unsuccessful edit -- the exact same edit identity has already
+#      failed kappa_fail times.
+signal repeated_failed_edit on propose when
+  kind(q) = edit and
+  count { x in history(action) |
+    kind(x) = edit and key(x) = key(q) and outcome(x) = failure } >= kappa_fail
+
+# 7.3  Failed patch followed by localization -- the latest committed action was a
+#      failed patch-phase operation and the pending action returns to localization.
+signal failed_patch_backtrack on propose when
+  phase(q) in Localize and
+  exists x in history(action):
+    phase(x) in Patch and outcome(x) = failure and
+    not exists y in history(action): before(x, y)
+
+# 7.4  Reinspection after unchanged prior views -- two earlier identical views
+#      returned equivalent observations, and the pending action re-views them.
+signal repeated_unchanged_view on propose when
+  kind(q) = view and
+  exists x in history(action):
+    exists y in history(action):
+      before(x, y) and key(x) = key(y) and key(y) = key(q) and obs_eq(x, y)
