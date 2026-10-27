@@ -10,8 +10,8 @@ from plan_monitor.gl_guard.parser import ParseError, parse_formula, parse_progra
 
 
 def test_parse_simple_rule():
-    r = parse_rule("signal premature_patching on propose when phase(q) in Patch and not seen(Localize)")
-    assert r.name == "premature_patching"
+    r = parse_rule("signal plan_compliance_premature_patch on propose when phase(q) in Patch and not seen(Localize)")
+    assert r.name == "plan_compliance_premature_patch"
     assert r.hook is Hook.PROPOSE
     assert isinstance(r.body, ast.And)
 
@@ -76,6 +76,25 @@ def test_repeat_and_run():
     assert r.length.value == 2 and r.times.value == 3
     run = parse_formula("run(Navigate) >= theta_N")
     assert isinstance(run, ast.Run)
+
+
+def test_cycle_desugars_to_disjunction_of_repeats():
+    phi = parse_formula("cycle(action, up_to=3, times=2)")
+    assert isinstance(phi, ast.Or)
+    assert len(phi.operands) == 3
+    for m, rep in enumerate(phi.operands, start=1):
+        assert isinstance(rep, ast.Repeat)
+        assert rep.channel is Channel.ACTION
+        assert rep.length.value == m
+        assert rep.times.value == 2
+    # up_to=1 collapses to a single repeat (no Or)
+    single = parse_formula("cycle(action, up_to=1, times=2)")
+    assert isinstance(single, ast.Repeat) and single.length.value == 1
+
+
+def test_cycle_up_to_must_be_literal():
+    with pytest.raises(ParseError):
+        parse_formula("cycle(action, up_to=K, times=2)")
 
 
 def test_se_and_obs_eq():

@@ -62,17 +62,17 @@ def test_history_strictly_before_q_at_propose():
     assert all(o.oid < w.q.oid for o in hist)
 
 
-def test_end_to_end_premature_patching_via_adapter():
+def test_end_to_end_plan_compliance_premature_patch_via_adapter():
     lp, _ = _programs()
     model = TrajectoryModel()
     # no localization committed yet; propose a patch
     w = model.world_for_propose(step=1, key="p", phase="P", kind="edit")
-    assert "premature_patching" in lp.fired(w)
+    assert "plan_compliance_premature_patch" in lp.fired(w)
 
     # after a localization action, proposing the patch no longer fires it
     model.commit_action(step=1, key="nav", phase="L_navigate", kind="view", outcome="success")
     w2 = model.world_for_propose(step=2, key="p", phase="P", kind="edit")
-    assert "premature_patching" not in lp.fired(w2)
+    assert "plan_compliance_premature_patch" not in lp.fired(w2)
 
 
 def test_end_to_end_repeated_failed_edit_via_adapter():

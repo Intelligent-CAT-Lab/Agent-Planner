@@ -81,6 +81,22 @@ def test_run_false_when_recent_breaks():
     assert ev(w, "run(Navigate) >= theta_N") is F
 
 
+def test_run_requires_a_single_phase_dwell():
+    # A mix of two Validate-group phases is NOT a run (legacy dwell resets on the
+    # exact phase change), even though both are in Validate.
+    t = Traj()
+    for _ in range(4):
+        t.action("vr", phase="V_regression_test", kind="run_test")
+    for _ in range(3):
+        t.action("vn", phase="V_newly_generated_test", kind="run_test")
+    w = t.propose("q", phase="V_newly_generated_test", kind="run_test")
+    # last 7 are mixed V_regression / V_newly -> not a single-phase run
+    assert ev(w, "run(Validate) >= 7") is F
+    # but 4 consecutive identical V_newly (incl q) is a run of 4
+    assert ev(w, "run(Validate) >= 4") is T
+    assert ev(w, "run(Validate) >= 5") is F
+
+
 def test_run_general_actions_dropped_from_projection():
     t = Traj()
     for _ in range(3):

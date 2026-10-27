@@ -1,0 +1,87 @@
+{
+  "_comment": "Advice/emission registry for the ten LIVEPLAN signals. Signal names mirror the legacy rule IDs (dwell_*, oscillation, repeated_view, thought_oscillation, plan_compliance_*). Messages are the default_rules.json baselines. 'enabled:false' signals evaluate in shadow mode for differential logging but are never surfaced to the agent. The plan-compliance-derived signals stay shadow-only until the legacy stateful plan automaton is validated as an oracle. 'priority' is OPTIONAL (default 0): it only reorders signals that fire at the same hook; with the default, co-firing signals keep spec declaration order, which matches the legacy evaluation sequence. Set it only to deliberately override that order.",
+
+  "signals": {
+    "dwell_L_navigate": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You seem to navigate between files and code locations in the past {threshold} steps. Options: (1) keep exploring but focus on relevant code only; (2) create and run a reproduction test to better localize the bug; (3) if you already have enough information, edit the source to implement the fix."}
+    },
+    "dwell_L_reproduce": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You are trying to reproduce the bug in the last {threshold} steps. If you cannot resolve dependencies to create or run reproduction tests within a few attempts, pay more attention to the issue description to locate the bug without reproduction, or start patching if you have localized it."}
+    },
+    "dwell_P": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have spent the last {threshold} steps editing files to patch the bug. Options: (1) if edits are unsuccessful, reconsider the edit location or string replacements; (2) long sequences of edits can indicate incorrect localization; (3) validate changes step by step rather than batching them."}
+    },
+    "dwell_V": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have spent the last {threshold} steps validating your changes. Reflect on your code execution rather than writing more tests. If confident the patch is correct, submit it; otherwise revisit the patch."}
+    },
+
+    "repeated_view": {
+      "enabled": true, "key": "q.key",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have already reviewed this location. If verifying a recent edit, focus on the changed lines; otherwise view a new relevant location or proceed to edit or test."}
+    },
+
+    "oscillation": {
+      "enabled": true, "key": "motif",
+      "emit": {"mode": "max_per_pattern", "max": 5, "terminal_variant": "max_repeats"},
+      "intervention": {"block_execution": true},
+      "advice": {
+        "template": "It seems you are repeating action {action} in the recent trajectory. The observation has likely not changed. Reason concretely about whether this action helps resolve the issue; if not, choose a better next action.",
+        "variants": {"max_repeats": "If you cannot make further progress, stop or submit your patch."}
+      }
+    },
+    "oscillation_recurrence": {
+      "enabled": true, "key": "q.key",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have repeated the action {action} many times in this trajectory without resolving the issue. Re-running the same step is unlikely to make progress. Reason concretely about why it is not working and take a different approach, or stop and submit your current patch."}
+    },
+    "thought_oscillation": {
+      "enabled": true, "key": "motif",
+      "emit": {"mode": "max_per_pattern", "max": 5, "terminal_variant": "max_repeats"},
+      "intervention": {"block_execution": true},
+      "advice": {
+        "template": "You are repeating the same reasoning without producing executable actions. This suggests a format error or circular reasoning. Review the action format requirements and try a different approach.",
+        "variants": {"max_repeats": "If you cannot make further progress, stop or submit your patch."}
+      }
+    },
+
+    "plan_compliance_premature_patch": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are editing in the {phase} phase before any localization. Explore and localize the bug first, then implement the patch."}
+    },
+    "plan_compliance_premature_validate": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are validating in the {phase} phase before you have patched the code. Implement the fix first, then validate it."}
+    },
+    "plan_compliance_skip_patch": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are about to submit without having patched the code. Implement a fix before submitting."}
+    },
+    "plan_compliance_skip_validation": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are about to submit without validating your changes. Run a test to confirm the fix before submitting."}
+    }
+  }
+}

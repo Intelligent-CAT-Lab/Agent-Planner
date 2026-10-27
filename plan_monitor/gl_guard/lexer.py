@@ -40,9 +40,10 @@ _KEYWORDS = {
     "true", "false",
     "not", "and", "or",
     "exists", "in", "history",
-    "count", "run", "repeat",
-    # NOTE: ``length`` and ``times`` are *contextual* keywords (only meaningful
-    # inside repeat(...)); they stay generic IDs so they never collide elsewhere.
+    "count", "run", "repeat", "cycle",
+    # NOTE: ``length``, ``times`` and ``up_to`` are *contextual* keywords (only
+    # meaningful inside repeat(...)/cycle(...)); they stay generic IDs so they
+    # never collide elsewhere.
     "key", "kind", "phase", "before", "outcome", "obs_eq", "node",
     # SE is case-sensitive and matched explicitly below.
     "seen", "revisit",  # derived-operator sugar

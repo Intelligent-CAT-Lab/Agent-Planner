@@ -14,7 +14,7 @@ def test_check_ok(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "well-formed" in out
-    assert "premature_patching" in out
+    assert "plan_compliance_premature_patch" in out
 
 
 def test_check_reports_illformed(tmp_path, capsys):

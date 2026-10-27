@@ -41,11 +41,19 @@ class Config:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
+        # JSON has no comments, so keys beginning with "_" are treated as inline
+        # documentation and ignored (the same convention the advice registry uses
+        # for its top-level "_comment"). This lets the config be annotated in place.
         groups = {
             name: frozenset(labels)
             for name, labels in data.get("phase_groups", {}).items()
+            if not name.startswith("_")
         }
-        params = {name: int(v) for name, v in data.get("params", {}).items()}
+        params = {
+            name: int(v)
+            for name, v in data.get("params", {}).items()
+            if not name.startswith("_")
+        }
         kinds = frozenset(data.get("kinds", []))
         outcomes = frozenset(data.get("outcomes", OUTCOMES))
         return cls(phase_groups=groups, params=params, kinds=kinds, outcomes=outcomes)

@@ -71,7 +71,9 @@ atom    ::= "key"  "(" term ")" "=" "key" "(" term ")"
           | "SE" "(" "node" "(" term ")" "," "node" "(" term ")" ")"
           | "obs_eq" "(" term "," term ")"
 
-derived ::= "seen" "(" group ")" | "revisit" "(" channel ")"
+derived ::= "seen" "(" group ")"
+          | "revisit" "(" channel ")"
+          | "cycle" "(" channel "," "up_to" "=" INT "," "times" "=" intexpr ")"
 
 term    ::= ID                       (* q or a bound variable *)
 group   ::= ID | "{" ID { "," ID } "}"
@@ -88,9 +90,16 @@ doc. Comments run from `#` to end of line.
 core language so the checker and interpreter never see them:
 
 ```
-seen(F)     ≡  exists s in history(action) : phase(s) in F
-revisit(c)  ≡  exists r in history(c)      : key(r) = key(q)
+seen(F)                      ≡  exists s in history(action) : phase(s) in F
+revisit(c)                   ≡  exists r in history(c)      : key(r) = key(q)
+cycle(c, up_to=K, times=r)   ≡  repeat(c,1,r) or repeat(c,2,r) or … or repeat(c,K,r)
 ```
+
+`cycle` captures "stuck in a loop of **any period up to K**": a self-loop `A A`
+at period 1, `A-B-A-B` at period 2, `A-B-C-A-B-C` at period 3, and so on. `up_to`
+must be an integer literal so the disjunction is expanded at parse time. It exists
+because a bare `repeat(action, length=1, times=r)` catches *only* self-loops and
+silently misses multi-node loops — see §7.3.
 
 ---
 
@@ -151,14 +160,20 @@ definite lift of the underlying comparison. `phase(u) in F` is `F` for a
 
 **Phase run.** Let `P` be the Langutory phase projection of `H·q` (occurrence
 order; `general` dropped; unavailable phases appear as `?` symbols; **occurrences
-are counted, not compressed runs**). Then
+are counted, not compressed runs**). A *run* is a maximal dwell in a **single**
+phase — the last `k` occurrences must be the *same* phase and it must lie in `F`:
 
 ```
-run(F) >= k   ≡   |P| ≥ k  ∧  ⋀_{s ∈ last_k(P)} (s ∈ F)
+run(F) >= k   ≡   |P| ≥ k  ∧  (last_k(P) are all equal)  ∧  ⋀_{s ∈ last_k(P)} (s ∈ F)
 ```
 
-evaluated in Kleene (length `< k` ⇒ `F`; an unknown symbol in the last `k` ⇒ `?`
-when it could change the verdict).
+evaluated in Kleene (length `< k` ⇒ `F`; a definite phase change inside the last
+`k` ⇒ `F`; an unknown symbol that could change the verdict ⇒ `?`). The
+single-phase requirement mirrors the legacy `DwellTimeRule`, whose counter resets
+on any exact phase change: a mix of `V_regression_test` and `V_newly_generated_test`
+is *not* a run even though both are in the `Validate` group. (For single-valued
+phase groups — `Navigate`, `Reproduce`, `Patch` — identity and membership
+coincide, so this only refines the multi-phase `Validate` case.)
 
 **Repetition.** Let `s = s₁ … sₙ` be the identity stream of `H·q`:
 
@@ -222,18 +237,37 @@ semantics are unambiguous and executable:
    fact, contributes no symbol), whereas a phase that *could not be computed* is
    retained as an unknown (`?`) symbol. The two are semantically different and
    only the latter can make `run` evaluate to `?`.
-3. **`repeat` is strict periodicity, not a generic cycle test.** The legacy
-   detector in `rules.py` recognizes some non-periodic closed walks and applies
-   `max_repeats`/rate-limit bookkeeping. GL-Guard's `repeat` captures self-loops
-   and regular multi-action cycles exactly; **faithful reproduction of every
-   legacy decision requires a separately specified `legacy_cycle` predicate and
-   differential testing** (§8 of the doc). We do not claim equivalence from the
-   table alone.
+3. **`repeat` is strict periodicity; oscillation must cover every period.** A
+   single `repeat(action, length=1, times=2)` catches *only* self-loops; the
+   legacy `OscillationDetector` also detects two-node (`A-B-A-B`) and multi-node
+   (`A-B-C-A-B-C`) periodic cycles. Expressing oscillation as that single
+   `repeat` **silently misses real multi-node loops** — a correctness bug, since
+   those loops are exactly the harmful ones. The `cycle(c, up_to=K, times=r)`
+   derived operator fixes this by covering periods 1..K. Differential testing
+   (§7.3) shows the result has **full recall of the legacy detector plus real
+   period-3/4 loops the legacy heuristic itself misses**. (The legacy also keeps
+   `max_repeats`/rate-limit bookkeeping; that is the *emission* layer, kept
+   separate — see `GL_Guard_Binding_Design.md`.)
 4. **Thought-episode boundary is part of the definition.** Thought repetition is
    scoped to the current reasoning episode (since the last executable action).
    The model enforces this, so feedback-separated thoughts cannot be conflated.
 5. **Three-valued `count`/`run` boundaries** are made precise (the `a`/`b` bands,
    the `|P| < k ⇒ F` case) and unit-tested, rather than left to prose.
+6. **`run` is a single-phase dwell, not group-membership.** The legacy
+   `DwellTimeRule` counter resets on any *exact* phase change, so `run(F) >= k`
+   requires the last `k` occurrences to be the *same* phase in `F` (§4). Without
+   this, `dwell_V` over-fires on a mix of `V_regression_test` /
+   `V_newly_generated_test`.
+
+### 7.3 Oscillation recall (measured)
+
+Over two SWE-agent trajectory sets, GL-Guard's `cycle`-based `oscillation` fires a
+superset of the legacy detector: it matches every legacy oscillation **and**
+flags real multi-node loops the legacy misses (e.g. a repeating
+`cd → set_env → <command>` period-3 cycle, or a `cd → set_env → python → submit`
+period-4 cycle). For a loop-detection *safety* signal, over-approximation toward
+catching real loops is the correct bias; `max_per_pattern` emission (keyed by the
+loop's node-set) keeps warnings bounded per loop.
 
 ---
 

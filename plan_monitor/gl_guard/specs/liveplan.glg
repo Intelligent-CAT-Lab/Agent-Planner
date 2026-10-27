@@ -1,48 +1,92 @@
 # =============================================================================
 # The ten original LIVEPLAN signals, expressed in GL-Guard.
 #
+# Signal names mirror the legacy rule IDs in plan_monitor/rules.py so the shadow
+# differential harness compares like-named signals directly:
+#
+#   dwell_L_navigate / dwell_L_reproduce / dwell_P / dwell_V   (DwellTimeRule)
+#   oscillation                                                (OscillationRule)
+#   repeated_view                                              (RepeatedViewRule)
+#   thought_oscillation                                        (ThoughtOscillationRule)
+#   plan_compliance_*                                          (PlanComplianceRule, decomposed)
+#
 # Thresholds and phase groups are configuration (see liveplan.config.json), not
 # language constants. These specifications express the *intended* meaning of each
 # signal; exact agreement with the legacy cycle counters and hook timing is a
 # matter of differential testing against the original monitor (design section 8).
 # =============================================================================
 
-# 1. Premature Patching -- editing before any localization has happened.
-signal premature_patching on propose when
+# =============================================================================
+# Plan compliance -- a memoryless decomposition of the legacy ordered-plan
+# automaton (intended plan L -> P -> V, per-violation-type threshold 1, blocking).
+#
+# The legacy PlanComplianceRule fires two violation families, each at most once:
+#   * phase_skip       -- entering a plan phase later than expected, skipping
+#                         intermediate phases;
+#   * premature_ending -- submitting before the plan is complete.
+# Below, each family member is a memoryless predicate over the current proposal
+# and the committed history. "Fire at most once per violation type" is realized
+# by the emission policy (once_per_key on the signal) in liveplan.advice.json,
+# and the legacy "threshold state survives a block" behaviour by persist_on_block.
+# =============================================================================
+
+# Premature patching -- editing (Patch) before any localization (phase_skip [L]).
+signal plan_compliance_premature_patch on propose when
   phase(q) in Patch and not seen(Localize)
 
-# 2. Skip Patching -- submitting without ever having patched.
-signal skip_patching on propose when
+# Premature validation -- validating (Validate) before any patch. This single
+# predicate covers both legacy phase_skips that enter Validate too early: [P]
+# (validate after localizing, before patching) and [L,P] (validate with nothing
+# done) -- both are exactly "entered Validate while no Patch has been seen".
+signal plan_compliance_premature_validate on propose when
+  phase(q) in Validate and not seen(Patch)
+
+# Skip patching -- submitting without ever having patched (premature_ending).
+signal plan_compliance_skip_patch on propose when
   kind(q) = submit and not seen(Patch)
 
-# 3. Skip Validation -- submitting without ever having validated.
-signal skip_validation on propose when
+# Skip validation -- submitting without ever having validated (premature_ending).
+signal plan_compliance_skip_validation on propose when
   kind(q) = submit and not seen(Validate)
 
-# 4. Thought Oscillation -- a repeated reasoning motif within the current
-#    reasoning episode (scoped since the last executable action).
+# Thought Oscillation -- a repeated reasoning motif within the current
+# reasoning episode (scoped since the last executable action).
 signal thought_oscillation on observe(thought) when
   repeat(thought, length=m_thought, times=r_thought)
 
-# 5. Action Oscillation -- a repeated action motif at the tail of the trajectory.
-#    length=1 captures self-loops (A A); longer motifs capture A-B-A-B cycles.
-signal action_oscillation on propose when
-  repeat(action, length=m_action, times=r_action)
+# Action Oscillation -- stuck in a loop of any period up to 10, the same coverage
+# as the legacy OscillationDetector (self-loop A A at period 1, A-B-A-B at period
+# 2, A-B-C-A-B-C at period 3, ...). `cycle` desugars to a disjunction of `repeat`
+# over lengths 1..10. A bare `repeat(action, length=1, times=r_action)` would only
+# catch self-loops and silently miss multi-node cycles.
+signal oscillation on propose when
+  cycle(action, up_to=10, times=r_action)
 
-# 6-9. Prolonged dwell in a single phase: the last theta_* phase occurrences all
-#      belong to one phase group.
-signal prolonged_navigation on propose when
+# Prolonged recurrence -- the same action node has already executed kappa_recur
+# times. This catches the legacy `two+_node_cycle` case the strict-periodic
+# `cycle` misses: an agent re-running one substantive action (a test/repro/edit)
+# many times interspersed with *varying* work, so there is no clean period but the
+# node recurs excessively (measured 5-23x). Gated to non-general actions so benign
+# utility commands (cd/ls/env setup) that merely recur are not flagged. Normalizes
+# to the `oscillation` category.
+signal oscillation_recurrence on propose when
+  not (kind(q) = general) and
+  count { x in history(action) | key(x) = key(q) } >= kappa_recur
+
+# Prolonged dwell in a single phase: the last theta_* phase occurrences all
+# belong to one phase group.
+signal dwell_L_navigate on propose when
   run(Navigate) >= theta_N
 
-signal prolonged_reproduction on propose when
+signal dwell_L_reproduce on propose when
   run(Reproduce) >= theta_R
 
-signal prolonged_patching on propose when
+signal dwell_P on propose when
   run(Patch) >= theta_P
 
-signal prolonged_validation on propose when
+signal dwell_V on propose when
   run(Validate) >= theta_V
 
-# 10. Action Revisit -- re-viewing a code location already visited before.
-signal action_revisit on propose when
+# Action Revisit -- re-viewing a code location already visited before.
+signal repeated_view on propose when
   kind(q) = view and revisit(action)

@@ -77,6 +77,18 @@ class GuardProgram:
                 return r
         raise KeyError(name)
 
+    def run_signal_names(self, hook: Hook) -> set:
+        """
+        Names of rules on ``hook`` whose body contains a ``run`` (dwell) term.
+
+        These are the phase-dwell signals: the monitor evaluates them only on
+        steps that yield a phase role, mirroring the legacy control flow, which
+        skips dwell on ``general``-only steps. Detecting them *structurally* (not
+        by name) keeps the add-a-signal-by-spec property — a new ``run``-based
+        signal is handled automatically.
+        """
+        return {r.name for r in self.rules_for(hook) if _contains(r.body, ast.Run)}
+
     # -- evaluation --------------------------------------------------------------
 
     def evaluate(self, world: World) -> List[Verdict]:
@@ -89,3 +101,16 @@ class GuardProgram:
     def fired(self, world: World) -> List[str]:
         """Names of the rules that fire (verdict TRUE) at ``world``."""
         return [v.rule for v in self.evaluate(world) if v.fired]
+
+
+def _contains(node, node_type) -> bool:
+    """True iff ``node`` has a descendant of ``node_type`` (pre-order walk)."""
+    if isinstance(node, node_type):
+        return True
+    if isinstance(node, ast.Not):
+        return _contains(node.operand, node_type)
+    if isinstance(node, (ast.And, ast.Or)):
+        return any(_contains(op, node_type) for op in node.operands)
+    if isinstance(node, (ast.Exists, ast.Count)):
+        return _contains(node.body, node_type)
+    return False

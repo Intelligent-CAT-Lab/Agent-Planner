@@ -170,6 +170,8 @@ class Parser:
             return self._parse_run()
         if t.kind == "REPEAT":
             return self._parse_repeat()
+        if t.kind == "CYCLE":
+            return self._parse_cycle()
 
         # atoms and derived sugar
         if t.kind == "KEY":
@@ -234,6 +236,34 @@ class Parser:
         times = self._parse_int()
         self._expect("RPAREN")
         return ast.Repeat(channel=chan, length=length, times=times)
+
+    def _parse_cycle(self) -> ast.Formula:
+        # cycle(c, up_to=K, times=r)  ==  OR over m in 1..K of repeat(c, length=m, times=r)
+        # It captures "stuck in a loop of any period up to K" (self-loop AA at m=1,
+        # ABAB at m=2, ABCABC at m=3, ...). up_to must be a literal so the
+        # disjunction can be expanded at parse time.
+        self._expect("CYCLE")
+        self._expect("LPAREN")
+        chan = self._parse_channel()
+        self._expect("COMMA")
+        self._expect_id_value("up_to")
+        self._expect("EQ")
+        if not self._at("INT"):
+            self._error("cycle's up_to must be an integer literal")
+        up_to = int(self._advance().value)
+        if up_to < 1:
+            self._error("cycle's up_to must be >= 1")
+        self._expect("COMMA")
+        self._expect_id_value("times")
+        self._expect("EQ")
+        times = self._parse_int()
+        self._expect("RPAREN")
+
+        disjuncts = tuple(
+            ast.Repeat(channel=chan, length=ast.IntLit(m), times=times)
+            for m in range(1, up_to + 1)
+        )
+        return disjuncts[0] if len(disjuncts) == 1 else ast.Or(disjuncts)
 
     def _expect_id_value(self, expected: str):
         # ``length`` and ``times`` are contextual keywords matched by value.

@@ -112,8 +112,28 @@ class _Evaluator:
         if len(projection) < k:
             return F
         tail = projection[-k:]
-        memberships = [self._phase_member(sym, node.group) for sym in tail]
-        return k_and(*memberships)
+        # A "run" is a maximal dwell in a *single* phase: the last k occurrences
+        # must be the SAME phase and that phase must lie in F. (This mirrors the
+        # legacy DwellTimeRule, whose counter resets on any exact phase change —
+        # so a mix of V_regression_test and V_newly_generated_test is not a run,
+        # even though both are Validate-group phases.)
+        membership = k_and(*(self._phase_member(sym, node.group) for sym in tail))
+        return k_and(membership, self._all_identical(tail))
+
+    @staticmethod
+    def _all_identical(symbols) -> Kleene:
+        """Kleene test that all symbols are the same phase (unknowns -> ?)."""
+        saw_unknown = False
+        reference = None
+        for sym in symbols:
+            if sym is None:
+                saw_unknown = True
+                continue
+            if reference is None:
+                reference = sym
+            elif sym != reference:
+                return F  # a definite mismatch -> not a single-phase run
+        return U if saw_unknown else T
 
     def _phase_member(self, sym: Optional[str], group: ast.Group) -> Kleene:
         if sym is None:

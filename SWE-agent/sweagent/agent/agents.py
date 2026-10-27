@@ -63,6 +63,14 @@ except ImportError:
     MONITOR_AVAILABLE = False
 
 try:
+    # GL-Guard engine: a drop-in StatefulPhaseMonitor whose rules come from the
+    # declarative DSL specs instead of the hand-written RuleEngine.
+    from plan_monitor.gl_guard.guard_monitor import GuardMonitor
+    GL_GUARD_AVAILABLE = True
+except ImportError:
+    GL_GUARD_AVAILABLE = False
+
+try:
     from plan_refiner import PlanRefiner
     from plan_refiner.types import RefinerInput, StateSummary, RefinerTrajectoryStep, RuleTrigger
     REFINER_AVAILABLE = True
@@ -178,6 +186,17 @@ class DefaultAgentConfig(BaseModel):
 
     monitor_rules_config: str = "default_rules"
     """Configuration for plan monitor rules"""
+
+    monitor_engine: Literal["gl_guard", "legacy"] = "gl_guard"
+    """Rule engine backing the plan monitor:
+    - "gl_guard" (default): signals are evaluated from the declarative GL-Guard DSL
+      specs (plan_monitor/gl_guard/specs). New signals are added by editing the
+      specs — no per-rule Python. Validated for semantic equivalence against the
+      legacy engine (exact on dwell; a documented superset on oscillation).
+    - "legacy": the hand-written RuleEngine (plan_monitor/rules.py + JSON config).
+    Both share the same Graphectory/Langutory and the same monitor API, so the
+    refiner and agent logic are identical either way. `monitor_rules_config` still
+    selects the tool-config/parser setup under both engines."""
 
     save_monitor_graph: bool = False
     """Save the monitor state graph"""
@@ -563,11 +582,23 @@ class DefaultAgent(AbstractAgent):
         agent._save_monitor_graph = config.save_monitor_graph
 
         if config.enable_monitor and MONITOR_AVAILABLE:
-            agent._plan_monitor = StatefulPhaseMonitor(
+            if config.monitor_engine == "gl_guard":
+                if not GL_GUARD_AVAILABLE:
+                    raise ImportError(
+                        "monitor_engine='gl_guard' but plan_monitor.gl_guard could not be "
+                        "imported; set monitor_engine='legacy' or fix the gl_guard install."
+                    )
+                monitor_cls = GuardMonitor
+            else:
+                monitor_cls = StatefulPhaseMonitor
+            agent._plan_monitor = monitor_cls(
                 enable_rules=True,
-                rules_config=config.monitor_rules_config
+                rules_config=config.monitor_rules_config,
             )
-            agent.logger.info("Plan monitor enabled with rules config: %s", config.monitor_rules_config)
+            agent.logger.info(
+                "Plan monitor enabled (engine=%s, rules config=%s)",
+                config.monitor_engine, config.monitor_rules_config,
+            )
 
         # Initialize refiner if enabled and available
         # Three configurations:

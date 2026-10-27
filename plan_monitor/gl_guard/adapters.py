@@ -28,8 +28,10 @@ Mappings to the existing pipeline:
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from typing import List, Optional, Sequence, Set, Tuple
 
+from .kleene import Kleene
 from .model import Channel, Hook, InMemoryWorld, Occurrence, World
 
 # Sentinel commands that mark a submission in the SWE-agent harness.
@@ -42,6 +44,7 @@ def classify_kind(
     subcommand: Optional[str],
     command: Optional[str],
     phase: Optional[str] = None,
+    full_command: Optional[str] = None,
 ) -> str:
     """
     Coarse action kind used by ``kind(q) = K`` in the DSL.
@@ -50,9 +53,15 @@ def classify_kind(
     ``run_test`` / ``search`` / ``general``) over the same signals the Langutory
     classifier already consumes. It is heuristic by nature; the DSL treats it as
     an opaque label and never second-guesses it.
+
+    ``full_command`` is the complete (possibly compound) command text. Submission
+    is detected over it — not the parsed ``command`` token — so that the marker is
+    found wherever it sits (``submit``; ``echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT``),
+    exactly as the legacy monitor matches its ``ending_flags`` against the raw
+    command string.
     """
-    cmd = command or ""
-    if any(marker in cmd for marker in _SUBMIT_MARKERS):
+    submit_text = full_command or command or ""
+    if any(marker in submit_text for marker in _SUBMIT_MARKERS):
         return "submit"
     if tool == "str_replace_editor":
         if subcommand in _EDIT_SUBCOMMANDS:
@@ -215,3 +224,132 @@ class TrajectoryModel:
             hook=hook,
             se_edges=set(self._se_edges),
         )
+
+
+# =========================================================================== #
+# Live binding: read the occurrence model directly from a GraphBuilder graph.
+#
+# This is the production wiring. The GL-Guard `World` is built from the *actual*
+# Graphectory the monitor maintains, so there is no second graph and no risk of a
+# divergent re-classification: the node identities, phases, outcomes, and
+# exec-path order are exactly what the legacy detectors see.
+#
+# The two time-scales (binding design §3) are honoured here:
+#   * `repeat`/`revisit`/`exists`/`count` read the occurrence-level exec-path
+#     (one entry per node visit, recovered from each node's `step_indices`);
+#   * `run` reads a separately supplied step-level phase stream (the monitor's
+#     `role_history`), passed into :class:`GraphBoundWorld`.
+# =========================================================================== #
+
+
+class GraphBoundWorld(InMemoryWorld):
+    """
+    A :class:`World` whose occurrence streams come from a live Graphectory and
+    whose phase projection (used by ``run``) is an injected *step-level* stream.
+
+    Everything except ``phase_projection`` is inherited: ``history``,
+    ``repetition_stream`` (occurrence-level), ``se`` and ``obs_eq`` all operate on
+    the occurrence list exactly as in the reference model.
+    """
+
+    def __init__(self, committed_actions, committed_thoughts, q, hook,
+                 phase_stream: Sequence[Optional[str]], se_edges=None, obs_eq_fn=None):
+        super().__init__(committed_actions, committed_thoughts, q, hook, se_edges, obs_eq_fn)
+        # Already the tentative H·q step projection (includes q's step), occurrence
+        # order preserved, general phases dropped by the caller.
+        self._phase_stream = [None if p in (None, "general") else p for p in phase_stream]
+
+    def phase_projection(self) -> Sequence[Optional[str]]:
+        return list(self._phase_stream)
+
+
+def occurrences_from_graph(graph) -> List[Occurrence]:
+    """
+    Reconstruct the occurrence-level action stream from a Graphectory.
+
+    Mirrors ``OscillationDetector._extract_exec_path``: every ``(step_idx,
+    node_key)`` pair (a node may carry several, one per visit) is collected and
+    ordered by ``step_idx`` with a stable sort, so compound-command occurrences
+    and repeated node visits appear exactly as the legacy detector sees them.
+    Per-visit phase/outcome/observation are read from the node's parallel lists.
+
+    "think" nodes (empty-action steps) carry ``step_index`` (singular) rather than
+    ``step_indices`` and are excluded from the action stream — matching the legacy
+    exec-path, which only sees action nodes.
+    """
+    rows = []
+    for node_key, data in graph.nodes(data=True):
+        step_indices = data.get("step_indices")
+        if not step_indices:
+            continue
+        phases = data.get("phases", [])
+        outcomes = data.get("outcome", [])
+        observations = data.get("observations", [])
+        tool = data.get("tool")
+        subcommand = data.get("subcommand")
+        command = data.get("command")
+        full_action = data.get("full_action") or ""
+        for k, step_idx in enumerate(step_indices):
+            rows.append((
+                step_idx, node_key,
+                phases[k] if k < len(phases) else None,
+                outcomes[k] if k < len(outcomes) else None,
+                observations[k] if k < len(observations) else None,
+                tool, subcommand, command, full_action,
+            ))
+    rows.sort(key=lambda r: r[0])  # stable: ties keep node-iteration order
+
+    occurrences: List[Occurrence] = []
+    for oid, (step_idx, node_key, phase, outcome, obs, tool, sub, cmd, full) in enumerate(rows):
+        occurrences.append(Occurrence(
+            oid=oid,
+            channel=Channel.ACTION,
+            step=step_idx,
+            key=node_key,
+            phase=(None if phase in (None, "general") else phase),
+            kind=classify_kind(tool, sub, cmd, phase, full_command=full),
+            outcome=outcome,
+            obs=normalize_obs(obs),
+            full_action=full,
+        ))
+    return occurrences
+
+
+def structural_edges_from_graph(graph) -> Set[Tuple[str, str]]:
+    """Harvest the Graphectory's structural (``type="hier"``) edges for ``SE``."""
+    return {(u, v) for u, v, d in graph.edges(data=True) if d.get("type") == "hier"}
+
+
+def propose_world_from_graph(graph, step_phase_stream: Sequence[Optional[str]]) -> Optional[World]:
+    """
+    Build a ``propose`` :class:`World` from a tentative Graphectory ``H·q``.
+
+    ``q`` is the final action occurrence; its outcome and observation are stripped
+    to ``None`` because at ``propose`` the action has not executed yet (the
+    well-formedness checker already forbids reading them). ``step_phase_stream`` is
+    the monitor's step-level ``role_history`` extended with the current step.
+    """
+    occurrences = occurrences_from_graph(graph)
+    if not occurrences:
+        return None
+    q = replace(occurrences[-1], outcome=None, obs=None)
+    return GraphBoundWorld(
+        committed_actions=occurrences[:-1],
+        committed_thoughts=[],
+        q=q,
+        hook=Hook.PROPOSE,
+        phase_stream=step_phase_stream,
+        se_edges=structural_edges_from_graph(graph),
+    )
+
+
+def thought_world_from_hashes(thought_hashes: Sequence[str]) -> Optional[World]:
+    """
+    Build an ``observe(thought)`` :class:`World` from the committed thought-hash
+    stream (the monitor's ``thought_history``). ``q`` is the latest thought.
+    """
+    if not thought_hashes:
+        return None
+    occ = [Occurrence(oid=i, channel=Channel.THOUGHT, step=i, key=h)
+           for i, h in enumerate(thought_hashes)]
+    return InMemoryWorld([], occ[:-1], occ[-1], Hook.OBSERVE_THOUGHT)

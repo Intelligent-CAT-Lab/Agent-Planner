@@ -23,15 +23,19 @@ Typical use::
 from __future__ import annotations
 
 from . import ast, model
+from .advice import AdviceRegistry, SignalReport
 from .config import Config, ConfigError
+from .emission import EmissionPolicy, EmissionState
 from .engine import GuardProgram, Verdict
 from .interpreter import evaluate
 from .kleene import Kleene
 from .model import Channel, Hook, InMemoryWorld, Occurrence, World
 from .parser import parse_formula, parse_program, parse_rule
+from .runtime import GuardRuntime
 from .typecheck import WellFormednessError, check_program, check_rule
 
 __all__ = [
+    # language
     "GuardProgram",
     "Verdict",
     "Config",
@@ -49,6 +53,12 @@ __all__ = [
     "check_program",
     "check_rule",
     "WellFormednessError",
+    # binding / emission / advice layer
+    "GuardRuntime",
+    "AdviceRegistry",
+    "SignalReport",
+    "EmissionPolicy",
+    "EmissionState",
     "ast",
     "model",
 ]

@@ -1,4 +1,7 @@
 {
+  "_comment": "GL-Guard configuration for liveplan.glg: phase groups + tunable thresholds. JSON has no comments, so any key beginning with '_' is documentation and is ignored by the loader (Config.from_dict). Thresholds are configuration, not language constants, so a spec is retuned here without touching the DSL.",
+
+  "_phase_groups": "Named sets of Langutory phase labels referenced by `phase(q) in G`, `run(G)` and `seen(G)`. Membership matches an exact label OR its single-letter prefix, so fine-grained labels (V_regression_test) belong to the coarse group (Validate) without being enumerated.",
   "phase_groups": {
     "Localize":  ["L", "L_navigate", "L_reproduce"],
     "Navigate":  ["L_navigate"],
@@ -6,17 +9,31 @@
     "Patch":     ["P"],
     "Validate":  ["V", "V_newly_generated_test", "V_regression_test"]
   },
+
   "params": {
+    "_dwell": "theta_N / theta_R / theta_P / theta_V -- a dwell signal fires after this many consecutive step-level occurrences of one phase group (Navigate / Reproduce / Patch / Validate), i.e. the agent is stuck in that activity. 7 is inherited from the legacy DwellTimeRule and validated EXACT (0 discrepancies over 24k+ real steps). Kept as four separate params so each phase can be tuned independently even though they currently share the value.",
     "theta_N": 7,
     "theta_R": 7,
     "theta_P": 7,
     "theta_V": 7,
-    "m_action": 1,
+
+    "_oscillation": "r_action -- a periodic action motif (period 1..10, enumerated by `cycle`) must repeat this many times to count as a mechanical loop. 2 is the minimal convincing evidence of a loop (A-A, or A-B-A-B) and matches the legacy OscillationDetector self-loop / two-plus-node thresholds; 1 would fire on any single action.",
     "r_action": 2,
+
+    "_thought": "m_thought / r_thought -- thought_oscillation fires on m_thought-long reasoning blocks (1 = a single thought) repeated r_thought times. r_thought=3 is deliberately higher than r_action=2: reasoning legitimately restates a plan more than actions repeat, so 3 consecutive identical thoughts is the point it is clearly circular reasoning or a format-error loop (matches the legacy ThoughtOscillationRule).",
     "m_thought": 1,
     "r_thought": 3,
+
+    "_recurrence": "kappa_recur -- oscillation_recurrence (non-blocking advisory) fires when a substantive action has already executed this many times (so on the (kappa_recur+1)-th). 7 was tuned on the default trajectory set: >=5 over-fires on productive edit->test iteration (+218 false positives in shadow), while >=8 isolates clearly-excessive recurrence (measured 8-23x). It only advises, never blocks, because observations are unavailable at the propose hook, so 'stuck' cannot be told from 'productive-but-long'.",
+    "kappa_recur": 7,
+
+    "_analysis_only": "kappa_fail -- used ONLY by the analysis-only extra_signals.glg (repeated_failed_edit): the same edit identity has failed this many times. 2 = a trend, not a one-off typo. It needs `outcome(x)`, which is empty at the live pre-emptive propose hook (the action has not executed yet), so signals depending on it are for offline analysis, not online firing.",
     "kappa_fail": 2
   },
+
+  "_kinds": "The coarse action-kind vocabulary that `kind(q) = K` matches, as produced by adapters.classify_kind. 'submit' is detected over the full command (the legacy ending_flags).",
   "kinds": ["view", "edit", "submit", "run_test", "search", "general"],
+
+  "_outcomes": "The `outcome(x)` literals. Populated only for committed occurrences in offline analysis; unavailable at the live propose hook.",
   "outcomes": ["success", "failure"]
 }

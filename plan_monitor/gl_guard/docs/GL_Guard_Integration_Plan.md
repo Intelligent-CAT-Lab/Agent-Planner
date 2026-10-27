@@ -2,7 +2,7 @@
 
 **Objective.** Execute newly authored GL-Guard specifications over LIVEPLAN's incrementally maintained Graphectory/Langutory state **without writing a Python detector for each rule**, while preserving the original monitor, intervention policy, and existing evaluation results.
 
-**Basis.** The supplied `DESIGN.md` documents an existing lexer/parser, type checker, AST, Kleene evaluator, `GuardProgram`, `World` model, and adapters. The implementation contains `StatefulPhaseMonitor`, `RuleEngine`, `RuleMatch`, and [`default_rules.json`](https://github.com/Intelligent-CAT-Lab/Agent-Planner/blob/main/plan_monitor/config/default_rules.json). The proposed integration below is **not a claim that the unprovided local GL-Guard implementation has been tested**.
+**Basis.** The supplied `DESIGN.md` documents an existing lexer/parser, type checker, AST, Kleene evaluator, `GuardProgram`, `World` model, and adapters. The implementation contains `StatefulPhaseMonitor`, `RuleEngine`, `RuleMatch`, and `default_rules.json`. The proposed integration below is **not a claim that the unprovided local GL-Guard implementation has been tested**.
 
 ## 1. Core design: a query engine, not a rule-code generator
 
@@ -99,7 +99,8 @@ signals:
 2. **Finish the adapter:** `World` must be sourced from the actual `GraphBuilder`, Langutory state, proposal and observation hooks; audit occurrence/phase granularity and action-vs-thought identity. Add a non-mutating snapshot API.
 3. **Generic evaluation and configuration:** connect `GuardProgram.fired`/verdicts to the `SignalEvent` interface; add one message/policy registry; do not subclass `Rule` per `.glg` rule.
 4. **Shadow instrumentation:** insert read-only evaluation after the original tentative construction and before the original decision; record both outputs without changing execution. Compare raw truth separately from emitted warnings.
-5. **Incremental optimization (only if needed):** index occurrence counts, phase runs, and repeated motifs **without changing semantics**; compare with the reference interpreter.
-6. **Offline taxonomy study:** register a few supported new rules, validate their witnesses and incremental coverage, and only then consider controlled activation. Future synthesis can enumerate/check DSL programs, but *usefulness and interventions still need empirical validation*.
+5. **Live monitor + agent wiring (done):** `GuardMonitor` — a drop-in `StatefulPhaseMonitor` whose rule engine is the DSL — selected by the `monitor_engine` flag (default `gl_guard`) in `DefaultAgentConfig.from_config`. The plan-compliance family is enabled, blocking, once-per-violation-type (`persist_on_block`), and validated at **99.4% / 100% recall** across two default-trajectory models. See `GL_Guard_Binding_Design.md` §2.1 / §5.2 / §7.1.
+6. **Incremental optimization (only if needed):** index occurrence counts, phase runs, and repeated motifs **without changing semantics**; compare with the reference interpreter.
+7. **Offline taxonomy study:** register a few supported new rules, validate their witnesses and incremental coverage, and only then consider controlled activation. Future synthesis can enumerate/check DSL programs, but *usefulness and interventions still need empirical validation*.
 
-**Definition of done:** A developer adds a well-typed `.glg` signal plus a validated config entry, and the generic evaluator detects and reports it without any per-rule Python implementation; when `legacy` or `shadow` is selected, LIVEPLAN's original execution decisions and evaluated pipeline remain unchanged. Claims of exact ten-rule compatibility are limited to what differential testing establishes.
+**Definition of done:** A developer adds a well-typed `.glg` signal plus a validated config entry, and the generic evaluator detects and reports it without any per-rule Python implementation; when `monitor_engine: legacy` (or shadow) is selected, LIVEPLAN's original execution decisions and evaluated pipeline remain byte-identical. Claims of compatibility are limited to what the G2 differential establishes — dwell exact, plan-compliance ~100%, oscillation a documented precision/recall difference.
