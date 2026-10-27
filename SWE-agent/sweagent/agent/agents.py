@@ -1067,6 +1067,7 @@ class DefaultAgent(AbstractAgent):
         # For non-blocking rules: execute action first and store trajectory
         if not is_blocking:
             step = self.handle_action(step)
+            self._observe_monitor_result(step)
             # Store trajectory data BEFORE calling refiner
             self._trajectory_data.append((event, step.thought, step.observation))
         else:
@@ -1402,6 +1403,24 @@ class DefaultAgent(AbstractAgent):
             out[f"edited_files{context_length}"] = value
         return out
 
+    def _observe_monitor_result(self, step: StepOutput) -> None:
+        """Feed an executed action's result back to the monitor.
+
+        The monitor checks a step *before* execution, so its graph node for the
+        action carries no outcome. Once the action has run we hand the observation
+        back (observe(result) hook) so the committed node records its real
+        outcome/edit_status — used only to make the next corrective message
+        concrete and truthful, never to change which signals fire. A no-op for
+        monitors (e.g. the legacy engine) that don't implement the hook; failures
+        here must never break the agent loop.
+        """
+        monitor = self._plan_monitor
+        if monitor is not None and hasattr(monitor, "observe_result"):
+            try:
+                monitor.observe_result(step.observation)
+            except Exception:
+                self.logger.debug("monitor.observe_result failed", exc_info=True)
+
     def handle_action(self, step: StepOutput) -> StepOutput:
         """Runs an action proposed by the agent in the environment and returns the corresponding output.
 
@@ -1582,6 +1601,7 @@ class DefaultAgent(AbstractAgent):
                             else:
                                 # Execute action and add monitor message (non-blocking)
                                 step = self.handle_action(step)
+                                self._observe_monitor_result(step)
                                 step.extra_info["monitor_message"] = monitor_message
                                 step.extra_info["monitor_blocked"] = False
 
@@ -1599,6 +1619,7 @@ class DefaultAgent(AbstractAgent):
 
             # No monitor OR no rules triggered - proceed normally
             step = self.handle_action(step)
+            self._observe_monitor_result(step)
 
             # Store trajectory data for refiner (when monitor enabled but no rules triggered)
             if self._plan_monitor:

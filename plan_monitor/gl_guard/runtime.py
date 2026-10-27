@@ -33,7 +33,7 @@ from .engine import GuardProgram
 from .emission import EmissionState
 from .interpreter import evaluate as eval_rule
 from .kleene import Kleene
-from .model import World
+from .model import Channel, World
 
 
 class GuardRuntime:
@@ -108,20 +108,44 @@ class GuardRuntime:
         reports.sort(key=lambda r: -r.priority)
         return reports
 
-    def _render(self, rule: ast.Rule, entry, variant, world: World) -> SignalReport:
+    def _render(self, rule: ast.Rule, entry, emission_variant, world: World) -> SignalReport:
         q = world.q
+        revisited = q.full_action or (q.key or "")
+        motif = self._motif(rule, world)
         variables = {
             "phase": q.phase if q.phase is not None else "general",
-            "action": q.full_action or (q.key or ""),
-            "command": q.full_action or (q.key or ""),
+            "action": revisited,
+            "command": revisited,
+            # The members of the detected loop (so a multi-node cycle is described
+            # as the actual A/B it alternates, not as whichever single action is
+            # current); falls back to the current action for a self-loop.
+            "actions": ", ".join(motif["actions"]) if motif else revisited,
+            "steps": motif["steps"] if motif else str(q.step),
             "step": q.step,
             "threshold": self._threshold(rule),
         }
+        # Variant precedence: an emission-driven variant (e.g. the max_repeats
+        # terminal "stop or submit") always wins; otherwise a genuine multi-node
+        # cycle uses the cycle phrasing so the message names the real loop rather
+        # than mislabelling an A-B alternation as "repeating B".
+        is_terminal = emission_variant is not None
+        if is_terminal:
+            variant = emission_variant
+        elif motif is not None and len(motif["actions"]) >= 2:
+            variant = "multi_node"
+        else:
+            variant = None
+        # A terminal emission is the "give up — stop or submit" advisory: it is the
+        # exit ramp, so it never blocks even for an otherwise-blocking signal. This
+        # is what keeps a stuck agent from being blocked indefinitely — after the
+        # bounded run of blocking warnings, the action is let through with advice,
+        # and the non-blocking recurrence signal takes over.
+        block_execution = entry.block_execution and not is_terminal
         message = entry.render(variant, variables)
         return SignalReport(
             rule_id=rule.name,
             message=message,
-            block_execution=entry.block_execution,
+            block_execution=block_execution,
             step_index=q.step,
             priority=entry.priority,
             metadata={
@@ -131,6 +155,49 @@ class GuardRuntime:
                 "enabled": entry.enabled,
             },
         )
+
+    # -- message enrichment: the real loop + the real last outcome ----------------
+
+    def _action_occurrences(self, world: World):
+        """The H·q action occurrence stream (committed actions plus q when q is one)."""
+        occs = list(world.history(Channel.ACTION))
+        if world.q.channel is Channel.ACTION:
+            occs = occs + [world.q]
+        return occs
+
+    def _motif(self, rule: ast.Rule, world: World):
+        """
+        The loop a `repeat`/`cycle` rule matched, as member actions + step range.
+
+        Returns ``{"actions": [full_action, ...], "steps": "i–j"}`` for the
+        smallest tail period that holds (so A-B-A-B keys by its two members), or
+        ``None`` for a non-cyclic rule (recurrence/dwell) or when no clean period
+        holds. The members are the *distinct* full-action strings in loop order, so
+        the agent is told exactly which actions form the loop.
+        """
+        repeats = _collect(rule.body, ast.Repeat)
+        if not repeats:
+            return None
+        occs = self._action_occurrences(world)
+        stream = [o.key for o in occs]
+        n = len(stream)
+        cfg = self.program.config
+        lengths = sorted({cfg.resolve_int(r.length) for r in repeats})
+        times = max((cfg.resolve_int(r.times) for r in repeats), default=2)
+        for m in lengths:
+            tail = stream[-m:]
+            if n >= 2 * m and tail == stream[-2 * m:-m] and all(k is not None for k in tail):
+                span = occs[-min(n, m * times):]
+                seen, actions = set(), []
+                for o in occs[-m:]:
+                    a = o.full_action or o.key or ""
+                    if a not in seen:
+                        seen.add(a)
+                        actions.append(a)
+                steps = (str(span[0].step) if span[0].step == span[-1].step
+                         else f"{span[0].step}–{span[-1].step}")
+                return {"actions": actions, "steps": steps}
+        return None
 
     # -- emission keys & threshold introspection --------------------------------
 
@@ -191,11 +258,16 @@ class GuardRuntime:
         """
         Blocking signals whose emission is rolled back when a proposal is blocked.
 
-        A blocked action never executes, so a blocking signal's emission is
-        normally undone (the detected pattern isn't real yet — e.g. oscillation).
-        Signals flagged ``persist_on_block`` are excluded: their emission survives
-        the rollback, mirroring the legacy monitor, which keeps plan_compliance's
-        per-violation-type threshold counts across a block.
+        Emission state records *what the agent has already been told*; a block
+        prevents the action but does not un-tell the agent, so a blocking signal's
+        emission (its escalation/threshold counter) must survive the rollback.
+        Every current blocking signal therefore sets ``persist_on_block`` and this
+        set is empty. It stays a configurable knob: a future blocking signal that
+        genuinely wants its emission undone on block simply omits the flag.
+
+        (The legacy monitor instead reverts OscillationDetector.pattern_counts on
+        every block, which makes its own ``max_repeats`` terminal unreachable and
+        blocks a stuck agent forever — the bug this corrects.)
         """
         return {sid for sid, e in self.registry.entries.items()
                 if e.block_execution and not e.persist_on_block}
@@ -205,9 +277,10 @@ class GuardRuntime:
         Restore the emission state of the roll-back-on-block signals to ``snapshot``.
 
         Call this when the current proposal was *blocked* (so its action never
-        committed): those signals' emission must be rolled back — exactly as the
-        legacy monitor rolls back its blocking-rule state — while non-blocking
-        signals, and ``persist_on_block`` signals, keep the state they advanced.
+        committed): only signals that opt out of ``persist_on_block`` are reverted.
+        With every current blocking signal persisting (see
+        :meth:`rollback_on_block_ids`), this is currently a no-op, kept for the
+        general contract.
         """
         self.state.restore_signals(snapshot, self.rollback_on_block_ids())
 

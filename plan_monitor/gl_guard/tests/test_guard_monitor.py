@@ -82,6 +82,76 @@ def test_oscillation_blocks_and_rolls_back_the_tentative_step():
     assert osc and osc[0].block_execution is True
 
 
+def test_oscillation_escalates_to_a_non_blocking_terminal_not_forever():
+    # The escalation ladder: a stuck self-loop blocks a bounded number of times,
+    # then the terminal "stop or submit" advisory fires NON-blocking and lets the
+    # action through. Without the persist-across-block fix the counter would reset
+    # on every block and the agent would be blocked indefinitely.
+    m = GuardMonitor()
+    cmd = "python reproduce.py"
+    blocks, terminal = 0, None
+    for i in range(1, 9):
+        res = m.check_step_pre_emptively(_event(i, cmd), thought="")
+        osc = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation"]
+        if not osc:
+            continue
+        if "stop or submit" in osc[0].message.lower():
+            terminal = osc[0]
+            break
+        assert osc[0].block_execution is True  # pre-terminal warnings block
+        blocks += 1
+    assert terminal is not None, "escalation never reached the terminal advisory"
+    assert terminal.block_execution is False  # the exit ramp does not block
+    assert 1 <= blocks <= 5  # bounded, not infinite
+
+
+def test_oscillation_message_names_the_whole_cycle():
+    # A genuine A-B cycle must be described as the A/B loop, not mislabelled as a
+    # single-action repeat (which reads as a false positive to the agent).
+    m = GuardMonitor()
+    seq = ["cat foo.py", "grep bar foo.py", "cat foo.py", "grep bar foo.py"]
+    msg = None
+    for i, c in enumerate(seq, start=1):
+        res = m.check_step_pre_emptively(_event(i, c), thought="")
+        osc = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation"]
+        if osc:
+            msg = osc[0].message
+            break
+    assert msg is not None
+    assert "cat foo.py" in msg and "grep bar foo.py" in msg  # both members named
+
+
+def test_step_index_is_caller_trajectory_index_and_collapses_compound():
+    # Surfaced step numbers must match the caller's event.step_index (as the legacy
+    # monitor sets RuleMatch.step_index), and a compound command (several sub-actions
+    # in one step) must map to a SINGLE step index so a message never mislabels the
+    # sub-actions of one step as separate steps.
+    from plan_monitor.gl_guard.adapters import occurrences_from_graph
+    m = GuardMonitor()
+    m.check_step_pre_emptively(_event(100, "cat a.py"), thought="")
+    m.check_step_pre_emptively(_event(101, "grep x a.py && grep y b.py"), thought="")
+    occ = occurrences_from_graph(m.graph_builder.G)
+    assert [o.step for o in occ] == [100, 101, 101]  # caller indices; compound shares one
+    # a fired RuleMatch carries the caller's step index (the refiner correlates on it)
+    m.check_step_pre_emptively(_event(102, "cat a.py"), thought="")
+    res = m.check_step_pre_emptively(_event(103, "grep x a.py && grep y b.py"), thought="")
+    osc = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation"]
+    assert osc and osc[0].step_index == 103
+
+
+def test_observe_result_records_outcome_without_changing_identity():
+    # The observe(result) hook records the real outcome on the committed node in
+    # place (node identity unchanged, so detection is unaffected).
+    from plan_monitor.gl_guard.adapters import occurrences_from_graph
+    m = GuardMonitor()
+    m.check_step_pre_emptively(_event(1, "python -m pytest t.py"), thought="")
+    keys_before = [o.key for o in occurrences_from_graph(m.graph_builder.G)]
+    m.observe_result("E   assert 1 == 2\n1 failed in 0.1s")
+    occ = occurrences_from_graph(m.graph_builder.G)
+    assert [o.key for o in occ] == keys_before      # identity preserved
+    assert occ[-1].outcome == "failure"             # real outcome recorded
+
+
 def test_plan_compliance_blocks_on_submit_without_patch():
     m = GuardMonitor()
     res = _run(m, [('grep -rn "bug" src/a.py', ""), ("submit", "done")])[-1]

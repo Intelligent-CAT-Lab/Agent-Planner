@@ -49,9 +49,14 @@ from .emission import EmissionPolicy
 
 # Variables a template is allowed to reference. Each maps to a typed source the
 # runtime fills from the hook context; nothing else may appear in a template.
-ALLOWED_TEMPLATE_VARS = frozenset({"phase", "threshold", "action", "command", "step"})
+#   action / command  -- the current (revisited) action
+#   actions           -- the distinct members of a detected loop, in loop order
+#   steps             -- the step range the loop spans
+ALLOWED_TEMPLATE_VARS = frozenset(
+    {"phase", "threshold", "action", "command", "step", "actions", "steps"}
+)
 # Variables whose value originates from tool output and must be sanitized.
-_TOOL_DERIVED_VARS = frozenset({"action", "command"})
+_TOOL_DERIVED_VARS = frozenset({"action", "command", "actions"})
 _MAX_TOOL_VALUE_LEN = 200
 _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
@@ -92,12 +97,13 @@ class AdviceEntry:
     block_execution: bool
     template: str
     variants: Dict[str, str] = field(default_factory=dict)
-    # When a proposal is blocked its action never executes, so a blocking signal's
-    # emission is normally rolled back (the pattern it detected isn't real yet --
-    # e.g. oscillation). A few signals instead keep their emission state across a
-    # block: the legacy monitor preserves plan_compliance's per-violation-type
-    # threshold counts on rollback, so such a violation is reported at most once
-    # whether or not the blocked action is later retried. Mark those persist=True.
+    # Emission state records what the agent has already been told. A block prevents
+    # the action but does not un-tell the agent, so a blocking signal's emission
+    # (its threshold/escalation counter) must survive the rollback: plan_compliance
+    # so a violation is reported at most once, oscillation so its bounded run of
+    # warnings reaches the terminal "stop or submit" instead of resetting on every
+    # block and blocking a stuck agent forever. Every current blocking signal sets
+    # this; a future signal that wants its emission undone on block omits it.
     persist_on_block: bool = False
 
     def render(self, variant: Optional[str], variables: Dict[str, object]) -> str:

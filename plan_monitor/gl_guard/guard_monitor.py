@@ -45,7 +45,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Optional
 
-from plan_monitor.buildGraph import build_online_graph_from_trajectory
+from plan_monitor.buildGraph import build_online_graph_from_trajectory, check_command_outcome
 from plan_monitor.commandParser import CommandParser
 from plan_monitor.mapLang import get_action_role
 from plan_monitor.monitor import StatefulPhaseMonitor
@@ -118,6 +118,55 @@ class GuardMonitor(StatefulPhaseMonitor):
             return self._check_thought_step(event, thought)
         return self._check_action_step(event, thought, parsed_commands)
 
+    # -- observe(result): feed the executed action's result back ------------------
+
+    def observe_result(self, observation: str) -> None:
+        """
+        Record the just-executed action's real result on its committed node.
+
+        Detection runs *before* execution, so the node was built with
+        ``observation=""`` and carries no outcome. Once the action has run, the
+        agent loop calls this with the observation; we fill the node's latest-visit
+        ``outcome``/``observations`` **in place**, without rebuilding — the node
+        signature (which folds in an observation-derived edit_status) must stay
+        identical so the occurrence stream the detectors read is unchanged.
+
+        This is forward-looking infrastructure: it records the real result on the
+        committed graph (for the refiner's state summary and for future
+        outcome-aware signals) but is **not** surfaced in any agent-facing message,
+        because ``check_command_outcome`` is a heuristic — a wrong "already failed"
+        claim would mislead. Detection is unaffected (no enabled signal reads
+        outcome). A no-op for a rolled-back (blocked) step, a thought step, or when
+        there is no committed action node yet.
+        """
+        gb = self.graph_builder
+        node_key = gb.previous_node
+        if not node_key or node_key not in gb.G.nodes:
+            return
+        data = gb.G.nodes[node_key]
+        if not data.get("step_indices"):
+            return  # a "think" node (step_index, not step_indices) carries no action result
+        outcome = check_command_outcome(
+            data.get("command") or "", observation or "",
+            data.get("tool"), data.get("subcommand"), None,
+        )
+        for field, value in (("outcome", outcome), ("observations", observation)):
+            series = data.get(field)
+            if isinstance(series, list) and series:
+                series[-1] = value  # overwrite this visit's placeholder
+            else:
+                data[field] = [value]
+
+    def _mark_proposed_outcome_unknown(self) -> None:
+        """Clear the just-built action node's placeholder outcome (unknown until run)."""
+        gb = self.graph_builder
+        node_key = gb.previous_node
+        if not node_key or node_key not in gb.G.nodes:
+            return
+        series = gb.G.nodes[node_key].get("outcome")
+        if isinstance(series, list) and series:
+            series[-1] = None
+
     # -- action steps (propose hook) --------------------------------------------
 
     def _check_action_step(self, event, thought, parsed_commands) -> Optional[MonitorResult]:
@@ -127,15 +176,28 @@ class GuardMonitor(StatefulPhaseMonitor):
         # propose time the action has not executed: the node signature folds in an
         # observation-derived edit_status, so a non-empty observation here would
         # change node identity and desync oscillation from the legacy detector.
+        #
+        # Index nodes by the caller's trajectory step (`event.step_index`), not the
+        # internal counter, so the step numbers surfaced in advice ("steps i–j") and
+        # on each RuleMatch match the agent's/refiner's own numbering — exactly as
+        # the legacy monitor sets RuleMatch.step_index = event.step_index. A compound
+        # command parses to several nodes that all share this one step index, so the
+        # message never mislabels sub-actions of one step as separate steps.
         build_online_graph_from_trajectory(
             builder=self.graph_builder,
-            step_idx=self.step_counter,
+            step_idx=event.step_index,
             thought=thought,
             action=event.command,
             observation="",
             parser=self.parser,
         )
         self.step_counter += 1
+        # The graph builder stamps a default outcome from the (empty) observation
+        # above ("success" when nothing looks like a failure). At propose the real
+        # outcome is unknown, so clear it; observe_result() fills the true value
+        # once the action runs. This keeps advice from ever claiming a result we do
+        # not have, and is detection-neutral (no signal reads outcome).
+        self._mark_proposed_outcome_unknown()
 
         # Mirror the legacy STEP 1/STEP 3: collect this step's non-general roles
         # (consecutive-deduped) and advance the phase bookkeeping the refiner reads.
@@ -163,8 +225,9 @@ class GuardMonitor(StatefulPhaseMonitor):
         backup = self._snapshot()
 
         # Mirror the legacy empty-action path: a "think" node plus an MD5 thought
-        # hash feed the thought-repetition stream.
-        self._build_think_node(self.step_counter, thought, event.command)
+        # hash feed the thought-repetition stream. Index by the caller's trajectory
+        # step (see _check_action_step) so surfaced step numbers match the agent's.
+        self._build_think_node(event.step_index, thought, event.command)
         self.step_counter += 1
         self.thought_history.append(hashlib.md5(thought.encode("utf-8")).hexdigest())
 

@@ -71,7 +71,7 @@ def test_repeated_view_once_per_key():
     assert "repeated_view" not in _fired_names(rt.evaluate(w2))
 
 
-def test_oscillation_blocks_and_hits_terminal_variant():
+def test_oscillation_blocks_then_lets_through_at_terminal():
     rt = _runtime()
     reports_seen = []
     for _ in range(6):
@@ -83,8 +83,11 @@ def test_oscillation_blocks_and_hits_terminal_variant():
     assert emitted == [True, True, True, True, True, False]
     # the 5th emission uses the terminal "max_repeats" variant
     assert "stop or submit" in osc[4][0].message.lower()
-    # oscillation is a blocking intervention
-    assert osc[0][0].block_execution is True
+    # The bounded escalation ladder: the first warnings block (prevent the wasteful
+    # repeat), but the terminal "stop or submit" is a non-blocking exit ramp, so a
+    # stuck agent is advised and let through rather than blocked indefinitely.
+    assert [r[0].block_execution for r in osc[:4]] == [True, True, True, True]
+    assert osc[4][0].block_execution is False  # terminal does not block
 
 
 def _runtime_with_disabled(signal_id):
@@ -106,15 +109,18 @@ def test_shadow_signal_inert_in_production_visible_in_shadow():
 
 def test_plan_compliance_signals_enabled_and_blocking():
     # The plan-compliance decomposition is enabled and blocking by default, with
-    # its threshold state persisting across a block (it is excluded from the
-    # roll-back-on-block set, mirroring the legacy monitor).
+    # its threshold state persisting across a block.
     rt = _runtime()
     for sid in ("plan_compliance_premature_patch", "plan_compliance_premature_validate",
                 "plan_compliance_skip_patch", "plan_compliance_skip_validation"):
         entry = rt.registry.get(sid)
         assert entry is not None and entry.enabled and entry.block_execution
         assert entry.persist_on_block
-    assert rt.rollback_on_block_ids() == {"oscillation", "thought_oscillation"}
+    # Every blocking signal now persists its emission across a block: a blocked
+    # action is prevented but the warning was still delivered, so its emission
+    # counter (plan-compliance thresholds, oscillation escalation) must not be
+    # rolled back. Hence nothing is in the roll-back-on-block set.
+    assert rt.rollback_on_block_ids() == set()
     # submitting without a patch/validation fires the skip signals (blocking)
     w = Traj().action("loc", phase="L_navigate", kind="view").propose("s", kind="submit")
     fired = _fired_names(rt.evaluate(w))

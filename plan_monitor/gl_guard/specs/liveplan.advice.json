@@ -37,22 +37,27 @@
     "oscillation": {
       "enabled": true, "key": "motif",
       "emit": {"mode": "max_per_pattern", "max": 5, "terminal_variant": "max_repeats"},
-      "intervention": {"block_execution": true},
+      "_persist_on_block": "The escalation counter records warnings already delivered to the agent; a block prevents the action but does not un-tell the agent, so it must survive the rollback. Without this the counter resets on every block and the max_repeats terminal is unreachable, so a stuck agent is blocked forever with no exit ramp (a latent bug shared with the legacy monitor, whose block rollback likewise reverts OscillationDetector.pattern_counts). Persisting makes legacy's own intended warn-N-then-stop-or-submit ladder actually reachable.",
+      "intervention": {"block_execution": true, "persist_on_block": true},
       "advice": {
-        "template": "It seems you are repeating action {action} in the recent trajectory. The observation has likely not changed. Reason concretely about whether this action helps resolve the issue; if not, choose a better next action.",
-        "variants": {"max_repeats": "If you cannot make further progress, stop or submit your patch."}
+        "template": "You are repeating the action {action} with nothing changed since the last time, so its result will be the same. Before running it again, decide what new information or change is actually needed; if nothing would differ, take a different action that moves toward resolving the issue.",
+        "variants": {
+          "multi_node": "You are cycling between the actions {actions} (now back to {action}) around steps {steps}, returning to the same states without changing the result. Reason about why you keep revisiting these steps, then take a different action that makes progress on the issue.",
+          "max_repeats": "You have repeated this loop several times without progress. If you cannot make further progress, stop or submit your patch."
+        }
       }
     },
     "oscillation_recurrence": {
       "enabled": true, "key": "q.key",
       "emit": {"mode": "once_per_key"},
       "intervention": {"block_execution": false},
-      "advice": {"template": "You have repeated the action {action} many times in this trajectory without resolving the issue. Re-running the same step is unlikely to make progress. Reason concretely about why it is not working and take a different approach, or stop and submit your current patch."}
+      "advice": {"template": "You have run the action {action} {threshold}+ times across this trajectory without resolving the issue. Re-running the same step is unlikely to make progress — reason about why it is not working and take a different approach, or stop and submit your current patch."}
     },
     "thought_oscillation": {
       "enabled": true, "key": "motif",
       "emit": {"mode": "max_per_pattern", "max": 5, "terminal_variant": "max_repeats"},
-      "intervention": {"block_execution": true},
+      "_persist_on_block": "Same as oscillation: the escalation counter survives a block so the max_repeats terminal is reachable and a repeated-reasoning loop is not blocked forever.",
+      "intervention": {"block_execution": true, "persist_on_block": true},
       "advice": {
         "template": "You are repeating the same reasoning without producing executable actions. This suggests a format error or circular reasoning. Review the action format requirements and try a different approach.",
         "variants": {"max_repeats": "If you cannot make further progress, stop or submit your patch."}

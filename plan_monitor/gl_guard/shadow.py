@@ -30,7 +30,11 @@ map (the only normalization strips the legacy emission suffixes, e.g.
     step-for-step (see ``_dwell_stream`` below); a discrepancy here is a real bug.
   * **known-difference** — divergences here are expected and reported, not asserted:
       - ``oscillation`` — strict periodic motif vs the legacy non-periodic cycle
-        counter;
+        counter; and bounded escalation vs legacy's unbounded re-firing — GL-Guard
+        warns per motif up to the ``max_repeats`` terminal (a non-blocking "stop or
+        submit"), then goes quiet, whereas the legacy detector rolls its counter
+        back on every block and re-fires indefinitely. Sustained loops therefore
+        show up as ``legacy_only`` steps after GL-Guard has bounded the motif;
       - ``thought_oscillation`` — strict tail vs the legacy windowed count;
       - ``plan_compliance`` — memoryless decomposition vs the legacy stateful plan
         automaton;
