@@ -63,6 +63,14 @@ except ImportError:
     MONITOR_AVAILABLE = False
 
 try:
+    # GL-Guard engine: a drop-in StatefulPhaseMonitor whose rules come from the
+    # declarative DSL specs instead of the hand-written RuleEngine.
+    from plan_monitor.gl_guard.guard_monitor import GuardMonitor
+    GL_GUARD_AVAILABLE = True
+except ImportError:
+    GL_GUARD_AVAILABLE = False
+
+try:
     from plan_refiner import PlanRefiner
     from plan_refiner.types import RefinerInput, StateSummary, RefinerTrajectoryStep, RuleTrigger
     REFINER_AVAILABLE = True
@@ -178,6 +186,17 @@ class DefaultAgentConfig(BaseModel):
 
     monitor_rules_config: str = "default_rules"
     """Configuration for plan monitor rules"""
+
+    monitor_engine: Literal["gl_guard", "legacy"] = "gl_guard"
+    """Rule engine backing the plan monitor:
+    - "gl_guard" (default): signals are evaluated from the declarative GL-Guard DSL
+      specs (plan_monitor/gl_guard/specs). New signals are added by editing the
+      specs — no per-rule Python. Validated for semantic equivalence against the
+      legacy engine (exact on dwell; a documented superset on oscillation).
+    - "legacy": the hand-written RuleEngine (plan_monitor/rules.py + JSON config).
+    Both share the same Graphectory/Langutory and the same monitor API, so the
+    refiner and agent logic are identical either way. `monitor_rules_config` still
+    selects the tool-config/parser setup under both engines."""
 
     save_monitor_graph: bool = False
     """Save the monitor state graph"""
@@ -563,15 +582,35 @@ class DefaultAgent(AbstractAgent):
         agent._save_monitor_graph = config.save_monitor_graph
 
         if config.enable_monitor and MONITOR_AVAILABLE:
-            agent._plan_monitor = StatefulPhaseMonitor(
+            if config.monitor_engine == "gl_guard":
+                if not GL_GUARD_AVAILABLE:
+                    raise ImportError(
+                        "monitor_engine='gl_guard' but plan_monitor.gl_guard could not be "
+                        "imported; set monitor_engine='legacy' or fix the gl_guard install."
+                    )
+                monitor_cls = GuardMonitor
+            else:
+                monitor_cls = StatefulPhaseMonitor
+            agent._plan_monitor = monitor_cls(
                 enable_rules=True,
-                rules_config=config.monitor_rules_config
+                rules_config=config.monitor_rules_config,
             )
-            agent.logger.info("Plan monitor enabled with rules config: %s", config.monitor_rules_config)
+            agent.logger.info(
+                "Plan monitor enabled (engine=%s, rules config=%s)",
+                config.monitor_engine, config.monitor_rules_config,
+            )
 
-        # Initialize refiner if enabled and available (requires monitor)
-        if config.enable_refiner and REFINER_AVAILABLE and agent._plan_monitor:
-            agent.logger.info("Initializing plan refiner with config: %s", config.refiner_config_path)
+        # Initialize refiner if enabled and available
+        # Three configurations:
+        # 1. monitor enabled, refiner enabled -> monitor-triggered refiner
+        # 2. monitor enabled, refiner disabled -> monitor only
+        # 3. monitor disabled, refiner enabled -> interval-based refiner (refiner-only mode)
+        if config.enable_refiner and REFINER_AVAILABLE:
+            if agent._plan_monitor:
+                agent.logger.info("Initializing plan refiner (monitor-triggered mode) with config: %s", config.refiner_config_path)
+            else:
+                agent.logger.info("Initializing plan refiner (interval-based mode) with config: %s", config.refiner_config_path)
+
             refiner_model = PlanRefiner.create_model_from_config(config.refiner_config_path)
             agent.logger.info("Refiner model type: %s", type(refiner_model).__name__)
 
@@ -795,6 +834,7 @@ class DefaultAgent(AbstractAgent):
         """Adds a step (command that was run and output) to the model history"""
         monitor_message = step.extra_info.get("monitor_message")
         monitor_blocked = step.extra_info.get("monitor_blocked", False)
+        refiner_message = step.extra_info.get("refiner_message")
 
         # If monitor blocked execution, don't add assistant's action to history
         # Only add the monitor message as user
@@ -830,6 +870,7 @@ class DefaultAgent(AbstractAgent):
         elif len(step.observation) > self.templates.max_observation_length:
             templates = [self.templates.next_step_truncated_observation_template]
             elided_chars = len(step.observation) - self.templates.max_observation_length
+            step.observation = step.observation[: self.templates.max_observation_length]
         else:
             # Show standard output template if there is observation content
             templates = [self.templates.next_step_template]
@@ -842,7 +883,8 @@ class DefaultAgent(AbstractAgent):
             **step.state,
         )
 
-        # If monitor provided message (non-blocking case), add it as user message
+        # Add guidance messages from monitor or refiner (non-blocking)
+        # In refiner-only mode, all guidance is non-blocking and appended to trajectory
         if monitor_message and not monitor_blocked:
             self._append_history(
                 {
@@ -850,6 +892,16 @@ class DefaultAgent(AbstractAgent):
                     "content": monitor_message,
                     "agent": self.name,
                     "message_type": "monitor",
+                },
+            )
+        elif refiner_message and not monitor_blocked:
+            # Refiner-only mode: append guidance without blocking
+            self._append_history(
+                {
+                    "role": "user",
+                    "content": refiner_message,
+                    "agent": self.name,
+                    "message_type": "refiner",
                 },
             )
 
@@ -1015,6 +1067,7 @@ class DefaultAgent(AbstractAgent):
         # For non-blocking rules: execute action first and store trajectory
         if not is_blocking:
             step = self.handle_action(step)
+            self._observe_monitor_result(step)
             # Store trajectory data BEFORE calling refiner
             self._trajectory_data.append((event, step.thought, step.observation))
         else:
@@ -1131,6 +1184,73 @@ class DefaultAgent(AbstractAgent):
         # Update last refinement step and guidance, reset monitor trigger counter
         self._last_refinement_step = step_index
         self._monitor_triggers_since_refinement = 0
+        if refiner_output.new_plan:
+            self._last_refinement_guidance = refiner_output.new_plan
+
+        return step
+
+    def _call_refiner_interval_based(
+        self,
+        step: StepOutput,
+        step_index: int
+    ) -> StepOutput:
+        """Call plan_refiner at fixed intervals (refiner-only mode, monitor disabled)."""
+        self.logger.info(f"[REFINER] Interval-based refinement at step {step_index}")
+
+        # Build trajectory steps from collected data
+        trajectory_steps = PlanRefiner.build_trajectory_steps(self._trajectory_data)
+        assert self._problem_statement is not None
+        issue_description = self._problem_statement.get_problem_statement()
+
+        # Create empty state summary (no monitor available)
+        from plan_refiner.types import StateSummary
+        state_summary = StateSummary(
+            current_phase=None,
+            phase_history=[],
+            unique_phases=[],
+            rule_triggers=[],
+            graph_info={},
+            step_count=step_index
+        )
+
+        # Build refiner input
+        refiner_input = RefinerInput(
+            issue_description=issue_description,
+            trajectory=trajectory_steps,
+            state_summary=state_summary,
+            last_refinement_guidance=self._last_refinement_guidance,
+            last_refinement_step=self._last_refinement_step
+        )
+
+        # Call refiner
+        refiner_start_time = time.time()
+        refiner_output = self._plan_refiner.refine_plan(refiner_input, current_step=step_index)
+        refiner_latency_ms = (time.time() - refiner_start_time) * 1000
+        self.logger.info(f"[REFINER] Refiner output:\n{refiner_output.raw_response}\n")
+
+        # Format guidance message
+        if refiner_output.raw_response:
+            if refiner_output.new_plan:
+                guidance_message = f"[Plan Refiner Guidance]\n\n{refiner_output.new_plan}"
+            else:
+                guidance_message = f"[Plan Refiner Guidance]\n\n{refiner_output.raw_response}"
+            step.extra_info["refiner_message"] = guidance_message
+            self.logger.info(guidance_message)
+        else:
+            self.logger.warning(f"[REFINER] Warning: Refiner returned empty response")
+            guidance_message = ""
+
+        # Track intervention (no state summary needed for interval-based)
+        self._track_planner_intervention(
+            planner_type="refiner",
+            content=guidance_message,
+            latency_ms=refiner_latency_ms,
+            usage=refiner_output.usage,
+            state_summary=None
+        )
+
+        # Update last refinement tracking
+        self._last_refinement_step = step_index
         if refiner_output.new_plan:
             self._last_refinement_guidance = refiner_output.new_plan
 
@@ -1283,6 +1403,24 @@ class DefaultAgent(AbstractAgent):
             out[f"edited_files{context_length}"] = value
         return out
 
+    def _observe_monitor_result(self, step: StepOutput) -> None:
+        """Feed an executed action's result back to the monitor.
+
+        The monitor checks a step *before* execution, so its graph node for the
+        action carries no outcome. Once the action has run we hand the observation
+        back (observe(result) hook) so the committed node records its real
+        outcome/edit_status — used only to make the next corrective message
+        concrete and truthful, never to change which signals fire. A no-op for
+        monitors (e.g. the legacy engine) that don't implement the hook; failures
+        here must never break the agent loop.
+        """
+        monitor = self._plan_monitor
+        if monitor is not None and hasattr(monitor, "observe_result"):
+            try:
+                monitor.observe_result(step.observation)
+            except Exception:
+                self.logger.debug("monitor.observe_result failed", exc_info=True)
+
     def handle_action(self, step: StepOutput) -> StepOutput:
         """Runs an action proposed by the agent in the environment and returns the corresponding output.
 
@@ -1400,15 +1538,21 @@ class DefaultAgent(AbstractAgent):
             self.logger.info(f"💭 THOUGHT\n{step.thought}\n\n🎬 ACTION\n{step.action.strip()}")
             self._chook.on_actions_generated(step=step)
 
-            # Pre-emptively check plan monitor before executing action
-            # Create event upfront if monitor is enabled (reused across paths)
+            # Handle three configurations:
+            # 1. Monitor enabled, refiner enabled -> monitor-triggered refiner
+            # 2. Monitor enabled, refiner disabled -> monitor only
+            # 3. Monitor disabled, refiner enabled -> interval-based refiner
+
+            step_index = len(self.trajectory)
+
+            # Import ActionEvent once for all configurations (needed by monitor and refiner-only mode)
+            if self._plan_monitor is not None or self._plan_refiner is not None:
+                from plan_monitor import ActionEvent
+
+            # Configuration 1 & 2: Monitor enabled
             event = None
             if self._plan_monitor is not None:
-                step_index = len(self.trajectory)
-                event = ActionEvent(
-                    step_index=step_index,
-                    command=step.action,
-                )
+                event = ActionEvent(step_index=step_index, command=step.action)
 
                 # Track monitor latency
                 monitor_start_time = time.time()
@@ -1457,6 +1601,7 @@ class DefaultAgent(AbstractAgent):
                             else:
                                 # Execute action and add monitor message (non-blocking)
                                 step = self.handle_action(step)
+                                self._observe_monitor_result(step)
                                 step.extra_info["monitor_message"] = monitor_message
                                 step.extra_info["monitor_blocked"] = False
 
@@ -1472,14 +1617,28 @@ class DefaultAgent(AbstractAgent):
                                 self._trajectory_data.append((event, step.thought, step.observation))
                                 return step
 
-            # No monitor or no rules triggered - proceed normally
+            # No monitor OR no rules triggered - proceed normally
             step = self.handle_action(step)
+            self._observe_monitor_result(step)
 
             # Store trajectory data for refiner (when monitor enabled but no rules triggered)
             if self._plan_monitor:
                 # Reuse the event created earlier (when monitor was checked)
                 assert event is not None, "Event should have been created when monitor check was performed"
                 self._trajectory_data.append((event, step.thought, step.observation))
+
+            # Configuration 3: Refiner-only mode (monitor disabled, refiner enabled)
+            # Store trajectory and call refiner at intervals
+            elif self._plan_refiner is not None:
+                # Store trajectory data with event object for refiner
+                event = ActionEvent(step_index=step_index, command=step.action)
+                self._trajectory_data.append((event, step.thought, step.observation))
+
+                # Call refiner at fixed intervals (skip early steps until we have trajectory data)
+                if step_index >= self._min_steps_between_refinements:
+                    steps_since_last = step_index - self._last_refinement_step
+                    if steps_since_last >= self._min_steps_between_refinements:
+                        step = self._call_refiner_interval_based(step, step_index)
 
             return step
         except Exception as e:

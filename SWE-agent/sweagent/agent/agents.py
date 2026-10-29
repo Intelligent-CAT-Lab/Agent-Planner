@@ -57,25 +57,15 @@ from sweagent.utils.log import get_logger
 from sweagent.utils.patch_formatter import PatchFormatter
 
 try:
-    from plan_monitor import StatefulPhaseMonitor, ActionEvent
-    MONITOR_AVAILABLE = True
-except ImportError:
-    MONITOR_AVAILABLE = False
+    # LivePlan seam: all monitor/refiner intervention logic lives in the `adapters`
+    # package (see adapters/swe_agent_adapter.py). The scaffold keeps only the thin
+    # seam below; when `adapters` is unavailable the agent behaves exactly like
+    # upstream vanilla (see the reference copy in default_agents.py).
+    from adapters import build_interceptor
 
-try:
-    # GL-Guard engine: a drop-in StatefulPhaseMonitor whose rules come from the
-    # declarative DSL specs instead of the hand-written RuleEngine.
-    from plan_monitor.gl_guard.guard_monitor import GuardMonitor
-    GL_GUARD_AVAILABLE = True
+    LIVEPLAN_AVAILABLE = True
 except ImportError:
-    GL_GUARD_AVAILABLE = False
-
-try:
-    from plan_refiner import PlanRefiner
-    from plan_refiner.types import RefinerInput, StateSummary, RefinerTrajectoryStep, RuleTrigger
-    REFINER_AVAILABLE = True
-except ImportError:
-    REFINER_AVAILABLE = False
+    LIVEPLAN_AVAILABLE = False
 
 class TemplateConfig(BaseModel):
     """This configuration is used to define almost all message templates that are
@@ -545,21 +535,9 @@ class DefaultAgent(AbstractAgent):
         self._n_consecutive_timeouts = 0
         self._total_execution_time = 0.0
 
-        # Initialize plan monitor and refiner related variables
-        self._plan_monitor: StatefulPhaseMonitor | None = None
-        self._plan_refiner: PlanRefiner | None = None  # type: ignore
-        self._trajectory_data: list[tuple] = []  # Store (event, thought, observation) tuples for refiner
-        self._min_steps_between_refinements: int = 10
-        self._last_refinement_step: int = -100
-        self._last_refinement_guidance: str | None = None  # Store last refinement guidance for next call
-        self._planner_history: list[dict] = []  # Track monitor/refiner interventions
-        self._monitor_triggers_since_refinement: int = 0  # Count monitor triggers during cooling period
-        self._enable_monitor: bool = False
-        self._enable_refiner: bool = False
-        self._save_monitor_graph: bool = False
-
-        # Note: Monitor and refiner will be initialized in from_config method
-        # when we have access to the config
+        #: LivePlan interceptor (monitor/refiner). ``None`` -> vanilla behavior.
+        #: Built in `from_config`; owns all intervention state and logic.
+        self._interceptor = None
 
     @classmethod
     def from_config(cls, config: DefaultAgentConfig) -> Self:
@@ -576,51 +554,12 @@ class DefaultAgent(AbstractAgent):
             action_sampler_config=config.action_sampler,
         )
 
-        # Initialize monitor if enabled and available
-        agent._enable_monitor = config.enable_monitor
-        agent._enable_refiner = config.enable_refiner
-        agent._save_monitor_graph = config.save_monitor_graph
-
-        if config.enable_monitor and MONITOR_AVAILABLE:
-            if config.monitor_engine == "gl_guard":
-                if not GL_GUARD_AVAILABLE:
-                    raise ImportError(
-                        "monitor_engine='gl_guard' but plan_monitor.gl_guard could not be "
-                        "imported; set monitor_engine='legacy' or fix the gl_guard install."
-                    )
-                monitor_cls = GuardMonitor
-            else:
-                monitor_cls = StatefulPhaseMonitor
-            agent._plan_monitor = monitor_cls(
-                enable_rules=True,
-                rules_config=config.monitor_rules_config,
-            )
-            agent.logger.info(
-                "Plan monitor enabled (engine=%s, rules config=%s)",
-                config.monitor_engine, config.monitor_rules_config,
-            )
-
-        # Initialize refiner if enabled and available
-        # Three configurations:
-        # 1. monitor enabled, refiner enabled -> monitor-triggered refiner
-        # 2. monitor enabled, refiner disabled -> monitor only
-        # 3. monitor disabled, refiner enabled -> interval-based refiner (refiner-only mode)
-        if config.enable_refiner and REFINER_AVAILABLE:
-            if agent._plan_monitor:
-                agent.logger.info("Initializing plan refiner (monitor-triggered mode) with config: %s", config.refiner_config_path)
-            else:
-                agent.logger.info("Initializing plan refiner (interval-based mode) with config: %s", config.refiner_config_path)
-
-            refiner_model = PlanRefiner.create_model_from_config(config.refiner_config_path)
-            agent.logger.info("Refiner model type: %s", type(refiner_model).__name__)
-
-            # Create RefinerConfig with the template path from refiner_config_path
-            from plan_refiner.refiner import RefinerConfig
-            refiner_config = RefinerConfig(template_path=config.refiner_config_path)
-            agent._plan_refiner = PlanRefiner(refiner_model, config=refiner_config)
-
-            agent._min_steps_between_refinements = PlanRefiner.get_min_steps_from_config(config.refiner_config_path)
-            agent.logger.info("Plan refiner enabled with min_steps=%d", agent._min_steps_between_refinements)
+        # LivePlan seam: build the monitor/refiner interceptor from config. It owns
+        # all intervention state and logic (three modes: monitor / refiner-only /
+        # monitor-triggered refiner). Returns None (vanilla) unless a monitor or
+        # refiner is enabled.
+        if LIVEPLAN_AVAILABLE:
+            agent._interceptor = build_interceptor(config, agent)
 
         return agent
 
@@ -701,12 +640,9 @@ class DefaultAgent(AbstractAgent):
         self.traj_path = output_dir / (self._problem_statement.id + ".traj")
         self.logger.info("Trajectory will be saved to %s", self.traj_path)
 
-        # Reset plan monitor and refiner state for new instance
-        self._trajectory_data = []
-        self._last_refinement_step = -100
-        self._last_refinement_guidance = None
-        self._planner_history = []
-        self._monitor_triggers_since_refinement = 0
+        # LivePlan seam: reset per-instance intervention state for new instance
+        if self._interceptor is not None:
+            self._interceptor.reset()
 
         self._chook.on_tools_installation_started()
         self.tools.install(self._env)
@@ -946,315 +882,9 @@ class DefaultAgent(AbstractAgent):
         assert self.traj_path is not None
         self.traj_path.write_text(json.dumps(data, indent=2))
 
-    def _track_planner_intervention(self, planner_type: str, content: str, latency_ms: float, usage: dict | None = None, state_summary: dict | None = None):
-        """
-        Track a plan_monitor or plan_refiner intervention.
 
-        Args:
-            planner_type: Type of planner ("monitor" or "refiner")
-            content: The message content added to conversation
-            latency_ms: Time taken in milliseconds
-            usage: Token usage dict (for refiner only: input_tokens, output_tokens, total_tokens)
-            state_summary: State summary dict (for refiner only: phases, rules triggered, etc.)
-        """
-        step_index = len(self.trajectory)
-        intervention = {
-            "step": step_index,
-            "planner_type": planner_type,
-            "content": content,
-            "latency_ms": round(latency_ms, 2)
-        }
 
-        # Add usage information for refiner
-        if usage:
-            intervention["usage"] = usage
 
-        # Add state summary for refiner
-        if state_summary:
-            intervention["state_summary"] = state_summary
-
-        self._planner_history.append(intervention)
-
-    def save_planner_history(self, output_dir: Path, instance_id: str) -> str | None:
-        """
-        Save planner_history to a JSON file.
-
-        Args:
-            output_dir: Directory to save the file (same as trajectory)
-            instance_id: Instance identifier
-
-        Returns:
-            Path to the saved file, or None if no interventions
-        """
-        if not self._planner_history:
-            # No interventions to save
-            return None
-
-        # Create output path: {output_dir}/{instance_id}.planner.json
-        output_path = output_dir / f"{instance_id}.planner.json"
-
-        # Ensure parent directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Compute summary statistics
-        monitor_interventions = [x for x in self._planner_history if x["planner_type"] == "monitor"]
-        refiner_interventions = [x for x in self._planner_history if x["planner_type"] == "refiner"]
-
-        summary = {
-            "total_interventions": len(self._planner_history),
-            "monitor_count": len(monitor_interventions),
-            "refiner_count": len(refiner_interventions),
-            "monitor_total_latency_ms": round(sum(x["latency_ms"] for x in monitor_interventions), 2),
-            "refiner_total_latency_ms": round(sum(x["latency_ms"] for x in refiner_interventions), 2),
-        }
-
-        # Add refiner token and cost statistics
-        if refiner_interventions:
-            summary["refiner_total_input_tokens"] = sum(x.get("usage", {}).get("input_tokens", 0) for x in refiner_interventions)
-            summary["refiner_total_output_tokens"] = sum(x.get("usage", {}).get("output_tokens", 0) for x in refiner_interventions)
-            summary["refiner_total_tokens"] = sum(x.get("usage", {}).get("total_tokens", 0) for x in refiner_interventions)
-            summary["refiner_total_cost"] = round(sum(x.get("usage", {}).get("cost", 0.0) for x in refiner_interventions), 6)
-
-        output_data = {
-            "summary": summary,
-            "interventions": self._planner_history
-        }
-
-        # Save to JSON
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2, ensure_ascii=False)
-
-        return str(output_path)
-
-    def _call_refiner(
-        self,
-        rule_matches: list,
-        monitor_message: str,
-        is_blocking: bool,
-        step: StepOutput,
-        event: ActionEvent,  # type: ignore
-        monitor_latency_ms: float = 0.0
-    ) -> StepOutput:
-        """
-        Call plan_refiner for both blocking and non-blocking rule triggers.
-
-        For blocking rules:
-        - Don't execute action
-        - Don't add assistant message to history
-        - Call refiner for guidance
-
-        For non-blocking rules:
-        - Execute action first
-        - Keep assistant message and observation in history
-        - Call refiner for post-hoc guidance
-
-        Args:
-            rule_matches: List of triggered rules from monitor
-            monitor_message: Pre-computed message from monitor (to avoid redundant extraction)
-            is_blocking: Whether the rule blocks execution
-            step: Current StepOutput object
-            event: ActionEvent for this step
-            monitor_latency_ms: Latency of monitor check in milliseconds
-
-        Returns:
-            Updated StepOutput object
-        """
-        rule_type = "Blocking" if is_blocking else "Non-blocking"
-        step_index = event.step_index
-        self.logger.info(f"[REFINER] {rule_type} rules triggered at step {step_index}")
-        self.logger.info(f"[REFINER] Rules: {[m.rule_id for m in rule_matches]}")
-
-        # For non-blocking rules: execute action first and store trajectory
-        if not is_blocking:
-            step = self.handle_action(step)
-            self._observe_monitor_result(step)
-            # Store trajectory data BEFORE calling refiner
-            self._trajectory_data.append((event, step.thought, step.observation))
-        else:
-            # For blocking rules: set empty observation and current state
-            assert self._env is not None
-            step.observation = ""
-            step.state = self.tools.get_state(env=self._env)
-
-        # Check cooling period BEFORE building state and calling refiner (optimization)
-        # Dual condition: trajectory steps AND monitor trigger count
-        # - Normal case: trajectory progresses, exits cooling when steps >= threshold
-        # - Blocking case: trajectory stuck (rolled back), exits when triggers >= threshold
-        steps_since_last = step_index - self._last_refinement_step
-        within_cooling_period = (
-            steps_since_last < self._min_steps_between_refinements and
-            self._monitor_triggers_since_refinement < self._min_steps_between_refinements
-        )
-
-        # If within cooling period, just add monitor message without calling refiner LLM
-        if within_cooling_period:
-            self._monitor_triggers_since_refinement += 1
-            step.extra_info["monitor_message"] = monitor_message
-            step.extra_info["monitor_blocked"] = is_blocking
-
-            # Track monitor intervention (within cooling period, no refiner call)
-            self._track_planner_intervention(
-                planner_type="monitor",
-                content=monitor_message,
-                latency_ms=monitor_latency_ms,
-                usage=None
-            )
-
-            self.logger.info(f"[REFINER] Within cooling period ({steps_since_last}/{self._min_steps_between_refinements} steps, {self._monitor_triggers_since_refinement}/{self._min_steps_between_refinements} triggers) - monitor message added")
-            return step
-
-        # Not in cooling period - perform full refinement
-        # Build state summary from monitor (only when actually calling refiner)
-        state_summary = PlanRefiner.build_state_summary_from_monitor(
-            self._plan_monitor,
-            rule_matches=rule_matches,
-            exclude_rule_patterns=['plan_compliance']
-        )
-
-        # Build trajectory steps (includes the just-executed step for non-blocking)
-        trajectory_steps = PlanRefiner.build_trajectory_steps(self._trajectory_data)
-        self.logger.debug(f"[REFINER] Trajectory steps:\n{trajectory_steps}")
-        self.logger.debug(f"[REFINER] State summary:\n{state_summary}")
-
-        # Get issue description
-        assert self._problem_statement is not None
-        issue_description = self._problem_statement.get_problem_statement()
-
-        # # Debug logging for refiner input
-        # self.logger.info(f"[REFINER] Input validation:")
-        # self.logger.info(f"  - issue_description length: {len(issue_description)}")
-        # self.logger.info(f"  - trajectory_steps count: {len(trajectory_steps)}")
-        # self.logger.info(f"  - state_summary has {len(state_summary.rule_triggers)} rule triggers")
-
-        # Create refiner input and call refiner with latency tracking
-        refiner_input = RefinerInput(
-            issue_description=issue_description,
-            trajectory=trajectory_steps,
-            state_summary=state_summary,
-            last_refinement_guidance=self._last_refinement_guidance,
-            last_refinement_step=self._last_refinement_step
-        )
-
-        refiner_start_time = time.time()
-        refiner_output = self._plan_refiner.refine_plan(
-            refiner_input,
-            current_step=step_index
-        )
-        refiner_latency_ms = (time.time() - refiner_start_time) * 1000
-        self.logger.info(f"[REFINER] Refiner output:\n{refiner_output.raw_response}\n")
-
-        # Prepare message to add to conversation
-        message_to_track = monitor_message  # default fallback
-
-        # Add refined plan as user message
-        if refiner_output.raw_response:
-            if refiner_output.new_plan:
-                message_to_track = f"[Plan Refiner Guidance]\n\n{refiner_output.new_plan}"
-            else:
-                message_to_track = f"[Plan Refiner Guidance]\n\n{refiner_output.raw_response}"
-
-            step.extra_info["refiner_message"] = message_to_track
-            self.logger.info(message_to_track)
-            self.logger.info(f"[REFINER] New plan added to messages")
-
-            # Update the intended plan in the monitor's plan compliance rule
-            if refiner_output.refined_plan_phases:
-                plan_updated = self._plan_monitor.update_intended_plan(refiner_output.refined_plan_phases)
-                if not plan_updated:
-                    self.logger.warning(f"[REFINER] Warning: Failed to update plan in monitor")
-
-        else:
-            self.logger.warning(f"[REFINER] Warning: Refiner returned empty response. Use monitor message only.")
-            message_to_track = monitor_message
-
-        # Set the message in step for later adding to history
-        step.extra_info["monitor_message"] = message_to_track
-        step.extra_info["monitor_blocked"] = is_blocking
-
-        # Track refiner intervention (includes refiner call + output)
-        from dataclasses import asdict
-        self._track_planner_intervention(
-            planner_type="refiner",
-            content=message_to_track,
-            latency_ms=refiner_latency_ms,
-            usage=refiner_output.usage,
-            state_summary=asdict(state_summary)
-        )
-
-        # Update last refinement step and guidance, reset monitor trigger counter
-        self._last_refinement_step = step_index
-        self._monitor_triggers_since_refinement = 0
-        if refiner_output.new_plan:
-            self._last_refinement_guidance = refiner_output.new_plan
-
-        return step
-
-    def _call_refiner_interval_based(
-        self,
-        step: StepOutput,
-        step_index: int
-    ) -> StepOutput:
-        """Call plan_refiner at fixed intervals (refiner-only mode, monitor disabled)."""
-        self.logger.info(f"[REFINER] Interval-based refinement at step {step_index}")
-
-        # Build trajectory steps from collected data
-        trajectory_steps = PlanRefiner.build_trajectory_steps(self._trajectory_data)
-        assert self._problem_statement is not None
-        issue_description = self._problem_statement.get_problem_statement()
-
-        # Create empty state summary (no monitor available)
-        from plan_refiner.types import StateSummary
-        state_summary = StateSummary(
-            current_phase=None,
-            phase_history=[],
-            unique_phases=[],
-            rule_triggers=[],
-            graph_info={},
-            step_count=step_index
-        )
-
-        # Build refiner input
-        refiner_input = RefinerInput(
-            issue_description=issue_description,
-            trajectory=trajectory_steps,
-            state_summary=state_summary,
-            last_refinement_guidance=self._last_refinement_guidance,
-            last_refinement_step=self._last_refinement_step
-        )
-
-        # Call refiner
-        refiner_start_time = time.time()
-        refiner_output = self._plan_refiner.refine_plan(refiner_input, current_step=step_index)
-        refiner_latency_ms = (time.time() - refiner_start_time) * 1000
-        self.logger.info(f"[REFINER] Refiner output:\n{refiner_output.raw_response}\n")
-
-        # Format guidance message
-        if refiner_output.raw_response:
-            if refiner_output.new_plan:
-                guidance_message = f"[Plan Refiner Guidance]\n\n{refiner_output.new_plan}"
-            else:
-                guidance_message = f"[Plan Refiner Guidance]\n\n{refiner_output.raw_response}"
-            step.extra_info["refiner_message"] = guidance_message
-            self.logger.info(guidance_message)
-        else:
-            self.logger.warning(f"[REFINER] Warning: Refiner returned empty response")
-            guidance_message = ""
-
-        # Track intervention (no state summary needed for interval-based)
-        self._track_planner_intervention(
-            planner_type="refiner",
-            content=guidance_message,
-            latency_ms=refiner_latency_ms,
-            usage=refiner_output.usage,
-            state_summary=None
-        )
-
-        # Update last refinement tracking
-        self._last_refinement_step = step_index
-        if refiner_output.new_plan:
-            self._last_refinement_guidance = refiner_output.new_plan
-
-        return step
 
     def get_model_requery_history(
         self, error_template: str, *, output: str, **kwargs: str | int | float | bool | None
@@ -1403,23 +1033,6 @@ class DefaultAgent(AbstractAgent):
             out[f"edited_files{context_length}"] = value
         return out
 
-    def _observe_monitor_result(self, step: StepOutput) -> None:
-        """Feed an executed action's result back to the monitor.
-
-        The monitor checks a step *before* execution, so its graph node for the
-        action carries no outcome. Once the action has run we hand the observation
-        back (observe(result) hook) so the committed node records its real
-        outcome/edit_status — used only to make the next corrective message
-        concrete and truthful, never to change which signals fire. A no-op for
-        monitors (e.g. the legacy engine) that don't implement the hook; failures
-        here must never break the agent loop.
-        """
-        monitor = self._plan_monitor
-        if monitor is not None and hasattr(monitor, "observe_result"):
-            try:
-                monitor.observe_result(step.observation)
-            except Exception:
-                self.logger.debug("monitor.observe_result failed", exc_info=True)
 
     def handle_action(self, step: StepOutput) -> StepOutput:
         """Runs an action proposed by the agent in the environment and returns the corresponding output.
@@ -1538,109 +1151,13 @@ class DefaultAgent(AbstractAgent):
             self.logger.info(f"💭 THOUGHT\n{step.thought}\n\n🎬 ACTION\n{step.action.strip()}")
             self._chook.on_actions_generated(step=step)
 
-            # Handle three configurations:
-            # 1. Monitor enabled, refiner enabled -> monitor-triggered refiner
-            # 2. Monitor enabled, refiner disabled -> monitor only
-            # 3. Monitor disabled, refiner enabled -> interval-based refiner
-
-            step_index = len(self.trajectory)
-
-            # Import ActionEvent once for all configurations (needed by monitor and refiner-only mode)
-            if self._plan_monitor is not None or self._plan_refiner is not None:
-                from plan_monitor import ActionEvent
-
-            # Configuration 1 & 2: Monitor enabled
-            event = None
-            if self._plan_monitor is not None:
-                event = ActionEvent(step_index=step_index, command=step.action)
-
-                # Track monitor latency
-                monitor_start_time = time.time()
-                monitor_result = self._plan_monitor.check_step_pre_emptively(event, thought=step.thought)
-                monitor_latency_ms = (time.time() - monitor_start_time) * 1000
-
-                if monitor_result is not None:
-                    messages = monitor_result.get_all_messages()
-                    if messages:
-                        monitor_message = "\n".join(messages)
-                        self.logger.info(f"📋 PLAN MONITOR\n{monitor_message}")
-                        monitor_blocked = monitor_result.should_block_and_refine()
-
-                        # Check if refiner is enabled to handle rule triggers
-                        if self._plan_refiner:
-                            # Refiner handles both blocking and non-blocking cases
-                            step = self._call_refiner(
-                                monitor_result.rule_matches,
-                                monitor_message,
-                                is_blocking=monitor_blocked,
-                                step=step,
-                                event=event,
-                                monitor_latency_ms=monitor_latency_ms
-                            )
-                            return step
-                        else:
-                            # No refiner - handle manually with tracking
-                            if monitor_blocked:
-                                # Just block with monitor message
-                                step.extra_info["monitor_message"] = monitor_message
-                                step.extra_info["monitor_blocked"] = True
-
-                                # Track monitor intervention
-                                self._track_planner_intervention(
-                                    planner_type="monitor",
-                                    content=monitor_message,
-                                    latency_ms=monitor_latency_ms,
-                                    usage=None
-                                )
-
-                                self.logger.warning("Plan monitor blocked action execution")
-                                assert self._env is not None
-                                step.observation = ""  # No observation since action wasn't executed
-                                step.state = self.tools.get_state(env=self._env)
-                                return step
-                            else:
-                                # Execute action and add monitor message (non-blocking)
-                                step = self.handle_action(step)
-                                self._observe_monitor_result(step)
-                                step.extra_info["monitor_message"] = monitor_message
-                                step.extra_info["monitor_blocked"] = False
-
-                                # Track monitor intervention
-                                self._track_planner_intervention(
-                                    planner_type="monitor",
-                                    content=monitor_message,
-                                    latency_ms=monitor_latency_ms,
-                                    usage=None
-                                )
-
-                                # Store trajectory data for potential future refiner use
-                                self._trajectory_data.append((event, step.thought, step.observation))
-                                return step
-
-            # No monitor OR no rules triggered - proceed normally
-            step = self.handle_action(step)
-            self._observe_monitor_result(step)
-
-            # Store trajectory data for refiner (when monitor enabled but no rules triggered)
-            if self._plan_monitor:
-                # Reuse the event created earlier (when monitor was checked)
-                assert event is not None, "Event should have been created when monitor check was performed"
-                self._trajectory_data.append((event, step.thought, step.observation))
-
-            # Configuration 3: Refiner-only mode (monitor disabled, refiner enabled)
-            # Store trajectory and call refiner at intervals
-            elif self._plan_refiner is not None:
-                # Store trajectory data with event object for refiner
-                event = ActionEvent(step_index=step_index, command=step.action)
-                self._trajectory_data.append((event, step.thought, step.observation))
-
-                # Call refiner at fixed intervals (skip early steps until we have trajectory data)
-                if step_index >= self._min_steps_between_refinements:
-                    steps_since_last = step_index - self._last_refinement_step
-                    if steps_since_last >= self._min_steps_between_refinements:
-                        step = self._call_refiner_interval_based(step, step_index)
-
-            return step
+            # LivePlan seam: when an interceptor is active it owns this step
+            # (monitor check, optional refiner, action execution, and trajectory
+            # bookkeeping) and sets the extra_info flags that add_step_to_history
+            # and step() consume. Otherwise this is vanilla: just run the action.
+            if self._interceptor is not None:
+                return self._interceptor.run_step(step)
+            return self.handle_action(step)
         except Exception as e:
             if step.action == step.thought == "":
                 # Probably the parsing failed/no action included. Let's still fill in thought
@@ -1889,24 +1406,11 @@ class DefaultAgent(AbstractAgent):
 
         self.logger.info("Trajectory saved to %s", self.traj_path)
 
-        # Save planner history if there were interventions
-        if self._planner_history:
+        # LivePlan seam: persist the intervention trace ({instance}.planner.json) and
+        # the monitor graph (when enabled). No-op when no interceptor is active.
+        if self._interceptor is not None:
             assert self._output_dir is not None
-            assert self._problem_statement is not None
-            planner_path = self.save_planner_history(self._output_dir, self._problem_statement.id)
-            if planner_path:
-                self.logger.info("Planner history saved to %s", planner_path)
-
-        # Save monitor graph if enabled
-        if self._save_monitor_graph and self._plan_monitor:
-            try:
-                assert self._output_dir is not None
-                assert self._problem_statement is not None
-                graph_path = self._output_dir
-                self._plan_monitor.save_graph(str(graph_path), self._problem_statement.id)
-                self.logger.info("Monitor graph saved to %s", graph_path)
-            except Exception as e:
-                self.logger.warning("Failed to save monitor graph: %s", e)
+            self._interceptor.on_run_done(self._output_dir)
 
         # Here we want to return the "global" information (e.g., submission should
         # be the best submission instead of the last one, etc.), so we get it from the traj file

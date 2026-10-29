@@ -21,20 +21,49 @@ The two components work together: the monitor detects *when* intervention is nee
 
 ## Installation
 
-Install in a single conda environment:
+The two benchmarks need **two separate conda environments**. Both forks install
+under the identical package name `sweagent` and pin **incompatible** `swe-rex`
+versions (SWE-bench needs `>=1.4.0` for local Docker; SWE-bench-Pro needs
+`[modal]==1.2.0` for Modal), so they cannot coexist in one environment — the
+last `pip install -e` would silently shadow the other.
+
+Create both with one command:
 
 ```bash
-cd Agent-Planner && pip install -e .
-cd SWE-agent && pip install -e .
-# for SWE-Bench Pro
-cd ../SWE-bench_Pro-os/SWE-agent && pip install -e .
+bash setup.sh          # creates `planner` (SWE-bench) and `planner-pro` (SWE-bench-Pro)
+# or individually:  bash setup.sh swebench   |   bash setup.sh pro
 ```
+
+Each environment gets its benchmark's fork **plus** this repo installed editable,
+which provides the shared LivePlan code (`adapters`, `plan_monitor`,
+`plan_refiner`). Re-running is safe — existing envs are updated in place.
+
+| Environment   | Benchmark      | Fork                        | swe-rex          | Execution    |
+| ------------- | -------------- | --------------------------- | ---------------- | ------------ |
+| `planner`     | SWE-bench      | `SWE-agent/`                | `>=1.4.0`        | local Docker |
+| `planner-pro` | SWE-bench-Pro  | `SWE-bench_Pro-os/SWE-agent/` | `[modal]==1.2.0` | Modal        |
+
+Activate the one matching the benchmark you want to run (see Quick Start).
+
+<details>
+<summary>Manual install (equivalent to one <code>setup.sh</code> env)</summary>
+
+```bash
+conda create -n planner python=3.11 -y          # or planner-pro
+conda run -n planner pip install -e SWE-agent    # the fork (Pro: SWE-bench_Pro-os/SWE-agent)
+conda run -n planner pip install -e .            # shared adapters/plan_monitor/plan_refiner
+```
+</details>
+
+> **Note:** `SWE-bench_Pro-os/SWE-agent` is a vendored copy of Scale AI's fork ([`scaleapi/SWE-agent`](https://github.com/scaleapi/SWE-agent), branch `scale-customizations`), kept separate from the root `SWE-agent` (Princeton upstream) because it carries Pro-specific engine customizations (Modal execution).
 
 ## Quick Start
 
-Run SWE-Agent with LivePlan:
+Run SWE-Agent with LivePlan (activate the env for your benchmark first):
 
 ```bash
+conda activate planner          # SWE-bench
+
 # Full LivePlan (monitor + LLM refiner)
 bash SWE-agent/script/refiner_run.sh
 
@@ -43,6 +72,13 @@ bash SWE-agent/script/monitor_run.sh
 
 # Vanilla baseline (no intervention)
 bash SWE-agent/script/vanilla_run.sh
+```
+
+For SWE-bench-Pro, use the `planner-pro` env and its scripts:
+
+```bash
+conda activate planner-pro      # SWE-bench-Pro (Modal)
+bash SWE-bench_Pro-os/SWE-agent/script/run_refiner.sh
 ```
 
 Trajectories are saved to `{agent_dir}/trajectories/{method}/swebench/...` organized by approach and run.

@@ -1,6 +1,11 @@
 {
   "_comment": "Advice/emission registry for the ten LIVEPLAN signals. Signal names mirror the legacy rule IDs (dwell_*, oscillation, repeated_view, thought_oscillation, plan_compliance_*). Messages are the default_rules.json baselines. 'enabled:false' signals evaluate in shadow mode for differential logging but are never surfaced to the agent. The plan-compliance-derived signals stay shadow-only until the legacy stateful plan automaton is validated as an oracle. 'priority' is OPTIONAL (default 0): it only reorders signals that fire at the same hook; with the default, co-firing signals keep spec declaration order, which matches the legacy evaluation sequence. Set it only to deliberately override that order.",
 
+  "_policy_comment": "Global intervention policy, independent of any single signal and applied once at the block-decision point (GuardRuntime._render), on top of the faithful legacy aggregation (should_block = any blocking signal; message = concatenation of all fired signals). 'non_blocking_action_kinds' lists action kinds whose proposal is never worth hard-blocking no matter which blocking signal fires: a block exists to stop a harmful/wasteful action BEFORE it runs, and a side-effect-free read (view = str_replace view, cat, grep, ls) has nothing to stop — blocking it cannot prevent harm and only starves the agent of the information it is gathering (empirically it derails the agent into apology/empty turns and premature submission). Reads stay covered non-blockingly by repeated_view / oscillation_recurrence / dwell. DETECTION IS UNCHANGED: the signal still fires and its message is still surfaced; only the block is downgraded to an advisory, so the shadow differential (which compares which signals fire, not the block flag) is unaffected.",
+  "policy": {
+    "non_blocking_action_kinds": ["view"]
+  },
+
   "signals": {
     "dwell_L_navigate": {
       "enabled": true, "key": "signal",
@@ -51,7 +56,8 @@
       "enabled": true, "key": "q.key",
       "emit": {"mode": "once_per_key"},
       "intervention": {"block_execution": false},
-      "advice": {"template": "You have run the action {action} {threshold}+ times across this trajectory without resolving the issue. Re-running the same step is unlikely to make progress — reason about why it is not working and take a different approach, or stop and submit your current patch."}
+      "_wording": "Outcome-agnostic by design: the pre-emptive propose hook cannot see whether the prior runs succeeded or failed, so the message must not assert 'without resolving the issue' / 'not working' (misleading when the agent is productively iterating edit->test->edit->test, as at the 8th repro run that confirmed a fix). It hedges on the same-result condition the agent CAN judge, and names both the stuck case and the productive-iteration case so it never pushes a converging agent to give up.",
+      "advice": {"template": "You have run the action {action} {threshold}+ times in this trajectory. If it keeps returning the same result, running it again will not change the outcome. Reason about why before retrying, try a different approach, or submit your current patch. If each run is checking a new edit, make sure the results are actually improving."}
     },
     "thought_oscillation": {
       "enabled": true, "key": "motif",

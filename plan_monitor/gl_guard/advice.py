@@ -140,12 +140,28 @@ def _render(template: str, variables: Dict[str, object]) -> str:
 
 
 class AdviceRegistry:
-    def __init__(self, entries: Dict[str, AdviceEntry]):
+    def __init__(self, entries: Dict[str, AdviceEntry],
+                 non_blocking_action_kinds: frozenset = frozenset()):
         self.entries = entries
+        # A global *intervention* policy, independent of any single signal: action
+        # kinds whose proposal is never worth hard-blocking, no matter which blocking
+        # signal fires on it. A block exists to stop a harmful or wasteful action
+        # *before* it runs; a side-effect-free read (``view``: str_replace view, cat,
+        # grep, ls) has nothing to stop — blocking it cannot prevent any harm and only
+        # starves the agent of the information it is trying to gather (observed: it
+        # derails the agent into apology/empty turns and premature submission). Such
+        # reads stay covered non-blockingly by repeated_view / oscillation_recurrence /
+        # dwell. This is a single veto layered on top of the (faithfully legacy)
+        # any-blocking aggregation and message concatenation: detection and firing are
+        # unchanged (the shadow differential compares which signals fire, not the block
+        # flag) — only the block is downgraded to an advisory for these kinds.
+        self.non_blocking_action_kinds = frozenset(non_blocking_action_kinds)
 
     @classmethod
     def from_dict(cls, data: dict) -> "AdviceRegistry":
         signals = data.get("signals", {})
+        policy = data.get("policy", {})
+        non_blocking = frozenset(policy.get("non_blocking_action_kinds", []))
         entries: Dict[str, AdviceEntry] = {}
         for sid, raw in signals.items():
             advice = raw.get("advice", {})
@@ -169,7 +185,7 @@ class AdviceRegistry:
                 template=template or "",
                 variants=variants,
             )
-        return cls(entries)
+        return cls(entries, non_blocking_action_kinds=non_blocking)
 
     @classmethod
     def load(cls, path) -> "AdviceRegistry":

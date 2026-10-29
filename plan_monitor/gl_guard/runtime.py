@@ -135,12 +135,19 @@ class GuardRuntime:
             variant = "multi_node"
         else:
             variant = None
-        # A terminal emission is the "give up — stop or submit" advisory: it is the
-        # exit ramp, so it never blocks even for an otherwise-blocking signal. This
-        # is what keeps a stuck agent from being blocked indefinitely — after the
-        # bounded run of blocking warnings, the action is let through with advice,
-        # and the non-blocking recurrence signal takes over.
-        block_execution = entry.block_execution and not is_terminal
+        # The block decision, as two action-/emission-level vetoes over an
+        # otherwise-blocking signal (detection is untouched — the signal has already
+        # fired; these only decide whether the proposal is held back):
+        #   * is_terminal — the "give up, stop or submit" advisory is the exit ramp,
+        #     so it never blocks; this keeps a stuck agent from being blocked
+        #     indefinitely (after the bounded run of warnings the action is let
+        #     through and the non-blocking recurrence signal takes over).
+        #   * side-effect-free read — a block exists to stop a harmful/wasteful action
+        #     before it runs; a read (view/cat/grep/ls) has nothing to stop, so hard-
+        #     blocking it only starves the agent of information. See
+        #     AdviceRegistry.non_blocking_action_kinds.
+        is_non_blocking_kind = q.kind in self.registry.non_blocking_action_kinds
+        block_execution = entry.block_execution and not is_terminal and not is_non_blocking_kind
         message = entry.render(variant, variables)
         return SignalReport(
             rule_id=rule.name,

@@ -21,6 +21,6 @@ sweagent run-batch \
     --instances.type swe_bench \
     --instances.subset verified \
     --instances.split test \
-    --instances.slice 0:500 \
+    --instances.slice 0:1 \
     --instances.shuffle=False \
     --output_dir "$OUTPUT_DIR"
