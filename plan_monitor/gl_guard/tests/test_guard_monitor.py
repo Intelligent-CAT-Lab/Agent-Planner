@@ -152,6 +152,128 @@ def test_observe_result_records_outcome_without_changing_identity():
     assert occ[-1].outcome == "failure"             # real outcome recorded
 
 
+def test_oscillation_detects_three_node_cycle_and_names_all_members():
+    # ABCABC (period 3) must be detected and described as the three-action loop:
+    # the strict `cycle` primitive covers every period 1..K (self-loop, A-B, A-B-C,
+    # ...), not just self-loops and two-cycles.
+    m = GuardMonitor()
+    seq = [("cat a.py", ""), ("grep x b.py", ""), ("python r.py", "")] * 3
+    msg = None
+    for i, (cmd, th) in enumerate(seq, start=1):
+        res = m.check_step_pre_emptively(_event(i, cmd), thought=th)
+        osc = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation"]
+        if osc:
+            msg = osc[0].message
+            break
+    assert msg is not None
+    assert "cat a.py" in msg and "grep x b.py" in msg and "python r.py" in msg
+
+
+def test_productive_distinct_edit_test_iteration_does_not_oscillate():
+    # Editing *different* locations and re-testing is productive work, not a loop:
+    # each distinct edit is a new node so no cycle forms. A precision lock against
+    # mistaking iteration for oscillation (no false positive).
+    m = GuardMonitor()
+    steps = []
+    for i in range(5):  # keep the test node under kappa_recur so recurrence stays quiet too
+        steps.append((f"str_replace_editor str_replace /f.py --old_str o{i} --new_str n{i}", ""))
+        steps.append(("python test.py", ""))
+    for i, (cmd, th) in enumerate(steps, start=1):
+        res = m.check_step_pre_emptively(_event(i, cmd), thought=th)
+        osc = [rm for rm in (res.rule_matches if res else []) if rm.rule_id.startswith("oscillation")]
+        assert not osc, f"false positive at step {i}: {osc[0].message if osc else ''}"
+
+
+def test_lone_back_edge_is_not_oscillation():
+    # A single revisit (A B C A) is a back-edge but NOT a cycle traversed more than
+    # once. The back-edge is only a prefilter; it must not fire on its own.
+    m = GuardMonitor()
+    seq = [("cat a.py", ""), ("grep x b.py", ""), ("python r.py", ""), ("cat a.py", "")]
+    for i, (cmd, th) in enumerate(seq, start=1):
+        res = m.check_step_pre_emptively(_event(i, cmd), thought=th)
+        osc = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation"]
+        assert not osc, f"false positive on a lone back-edge at step {i}"
+
+
+def test_distinct_motifs_are_bounded_independently():
+    # The escalation budget is per-motif: once one loop is maxed out and goes quiet,
+    # a *different* loop still raises its own fresh blocking warnings.
+    m = GuardMonitor()
+    step = 0
+
+    def feed(cmd):
+        nonlocal step
+        step += 1
+        res = m.check_step_pre_emptively(_event(step, cmd), thought="")
+        return [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation"]
+
+    a_terminal = any((osc := feed("python a.py")) and not osc[0].block_execution for _ in range(6))
+    assert a_terminal, "motif A never reached its non-blocking terminal"
+    b_blocked = any((osc := feed("python b.py")) and osc[0].block_execution for _ in range(6))
+    assert b_blocked, "a distinct motif did not get its own escalation budget"
+
+
+def test_repeated_view_fires_but_never_hard_blocks():
+    # Intervention policy: a side-effect-free read (view/cat/grep/ls) is never worth
+    # hard-blocking — there is nothing to prevent and blocking only starves the agent
+    # of the information it is gathering. Detection is UNCHANGED (oscillation /
+    # repeated_view still fire on the revisit); only the block is downgraded to an
+    # advisory. Contrast test_oscillation_blocks_and_rolls_back_the_tentative_step,
+    # where the same self-loop on a run_test action DOES block.
+    m = GuardMonitor()
+    view = "str_replace_editor view /testbed/foo.py --view_range 1 40"
+    fired = blocked = False
+    for i in range(1, 6):
+        res = m.check_step_pre_emptively(_event(i, view), thought="")
+        if res:
+            ids = [rm.rule_id for rm in res.rule_matches]
+            fired = fired or any(x in ("oscillation", "repeated_view") for x in ids)
+            blocked = blocked or res.should_block_and_refine()
+    assert fired, "a repeated read must still be detected (advisory)"
+    assert not blocked, "a side-effect-free read must never be hard-blocked"
+
+
+def test_read_veto_does_not_weaken_blocking_on_consequential_actions():
+    # The read veto is scoped to read kinds only: a repeated run_test (python ...)
+    # still blocks exactly as before, so the policy cannot silently disarm the
+    # oscillation block for actions where re-execution actually has a cost.
+    m = GuardMonitor()
+    blocked = False
+    for i in range(1, 6):
+        res = m.check_step_pre_emptively(_event(i, "python /testbed/reproduce.py"), thought="")
+        if res and res.should_block_and_refine():
+            blocked = True
+            break
+    assert blocked, "a repeated consequential action must still block"
+
+
+def test_oscillation_recurrence_message_is_outcome_agnostic():
+    # The propose hook cannot see whether prior runs succeeded, so the recurrence
+    # advisory must not assert failure ("without resolving the issue" / "not
+    # working") — that misleads a productively-iterating agent into giving up.
+    # Intersperse the repeated run with distinct edits (as a productively-iterating
+    # agent does: edit -> test -> edit -> test). The distinct edits keep it from
+    # being a self-loop (so the blocking oscillation stays silent) and let the same
+    # run recur past kappa_recur, which is exactly what oscillation_recurrence flags.
+    m = GuardMonitor()
+    run = "python /testbed/reproduce.py"
+    msg = None
+    step = 0
+    for k in range(12):
+        step += 1
+        m.check_step_pre_emptively(_event(step, f"str_replace_editor str_replace /testbed/x.py --old_str v{k} --new_str w{k}"), thought="")
+        step += 1
+        res = m.check_step_pre_emptively(_event(step, run), thought="")
+        rec = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation_recurrence"]
+        if rec:
+            msg = rec[0].message.lower()
+            break
+    assert msg is not None, "oscillation_recurrence never fired"
+    assert "without resolving the issue" not in msg and "not working" not in msg
+    # It still gives actionable, hedged guidance for the genuinely-stuck case.
+    assert "same result" in msg
+
+
 def test_plan_compliance_blocks_on_submit_without_patch():
     m = GuardMonitor()
     res = _run(m, [('grep -rn "bug" src/a.py', ""), ("submit", "done")])[-1]
