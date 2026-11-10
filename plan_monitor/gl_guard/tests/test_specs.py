@@ -210,10 +210,8 @@ def test_submission_after_reported_check_failure():
     assert "submission_after_reported_check_failure" not in fired(EXTRA, neg)
 
 
-# NOTE: `regression_validation_missing` was removed from extra_signals.glg, so its
-# end-to-end test is dropped. (Orphaned `regression_validation_missing` entries
-# still remain in liveplan.config.json / extra_signals.advice.json — clean those up
-# or re-add the signal declaration if it is meant to come back.)
+# NOTE: `regression_validation_missing` was removed (a rejected candidate), so its
+# end-to-end test is dropped.
 
 
 # -- hook routing -------------------------------------------------------------
