@@ -5,8 +5,8 @@ Focus: When python dynamically executes heredoc or writes to a file,
 determine if it's L_reproduce (test file) or P (patching).
 """
 
-from commandParser import CommandParser
-from mapLang import get_action_role
+from plan_monitor.commandParser import CommandParser
+from plan_monitor.mapLang import get_action_role
 
 def test_heredoc_python_cases():
     parser = CommandParser()

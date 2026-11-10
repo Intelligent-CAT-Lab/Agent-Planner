@@ -1,38 +1,97 @@
 # =============================================================================
-# Representative additional signals.
+# EXTRA SIGNALS.
 #
-# These demonstrate composition over the *existing* Graphectory/Langutory
-# observations. They are candidate diagnostics, not proven failures or validated
-# interventions -- each carries an explicit uncertainty note in the design doc.
+# Finalization-time signals decidable from committed history at the propose hook
+# (no outcome/observation of q), selected from the 50-candidate process taxonomy
+# (see liveplan-code-agent-handoff/) under the v5 admission criteria: observable,
+# faithful/distinct, and actionable. After the offline audit (analysis/
+# signal_selection/) the version-5 LIVE profile ENABLES two of these:
+#   * no_successful_patch  -- BLOCKING (consequential + correctable)
+#   * plan_compliance_stale_validation     -- ADVISORY (ordering proxy, qualified)
+# the remaining three stay enabled:false (shadow-only) pending per-language
+# evidence (see extra_signals.advice.json for the per-signal rationale). All are
+# once_per_key: some executor models we studied cannot run project tests reliably,
+# so a repeated block/nag would mislead -- remind at most once, then step aside.
+#
+# IMPORTANT caveat baked into the advice wording: a recorded `run_test` kind is a
+# tool label, not proof the check executed, was relevant, covered the change, or
+# passed; `outcome=success` on a patch is a tool label, not proof the source
+# meaningfully changed. The predicates therefore only ever justify a *qualified*
+# reminder ("confirm / rerun / explain"), never a claim of established failure.
 # =============================================================================
 
-# 1  Stale validation -- a successful edit with no recognized validation after it.
+# Premature validation -- validating (Validate) before any patch. This single
+# predicate covers both legacy phase_skips that enter Validate too early: [P]
+# (validate after localizing, before patching) and [L,P] (validate with nothing
+# done) -- both are exactly "entered Validate while no Patch has been seen".
+# Redundant rule: unreachable. Obtaining Validate already requires a prior patch. 
+# Its unit test fires by manually assigning a validation phase without a patch—an 
+# input the normal classifier would not produce.
+ signal plan_compliance_premature_validate on propose when
+  phase(q) in Validate and not seen(Patch)
+
+# I01 proxy (no successful patch recorded) -- RECOMMENDED addition, and the only
+# one here that is not a validation refinement. FAITHFUL NAME: this detects that
+# NO patch-phase edit is recorded with outcome=success, not that the final diff is
+# ineffective (effectiveness is unobservable at propose). Submitting after the
+# agent entered the patch phase but every edit attempt failed (str_replace old_str
+# not found / ambiguous / no-op) means the submission carries no recorded source
+# change. In SWE-bench an empty patch cannot resolve the task (the harness tracks
+# these as incomplete), so this is a consequential, correctable state at propose.
+#
+# Disjoint from plan_compliance_skip_patch (submit with NO Patch phase at all):
+# this is "tried to patch but nothing stuck", that is "never tried". Conservative
+# by construction: `create`/`insert` and non-str_replace edits default to a
+# success outcome, so if ANY edit stuck the signal stays silent -- it is a lower
+# bound on empty patches, biased against false positives. A later-reverted edit
+# (E05) still counts as a recorded success here and is out of scope (no version
+# atom). The correction is non-misleading: it reports a tool-level fact (no edit
+# recorded as applied), not a semantic verdict, and asks the agent to make the fix
+# actually apply before finalizing.
+signal no_successful_patch on propose when
+  kind(q) = submit and
+  seen(Patch) and
+  not (exists p in history(action):
+    phase(p) in Patch and outcome(p) = success)
+
+# F01 ordering proxy -- a recorded successful patch follows every recognized
+# validation run (equivalently: the last recognized run predates a successful
+# patch), so the latest code was never re-checked. Existence of a run makes this
+# disjoint from the signal above. Does NOT establish an effective source change,
+# test relevance, or a pass -- only that the ordering leaves the final edit
+# unvalidated by the recorded runs.
 signal stale_validation on propose when
   kind(q) = submit and
-  exists x in history(action):
-    kind(x) = edit and outcome(x) = success and
-    not exists y in history(action):
-      before(x, y) and phase(y) in Validate
+  (exists v in history(action):
+    phase(v) in Validate and kind(v) = run_test) and
+  (exists p in history(action):
+    phase(p) in Patch and outcome(p) = success and
+    not (exists w in history(action):
+      before(p, w) and phase(w) in Validate and kind(w) = run_test))
 
-# 2  Repeated unsuccessful edit -- the exact same edit identity has already
-#      failed kappa_fail times.
-signal repeated_failed_edit on propose when
-  kind(q) = edit and
-  count { x in history(action) |
-    kind(x) = edit and key(x) = key(q) and outcome(x) = failure } >= kappa_fail
+# C04 refinement -- validation activity exists, but no validation *run* is
+# recognized (the agent entered a validation phase, e.g. opened/edited a test,
+# but never dispatched a recognized test/check). Guarded by a recorded successful
+# patch so a prefix of only-failed edits does not trip it. Disjoint from
+# plan_compliance_skip_validation (which requires NO Validate phase at all) and,
+# by the run_test existence flip, from plan_compliance_stale_validation below.
+signal validation_execution_unconfirmed on propose when
+  kind(q) = submit and
+  (exists p in history(action):
+    phase(p) in Patch and outcome(p) = success) and
+  seen(Validate) and
+  not (exists v in history(action):
+    phase(v) in Validate and kind(v) = run_test)
 
-# 3  Failed patch followed by localization -- the latest committed action was a
-#      failed patch-phase operation and the pending action returns to localization.
-signal failed_patch_backtrack on propose when
-  phase(q) in Localize and
-  exists x in history(action):
-    phase(x) in Patch and outcome(x) = failure and
-    not exists y in history(action): before(x, y)
-
-# 4  Reinspection after unchanged prior views -- two earlier identical views
-#      returned equivalent observations, and the pending action re-views them.
-signal repeated_unchanged_view on propose when
-  kind(q) = view and
-  exists x in history(action):
-    exists y in history(action):
-      before(x, y) and key(x) = key(y) and key(y) = key(q) and obs_eq(x, y)
+# I02 restricted proxy (research-only) -- the last committed action is a
+# validation run labeled failure, after a successful patch, and nothing (not even
+# a read) intervened. The binding lacks revision/test matching and the outcome
+# parser is heuristic, so this is a conservative proxy for "submitting right on
+# top of a just-failed check", not an exact current-failure detector.
+signal submission_after_reported_check_failure on propose when
+  kind(q) = submit and
+  (exists v in history(action):
+    phase(v) in Validate and kind(v) = run_test and outcome(v) = failure and
+    (exists p in history(action):
+      before(p, v) and phase(p) in Patch and outcome(p) = success) and
+    not (exists x in history(action): before(v, x)))

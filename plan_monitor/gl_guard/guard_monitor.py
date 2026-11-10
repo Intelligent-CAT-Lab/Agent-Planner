@@ -157,15 +157,32 @@ class GuardMonitor(StatefulPhaseMonitor):
             else:
                 data[field] = [value]
 
-    def _mark_proposed_outcome_unknown(self) -> None:
-        """Clear the just-built action node's placeholder outcome (unknown until run)."""
+    def _mark_current_step_outcome_unknown(self, step_idx: int) -> None:
+        """Clear placeholder outcomes for *every* occurrence of the proposed step.
+
+        At propose the whole step q is pending: none of its sub-actions (a compound
+        ``A && B && submit`` parses to several occurrences sharing this step index)
+        has executed, so none has a committed outcome. The graph builder stamps a
+        default ``"success"`` from the empty observation; clear it to ``None``
+        (unknown) for all nodes whose latest visit is this step — not just the last.
+
+        ``observe_result`` later fills the *real* outcome on the final sub-action
+        (``previous_node``) only, so a committed compound step's non-final
+        sub-commands stay ``None``: an honest attribution (their individual result
+        was never observed — the step's single observation belongs to the last
+        sub-command) and the mechanism by which *pending compound sub-commands do
+        not enter committed history* as fake successes. Detection-neutral for the
+        baseline (no enabled baseline signal reads ``outcome``); consumed by the
+        outcome-aware submit signals, which then abstain (Kleene ?) instead of
+        trusting a placeholder.
+        """
         gb = self.graph_builder
-        node_key = gb.previous_node
-        if not node_key or node_key not in gb.G.nodes:
-            return
-        series = gb.G.nodes[node_key].get("outcome")
-        if isinstance(series, list) and series:
-            series[-1] = None
+        for _, data in gb.G.nodes(data=True):
+            steps = data.get("step_indices")
+            if steps and steps[-1] == step_idx:
+                series = data.get("outcome")
+                if isinstance(series, list) and series:
+                    series[-1] = None
 
     # -- action steps (propose hook) --------------------------------------------
 
@@ -194,10 +211,13 @@ class GuardMonitor(StatefulPhaseMonitor):
         self.step_counter += 1
         # The graph builder stamps a default outcome from the (empty) observation
         # above ("success" when nothing looks like a failure). At propose the real
-        # outcome is unknown, so clear it; observe_result() fills the true value
-        # once the action runs. This keeps advice from ever claiming a result we do
-        # not have, and is detection-neutral (no signal reads outcome).
-        self._mark_proposed_outcome_unknown()
+        # outcome is unknown for the whole pending step, so clear it for every
+        # sub-action; observe_result() fills the true value on the final sub-action
+        # once it runs. This keeps advice from ever claiming a result we do not
+        # have, keeps pending compound sub-commands out of committed history as fake
+        # successes, and is detection-neutral (no enabled baseline signal reads
+        # outcome).
+        self._mark_current_step_outcome_unknown(event.step_index)
 
         # Mirror the legacy STEP 1/STEP 3: collect this step's non-general roles
         # (consecutive-deduped) and advance the phase bookkeeping the refiner reads.

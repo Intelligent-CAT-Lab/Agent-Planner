@@ -150,7 +150,7 @@ class AdviceRegistry:
         # grep, ls) has nothing to stop — blocking it cannot prevent any harm and only
         # starves the agent of the information it is trying to gather (observed: it
         # derails the agent into apology/empty turns and premature submission). Such
-        # reads stay covered non-blockingly by repeated_view / oscillation_recurrence /
+        # reads stay covered non-blockingly by repeated_view / action_recurrence /
         # dwell. This is a single veto layered on top of the (faithfully legacy)
         # any-blocking aggregation and message concatenation: detection and firing are
         # unchanged (the shadow differential compares which signals fire, not the block

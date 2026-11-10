@@ -247,14 +247,14 @@ def test_read_veto_does_not_weaken_blocking_on_consequential_actions():
     assert blocked, "a repeated consequential action must still block"
 
 
-def test_oscillation_recurrence_message_is_outcome_agnostic():
+def test_action_recurrence_message_is_outcome_agnostic():
     # The propose hook cannot see whether prior runs succeeded, so the recurrence
     # advisory must not assert failure ("without resolving the issue" / "not
     # working") — that misleads a productively-iterating agent into giving up.
     # Intersperse the repeated run with distinct edits (as a productively-iterating
     # agent does: edit -> test -> edit -> test). The distinct edits keep it from
     # being a self-loop (so the blocking oscillation stays silent) and let the same
-    # run recur past kappa_recur, which is exactly what oscillation_recurrence flags.
+    # run recur past kappa_recur, which is exactly what action_recurrence flags.
     m = GuardMonitor()
     run = "python /testbed/reproduce.py"
     msg = None
@@ -264,11 +264,11 @@ def test_oscillation_recurrence_message_is_outcome_agnostic():
         m.check_step_pre_emptively(_event(step, f"str_replace_editor str_replace /testbed/x.py --old_str v{k} --new_str w{k}"), thought="")
         step += 1
         res = m.check_step_pre_emptively(_event(step, run), thought="")
-        rec = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "oscillation_recurrence"]
+        rec = [rm for rm in (res.rule_matches if res else []) if rm.rule_id == "action_recurrence"]
         if rec:
             msg = rec[0].message.lower()
             break
-    assert msg is not None, "oscillation_recurrence never fired"
+    assert msg is not None, "action_recurrence never fired"
     assert "without resolving the issue" not in msg and "not working" not in msg
     # It still gives actionable, hedged guidance for the genuinely-stuck case.
     assert "same result" in msg

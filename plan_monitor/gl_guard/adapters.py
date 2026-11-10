@@ -34,8 +34,10 @@ from typing import List, Optional, Sequence, Set, Tuple
 from .kleene import Kleene
 from .model import Channel, Hook, InMemoryWorld, Occurrence, World
 
-# Sentinel commands that mark a submission in the SWE-agent harness.
-_SUBMIT_MARKERS = ("COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT", "submit")
+# Finalization markers in the SWE-agent harness. The sentinel is unambiguous and
+# matched anywhere in the raw command; the bare ``submit`` tool is matched as an
+# EXACT parsed command, never as a substring -- see classify_kind.
+_SUBMIT_SENTINEL = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 _EDIT_SUBCOMMANDS = {"create", "insert", "str_replace"}
 
 
@@ -54,14 +56,19 @@ def classify_kind(
     classifier already consumes. It is heuristic by nature; the DSL treats it as
     an opaque label and never second-guesses it.
 
-    ``full_command`` is the complete (possibly compound) command text. Submission
-    is detected over it — not the parsed ``command`` token — so that the marker is
-    found wherever it sits (``submit``; ``echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT``),
-    exactly as the legacy monitor matches its ``ending_flags`` against the raw
-    command string.
+    Submission recognition represents an *actual finalization dispatch*, not any
+    command that merely contains the word "submit". A submit is recognized iff the
+    finalization tool is invoked as its own command — the configured parser yields
+    ``tool='submit'`` (bare ``submit`` or a ``... && submit`` sub-command), and the
+    unconfigured parser yields ``command='submit'`` — or the unambiguous
+    ``COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`` sentinel appears in the raw command.
+    The legacy monitor matched the bare substring "submit" anywhere in the whole
+    command, which over-counts non-finalization steps (e.g. editing a file whose
+    contents contain "submit", or ``grep submit``); this tool/exact-command test is
+    the faithful, more precise reading of the same intent.
     """
-    submit_text = full_command or command or ""
-    if any(marker in submit_text for marker in _SUBMIT_MARKERS):
+    full = full_command or command or ""
+    if tool == "submit" or command == "submit" or _SUBMIT_SENTINEL in full:
         return "submit"
     if tool == "str_replace_editor":
         if subcommand in _EDIT_SUBCOMMANDS:

@@ -1,0 +1,38 @@
+{
+    "_extra_signals_comment": "Extra signals. SHADOW (enabled:false, evaluated only under include_disabled in offline replay): no_successful_patch (BLOCKING -- a submission with no patch-phase edit recorded success is a consequential, correctable state; blocks once per run); plan_compliance_stale_validation (ADVISORY/non-blocking -- an ordering proxy that the latest edit was never re-checked; qualified wording, reminds once); validation_execution_unconfirmed (python-centric run_test classifier); submission_after_reported_check_failure (pytest-centric outcome parser, null on Pro); regression_validation_missing (rejected: fires ~44% of submits, RD~0). All once_per_key: some studied executor models cannot run project tests reliably, so a repeated block/nag would mislead. Wording stays QUALIFIED (confirm/rerun/explain): run_test/outcome are tool labels, not verified execution/relevance/pass facts. The global non_blocking_action_kinds:['view'] veto still applies on top.",
+
+    "signals":{
+        "no_successful_patch": {
+        "enabled": false, "key": "signal",
+        "emit": {"mode": "once_per_key"},
+        "intervention": {"block_execution": true, "persist_on_block": true},
+        "advice": {"template": "You are about to submit, but none of your edits were recorded as applied successfully, so the submission would contain no source change. The target text for a replacement may not have matched the file. Re-check the edit location and apply the fix so it actually takes effect before submitting."}
+        },
+        "stale_validation": {
+        "enabled": false, "key": "signal",
+        "emit": {"mode": "once_per_key"},
+        "_intervention": "ADVISORY: this is an ordering proxy (a recorded successful edit follows the last recognized check run), not a confirmed violation, so it reminds but does not block -- the agent may have good reason the earlier result still holds, and run_test is only a tool label.",
+        "intervention": {"block_execution": false, "persist_on_block": false},
+        "advice": {"template": "A patch recorded as successful follows your last recognized check run, so your latest changes may not have been re-checked. If they changed the final code, rerun the relevant checks before submitting; otherwise confirm the earlier results still apply. If checks cannot run, explain the limitation rather than retrying setup indefinitely."}
+        },
+        "validation_execution_unconfirmed": {
+        "enabled": false, "key": "signal",
+        "emit": {"mode": "once_per_key"},
+        "intervention": {"block_execution": false, "persist_on_block": true},
+        "advice": {"template": "Validation activity is recorded, but no test/check run is recognized. Before submitting, run a suitable check if you have not already; otherwise confirm how the final changes were validated. If checks cannot run, explain the limitation rather than retrying setup indefinitely."}
+        },
+        "submission_after_reported_check_failure": {
+        "enabled": false, "key": "signal",
+        "emit": {"mode": "once_per_key"},
+        "intervention": {"block_execution": false, "persist_on_block": false},
+        "advice": {"template": "The last recorded validation was marked as failed. Inspect its output before submitting. Resolve a regression or setup problem, or explain why the result is expected or unrelated."}
+        },
+
+        "plan_compliance_premature_validate": {
+        "enabled": true, "key": "signal",
+        "emit": {"mode": "once_per_key"},
+        "intervention": {"block_execution": true, "persist_on_block": true},
+        "advice": {"template": "Plan compliance violation: you are validating in the {phase} phase before you have patched the code. Implement the fix first, then validate it."}
+        }
+    }
+}

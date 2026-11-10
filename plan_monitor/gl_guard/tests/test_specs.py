@@ -48,60 +48,85 @@ def test_plan_compliance_skip_patch_and_validation():
 
 
 def test_plan_compliance_premature_validate():
-    # validating (Validate) before any patch fires -- the legacy phase_skip [P]/[L,P]
+    # validating (Validate) before any patch fires -- the legacy phase_skip [P]/[L,P].
+    # premature_validate now lives in extra_signals.glg (it is unreachable under the
+    # normal classifier, since reaching Validate presupposes a prior patch), so it is
+    # evaluated against the EXTRA program.
     w = (Traj().action("x", phase="L_navigate", kind="view")
          .propose("v", phase="V_regression_test", kind="run_test"))
-    assert "plan_compliance_premature_validate" in fired(LIVEPLAN, w)
+    assert "plan_compliance_premature_validate" in fired(EXTRA, w)
     # once a patch exists, validating is on-plan -> no violation
     w2 = (Traj().action("x", phase="L_navigate", kind="view")
           .action("p", phase="P", kind="edit")
           .propose("v", phase="V_regression_test", kind="run_test"))
-    assert "plan_compliance_premature_validate" not in fired(LIVEPLAN, w2)
+    assert "plan_compliance_premature_validate" not in fired(EXTRA, w2)
 
 
 def test_oscillation_self_loop():
-    w = Traj().action("A").propose("A_again", key="A")
+    # kind is always concrete in production; set it so the submit-exclusion guard
+    # (not kind(q)=submit) is a definite FALSE rather than Kleene-unknown.
+    w = Traj().action("A", kind="run_test").propose("A_again", key="A", kind="run_test")
     assert "oscillation" in fired(LIVEPLAN, w)
 
 
 def test_oscillation_catches_multi_node_cycles():
     # the `cycle` operator must catch 2- and 3-node loops, not only self-loops
-    abab = Traj().action("A").action("B").action("A").action("B").propose("A", key="A")
+    abab = (Traj().action("A").action("B").action("A").action("B")
+            .propose("A", key="A", kind="run_test"))
     assert "oscillation" in fired(LIVEPLAN, abab)
     abcabc = (Traj().action("A").action("B").action("C")
-              .action("A").action("B").action("C").propose("A", key="A"))
+              .action("A").action("B").action("C").propose("A", key="A", kind="run_test"))
     assert "oscillation" in fired(LIVEPLAN, abcabc)
     # a non-repeating sequence must NOT fire
-    nonloop = Traj().action("A").action("B").action("C").action("D").propose("E", key="E")
+    nonloop = (Traj().action("A").action("B").action("C").action("D")
+               .propose("E", key="E", kind="run_test"))
     assert "oscillation" not in fired(LIVEPLAN, nonloop)
 
 
-def test_oscillation_recurrence_high_count():
+def test_repeated_submit_fires_oscillation_but_not_recurrence():
+    # The oscillation signal treats a repeated `submit` like any other self-loop and
+    # fires on it (the submit-exclusion guard on `oscillation` is currently off).
+    # action_recurrence, however, keeps its `not kind(q)=submit` guard, so a re-issued
+    # submit does not trip the recurrence advisory.
+    w = Traj().action("submit", kind="submit").propose("submit", key="submit", kind="submit")
+    assert "oscillation" in fired(LIVEPLAN, w)
+    # a non-submit self-loop also fires (regression guard)
+    w2 = Traj().action("A", kind="run_test").propose("A_again", key="A", kind="run_test")
+    assert "oscillation" in fired(LIVEPLAN, w2)
+    # action_recurrence still ignores repeated submits
+    t = Traj()
+    for _ in range(8):
+        t.action("submit", kind="submit")
+    ws = t.propose("submit", key="submit", kind="submit")
+    assert "action_recurrence" not in fired(LIVEPLAN, ws)
+
+
+def test_action_recurrence_high_count():
     # the same substantive action node re-run kappa_recur (7) times before q
-    # fires oscillation_recurrence even without a clean period (the legacy
+    # fires action_recurrence even without a clean period (the legacy
     # two+_node_cycle case the strict `cycle` misses). A milder recurrence
     # (below threshold) stays quiet -- it may be productive iteration.
     t = Traj()
     for _ in range(7):
         t.action("node_T", phase="L_reproduce", kind="run_test")
     w = t.propose("python test.py", key="node_T", phase="L_reproduce", kind="run_test")
-    assert "oscillation_recurrence" in fired(LIVEPLAN, w)
+    assert "action_recurrence" in fired(LIVEPLAN, w)
 
     mild = Traj()
     for _ in range(3):
         mild.action("node_T", phase="L_reproduce", kind="run_test")
     wm = mild.propose("python test.py", key="node_T", phase="L_reproduce", kind="run_test")
-    assert "oscillation_recurrence" not in fired(LIVEPLAN, wm)
+    assert "action_recurrence" not in fired(LIVEPLAN, wm)
 
 
-def test_oscillation_recurrence_excludes_general():
+def test_action_recurrence_excludes_general():
     # benign general commands (cd/ls/env) that recur even past threshold must NOT
     # be flagged -- only substantive (non-general) actions count.
     t = Traj()
     for _ in range(9):
         t.action("node_cd", phase=None, kind="general")
     w = t.propose("cd /testbed", key="node_cd", phase=None, kind="general")
-    assert "oscillation_recurrence" not in fired(LIVEPLAN, w)
+    assert "action_recurrence" not in fired(LIVEPLAN, w)
 
 
 def test_thought_oscillation():
@@ -125,51 +150,70 @@ def test_repeated_view():
     assert "repeated_view" not in fired(LIVEPLAN, w2)
 
 
-# -- additional diagnostics ---------------------------------------------------
+# -- extra_signals.glg: candidate submit signals for offline selection/analysis
+# These are shadow (disabled) online; `liveplan.glg` is the live monitoring profile.
+# The replay study (analysis/) evaluates them under include_disabled. One pos/neg per
+# candidate, matching its committed-history predicate at the propose hook.
+
+def test_no_successful_patch():
+    # entered Patch but every edit failed -> no recorded successful patch at submit
+    pos = (Traj().action("loc", phase="L_navigate", kind="view")
+           .action("e1", phase="P", kind="edit", outcome="failure")
+           .action("e2", phase="P", kind="edit", outcome="failure")
+           .propose("s", kind="submit"))
+    assert "no_successful_patch" in fired(EXTRA, pos)
+    # any edit that stuck silences it (conservative lower bound on empty patches)
+    neg = (Traj().action("e1", phase="P", kind="edit", outcome="failure")
+           .action("e2", phase="P", kind="edit", outcome="success")
+           .propose("s", kind="submit"))
+    assert "no_successful_patch" not in fired(EXTRA, neg)
+
+
+def test_validation_execution_unconfirmed():
+    # a successful patch and a Validate phase (opened a self-test) but no run_test
+    pos = (Traj().action("e", phase="P", kind="edit", outcome="success")
+           .action("openT", phase="V_newly_generated_test", kind="view")
+           .propose("s", kind="submit"))
+    assert "validation_execution_unconfirmed" in fired(EXTRA, pos)
+    # a recognized validation run flips it off
+    neg = (Traj().action("e", phase="P", kind="edit", outcome="success")
+           .action("t", phase="V_regression_test", kind="run_test", outcome="success")
+           .propose("s", kind="submit"))
+    assert "validation_execution_unconfirmed" not in fired(EXTRA, neg)
+
 
 def test_stale_validation():
-    # a successful edit, never validated, then submit
-    w = (Traj()
-         .action("e", phase="P", kind="edit", outcome="success")
-         .propose("s", kind="submit"))
-    assert "stale_validation" in fired(EXTRA, w)
-    # with a validation after the edit, it is not stale
-    w2 = (Traj()
-          .action("e", phase="P", kind="edit", outcome="success")
-          .action("v", phase="V_regression_test", kind="run_test", outcome="success")
-          .propose("s", kind="submit"))
-    assert "stale_validation" not in fired(EXTRA, w2)
+    # a successful patch AFTER the last validation run -> latest code never re-checked
+    pos = (Traj().action("e1", phase="P", kind="edit", outcome="success")
+           .action("t", phase="V_regression_test", kind="run_test", outcome="success")
+           .action("e2", phase="P", kind="edit", outcome="success")
+           .propose("s", kind="submit"))
+    assert "stale_validation" in fired(EXTRA, pos)
+    # the last validation run follows the patch -> not stale
+    neg = (Traj().action("e1", phase="P", kind="edit", outcome="success")
+           .action("t", phase="V_regression_test", kind="run_test", outcome="success")
+           .propose("s", kind="submit"))
+    assert "stale_validation" not in fired(EXTRA, neg)
 
 
-def test_repeated_failed_edit():
-    w = (Traj()
-         .action("e", kind="edit", outcome="failure")
-         .action("e", kind="edit", outcome="failure")
-         .propose("e", key="e", kind="edit"))
-    assert "repeated_failed_edit" in fired(EXTRA, w)
+def test_submission_after_reported_check_failure():
+    # last committed action is a failed validation run after a successful patch
+    pos = (Traj().action("e", phase="P", kind="edit", outcome="success")
+           .action("t", phase="V_regression_test", kind="run_test", outcome="failure")
+           .propose("s", kind="submit"))
+    assert "submission_after_reported_check_failure" in fired(EXTRA, pos)
+    # any intervening action (even a read) suppresses this conservative proxy
+    neg = (Traj().action("e", phase="P", kind="edit", outcome="success")
+           .action("t", phase="V_regression_test", kind="run_test", outcome="failure")
+           .action("look", phase="L_navigate", kind="view")
+           .propose("s", kind="submit"))
+    assert "submission_after_reported_check_failure" not in fired(EXTRA, neg)
 
 
-def test_failed_patch_backtrack():
-    # latest committed action is a failed patch; q returns to localization
-    w = (Traj()
-         .action("p", phase="P", kind="edit", outcome="failure")
-         .propose("nav", phase="L_navigate", kind="view"))
-    assert "failed_patch_backtrack" in fired(EXTRA, w)
-    # if a later action intervened, the backtrack is not "immediate"
-    w2 = (Traj()
-          .action("p", phase="P", kind="edit", outcome="failure")
-          .action("later", phase="L_navigate", kind="view", outcome="success")
-          .propose("nav", phase="L_navigate", kind="view"))
-    assert "failed_patch_backtrack" not in fired(EXTRA, w2)
-
-
-def test_repeated_unchanged_view():
-    # two identical earlier views with equivalent observations; q re-views same key
-    w = (Traj()
-         .action("loc", kind="view", outcome="success", obs="same output")
-         .action("loc", kind="view", outcome="success", obs="same output")
-         .propose("loc", key="loc", kind="view"))
-    assert "repeated_unchanged_view" in fired(EXTRA, w)
+# NOTE: `regression_validation_missing` was removed from extra_signals.glg, so its
+# end-to-end test is dropped. (Orphaned `regression_validation_missing` entries
+# still remain in liveplan.config.json / extra_signals.advice.json — clean those up
+# or re-add the signal declaration if it is meant to come back.)
 
 
 # -- hook routing -------------------------------------------------------------

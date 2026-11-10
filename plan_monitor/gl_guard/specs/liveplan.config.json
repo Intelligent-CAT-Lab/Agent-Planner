@@ -2,12 +2,15 @@
   "_comment": "GL-Guard configuration for liveplan.glg: phase groups + tunable thresholds. JSON has no comments, so any key beginning with '_' is documentation and is ignored by the loader (Config.from_dict). Thresholds are configuration, not language constants, so a spec is retuned here without touching the DSL.",
 
   "_phase_groups": "Named sets of Langutory phase labels referenced by `phase(q) in G`, `run(G)` and `seen(G)`. Membership matches an exact label OR its single-letter prefix, so fine-grained labels (V_regression_test) belong to the coarse group (Validate) without being enumerated.",
+  "_extra_phase_groups": "NewlyGeneratedTest / RegressionValidate are additive, exact-label-only groups used ONLY by the opt-in extra signals (plan_compliance_regression_validation_missing). They deliberately do NOT list the coarse 'V' prefix, so NewlyGeneratedTest matches ONLY 'V_newly_generated_test' and RegressionValidate matches ONLY 'V_regression_test' (membership is exact-label OR single-underscore-prefix; since 'V' is absent, the prefix branch never matches the sibling). This splits the distinction the coarse 'Validate' group collapses, without touching 'Validate' or any baseline signal.",
   "phase_groups": {
     "Localize":  ["L", "L_navigate", "L_reproduce"],
     "Navigate":  ["L_navigate"],
     "Reproduce": ["L_reproduce"],
     "Patch":     ["P"],
-    "Validate":  ["V", "V_newly_generated_test", "V_regression_test"]
+    "Validate":  ["V", "V_newly_generated_test", "V_regression_test"],
+    "NewlyGeneratedTest": ["V_newly_generated_test"],
+    "RegressionValidate": ["V_regression_test"]
   },
 
   "params": {
@@ -24,7 +27,7 @@
     "m_thought": 1,
     "r_thought": 3,
 
-    "_recurrence": "kappa_recur -- oscillation_recurrence (non-blocking advisory) fires when a substantive action has already executed this many times (so on the (kappa_recur+1)-th). 7 was tuned on the default trajectory set: >=5 over-fires on productive edit->test iteration (+218 false positives in shadow), while >=8 isolates clearly-excessive recurrence (measured 8-23x). It only advises, never blocks, because observations are unavailable at the propose hook, so 'stuck' cannot be told from 'productive-but-long'.",
+    "_recurrence": "kappa_recur -- action_recurrence (non-blocking advisory) fires when a substantive action has already executed this many times (so on the (kappa_recur+1)-th). 7 was tuned on the default trajectory set: >=5 over-fires on productive edit->test iteration (+218 false positives in shadow), while >=8 isolates clearly-excessive recurrence (measured 8-23x). It only advises, never blocks, because observations are unavailable at the propose hook, so 'stuck' cannot be told from 'productive-but-long'.",
     "kappa_recur": 7,
 
     "_analysis_only": "kappa_fail -- used ONLY by the analysis-only extra_signals.glg (repeated_failed_edit): the same edit identity has failed this many times. 2 = a trend, not a one-off typo. It needs `outcome(x)`, which is empty at the live pre-emptive propose hook (the action has not executed yet), so signals depending on it are for offline analysis, not online firing.",

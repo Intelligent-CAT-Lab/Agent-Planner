@@ -38,27 +38,141 @@ def check_edit_status(tool, subcommand, args, observation):
         return check_str_edit_status(observation)
     return None
     
+# =============================================================================
+# Cross-language test / build OUTCOME parsing.
+#
+# `check_command_outcome` labels a step "success" or "failure" from its textual
+# output alone, across the languages in our corpora (Python, JS/TS, Go, Rust,
+# Java/Kotlin, Ruby, PHP, C#, ...). The monitor consumes the label as opaque, so
+# the contract is PRECISION-FIRST:
+#
+#   * "failure" ONLY on a recognized failure marker, or on a structured test
+#     summary whose failure/error COUNT is > 0;
+#   * a recognized summary with a ZERO failure/error count is "success" (so
+#     "0 failed, 12 passed" / "Failures: 0" / "test result: ok" are passes, never
+#     failures -- the historical pytest zero-count false positive);
+#   * when nothing is recognized, default to "success" (no failure evidence),
+#     preserving this function's long-standing contract for non-test commands.
+#
+# Evaluation order is the historically-validated pytest order, GENERALIZED tier
+# by tier so the Python decision is unchanged and other ecosystems are added
+# additively (each new pattern is anchored so it cannot match a *passing* run of
+# the Python corpus -- verified against the default trajectories):
+#   (1) hard, count-free failure markers (tracebacks, panics, segfaults, compile
+#       errors, build-failed / framework banners);
+#   (2) structured failure COUNT > 0;
+#   (3) structured pass / summary recognition  -> success;
+#   (4) pytest-style failure-section banners    -> failure;
+#   (5) default success.
+# =============================================================================
+
+# Python test-runner heads (kept for the check_test_status back-compat shim).
 TEST_COMMANDS = {"python", "python2", "python3", "pytest", "unittest", "nosetests", "tox"}
 
-# More precise signals first (pytest structured summaries)
-RE_PYTEST_FAIL = re.compile(r"\b(\d+)\s+failed\b", re.IGNORECASE)
-RE_PYTEST_ERROR = re.compile(r"\b(\d+)\s+errors?\b", re.IGNORECASE)
-RE_PYTEST_PASS = re.compile(r"\b(\d+)\s+passed\b", re.IGNORECASE)
+# -- (2a) framework summary lines with EXPLICIT counts, decided by the count. ---
+# Fully anchored to the framework's own summary line (not loose "<kw>: <n>" token
+# pairs, which match ordinary source like `errors = 1`), so a zero count is a pass
+# and only a positive count is a failure. Each is checked before the loose tier.
+_MAVEN_SUREFIRE_RE = re.compile(
+    r"Tests run:\s*\d+,\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?", re.IGNORECASE)
+_DOTNET_RE = re.compile(r"Failed:\s*(\d+),\s*Passed:", re.IGNORECASE)  # dotnet/vstest
 
-# Exception patterns (precise, avoid generic words like "error")
-EXCEPTION_SIGNS = [
-    "Traceback (most recent call last):",
-    # "AssertionError",
-    # "SyntaxError",
-    # "TypeError",
-    # "ValueError",
-    # "NameError",
-    # "RuntimeError",
-    # "ImportError",
-    # "ModuleNotFoundError",
-    # "MemoryError",
-    # "Segmentation fault",
-]
+# -- (2b) loose failure COUNT patterns: group(1) is a count; failure iff > 0. ---
+# Only the SPACE-separated noun idioms test frameworks use in summaries ("3 failed",
+# "2 failures", "1 failing") -- deliberately NOT the "<kw>: <n>"/"<kw>=<n>" forms,
+# which occur in source code being viewed. Zero counts are ignored (a pass).
+# Covers pytest/jest/vitest/cargo ("N failed"), mocha ("N failing"),
+# rspec/minitest ("N failures"), pytest ("N errors").
+_FAIL_COUNT_RES = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"\b([1-9]\d*)\s+failed\b",
+    r"\b([1-9]\d*)\s+errors?\b",
+    r"\b([1-9]\d*)\s+failing\b",
+    r"\b([1-9]\d*)\s+failures?\b",
+))
+# Back-compat aliases (older callers import these names directly).
+RE_PYTEST_FAIL = _FAIL_COUNT_RES[0]
+RE_PYTEST_ERROR = _FAIL_COUNT_RES[1]
+
+# -- (3) pass / summary RECOGNITION: a zero-failure structured summary. ---------
+# Anchored to real summary lines so prose ("see 5 examples") cannot masquerade as
+# a passing test summary.
+_PASS_SUMMARY_RES = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"\b(\d+)\s+passed\b",                      # pytest, jest, cargo, vitest
+    r"\b(\d+)\s+passing\b",                     # mocha
+    r"\b\d+\s+examples?,\s*\d+\s+failures?",    # rspec full summary line
+    r"\btest result:\s*ok\b",                   # cargo / rustc
+    r"\bran\s+\d+\s+tests?\b",                  # python unittest "Ran N tests"
+    r"\bok\s+\(\d+\s+tests?",                   # phpunit "OK (12 tests, ...)"
+))
+RE_PYTEST_PASS = _PASS_SUMMARY_RES[0]
+
+# -- (1) hard, count-free FAILURE markers. -------------------------------------
+# Plain substrings, precise enough not to appear in a *passing* run of their
+# ecosystem. NB: a bare "FAIL" line is intentionally NOT a marker -- in Python
+# repro output it is an application-level assertion message ("FAIL: x should
+# match"), so Go is keyed on its distinct "--- FAIL:" and jest/vitest on their
+# count summaries (tier 2) instead.
+_FAILURE_MARKERS = (
+    "Traceback (most recent call last):",       # python
+    "Segmentation fault",                       # native crash (any language)
+    "FAILURES!",                                # phpunit banner (pytest's is bannerless)
+    "BUILD FAILED",                             # gradle
+    "BUILD FAILURE",                            # maven
+)
+_FAILURE_MARKER_RES = tuple(re.compile(p, re.MULTILINE) for p in (
+    r"^--- FAIL:",                              # go test case failure
+    r"^panic:",                                 # go / runtime panic
+    r"error TS\d+:",                            # tsc type-check error (mid-line form)
+    r"^error\[E\d+\]",                          # rustc compile error
+    r"^FAILED \((?:failures|errors)=\d",        # python unittest summary
+))
+
+# -- (4) pytest-style failure-section banners (checked after pass recognition). -
+_FAIL_BLOCK_MARKERS = ("FAILURES", "ERRORS", "INTERNALERROR")
+
+# A failed str_replace is the tool message that BEGINS with this prefix. Anchored
+# at the start on purpose: the edit-failure phrases ("did not appear verbatim")
+# also occur as ordinary file CONTENT when viewing source, so only the leading
+# tool message (never a `cat -n` file dump) is a genuine failed edit. Used for the
+# unconfigured-parser form, where no subcommand is available for check_edit_status.
+_EDIT_FAIL_PREFIX = "No replacement was performed"
+
+
+def _outcome_from_output(obs: str) -> str:
+    """Core cross-language verdict from command output text (tiers 1-5 above)."""
+    if not obs:
+        return "success"
+
+    # (1) hard failure markers.
+    for marker in _FAILURE_MARKERS:
+        if marker in obs:
+            return "failure"
+    for rx in _FAILURE_MARKER_RES:
+        if rx.search(obs):
+            return "failure"
+
+    # (2a) anchored framework summaries decided by their own counts.
+    for rx in (_MAVEN_SUREFIRE_RE, _DOTNET_RE):
+        m = rx.search(obs)
+        if m:
+            return "failure" if any(int(g) for g in m.groups() if g) else "success"
+
+    # (2b) loose space-separated failure count > 0.
+    for rx in _FAIL_COUNT_RES:
+        if rx.search(obs):
+            return "failure"
+
+    # (3) structured pass / summary recognition.
+    for rx in _PASS_SUMMARY_RES:
+        if rx.search(obs):
+            return "success"
+
+    # (4) pytest-style failure-section banners.
+    if any(m in obs for m in _FAIL_BLOCK_MARKERS):
+        return "failure"
+
+    # (5) default: no failure evidence.
+    return "success"
 
 
 def check_command_outcome(command: str, observation: str, tool: str = None, subcommand: str = None, args: dict = None):
@@ -72,64 +186,41 @@ def check_command_outcome(command: str, observation: str, tool: str = None, subc
         args: Command arguments (optional, for edit status checking)
 
     Returns:
-        "success" or "failure" or None (if cannot determine)
+        "success" or "failure" (defaults to "success" when undeterminable).
     """
-    obs = observation or ""
-
-    # Check edit status if tool/subcommand provided
-    if tool and subcommand:
-        edit_status = check_edit_status(tool, subcommand, args, observation)
-        if edit_status and isinstance(edit_status, str) and edit_status.startswith("failure"):
+    # CORRECTNESS: a str_replace_editor view/edit observation echoes FILE CONTENT
+    # (a view dumps the file; a successful str_replace/insert returns a `cat -n`
+    # snippet of the edited file), not an execution result. Scanning that content
+    # for pass/fail markers is a category error -- a viewed/edited file that merely
+    # CONTAINS "Traceback", "error TS1234", or "3 failed" is not a failing command,
+    # and mislabeling such an edit "failure" would spuriously trip the patch-outcome
+    # signals (e.g. no_successful_patch). The editor is recognized whether it arrives
+    # as the `tool` (configured parser) or as the bare `command` (unconfigured parser,
+    # tool==""). An edit's outcome is decided solely by its edit status; a view always
+    # succeeds structurally. Never parse the echoed content.
+    if (tool or "").lower() == "str_replace_editor" or (command or "").lower() == "str_replace_editor":
+        edit_status = check_edit_status("str_replace_editor", subcommand, args, observation)
+        if isinstance(edit_status, str) and edit_status.startswith("failure"):
             return "failure"
-
-    # Check for EXCEPTION_SIGNS
-    for sig in EXCEPTION_SIGNS:
-        if sig in obs:
+        # Unconfigured form carries no subcommand, so detect a failed edit from its
+        # leading tool message (not from echoed file content that merely quotes it).
+        if (observation or "").lstrip().startswith(_EDIT_FAIL_PREFIX):
             return "failure"
-
-    # Check for structured test output patterns
-    if RE_PYTEST_FAIL.search(obs) or RE_PYTEST_ERROR.search(obs):
-        return "failure"
-    if RE_PYTEST_PASS.search(obs):
         return "success"
 
-    # Check for pytest failure blocks
-    if "FAILURES" in obs or "ERRORS" in obs or "INTERNALERROR" in obs:
-        return "failure"
-
-    # If no failure markers found, assume success
-    return "success"
+    return _outcome_from_output(observation or "")
 
 
 # Keep check_test_status for backward compatibility
 def check_test_status(command: str, observation: str):
     def is_test_command(cmd: str):
-        head = cmd.strip().split()[0]
+        head = cmd.strip().split()[0] if cmd and cmd.strip() else ""
         return head in TEST_COMMANDS
 
     if not is_test_command(command):
         return None
 
-    obs = observation or ""
-
-    # --- 1) Structured Pytest test-summary (most reliable) ---
-    if RE_PYTEST_FAIL.search(obs) or RE_PYTEST_ERROR.search(obs):
-        return "failure"
-    if RE_PYTEST_PASS.search(obs):
-        # Passed does not guarantee no failures elsewhere, but if summary says passed, trust it
-        return "success"
-
-    # --- 2) General robust exception indicators ---
-    for sig in EXCEPTION_SIGNS:
-        if sig in obs:
-            return "failure"
-
-    # --- 3) Fallback: Detect pytest failure blocks (e.g., "=== FAILURES ===") ---
-    if "FAILURES" in obs or "ERRORS" in obs or "INTERNALERROR" in obs:
-        return "failure"
-
-    # --- 4) Default assumption: no failure markers found ---
-    return "success"
+    return _outcome_from_output(observation or "")
 
 # -------------------- Graph Builder Class --------------------
 class GraphBuilder:

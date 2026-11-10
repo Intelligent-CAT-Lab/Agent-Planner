@@ -75,7 +75,7 @@ def test_oscillation_blocks_then_lets_through_at_terminal():
     rt = _runtime()
     reports_seen = []
     for _ in range(6):
-        w = Traj().action("A").propose("A", key="A")  # self-loop: repeat true, motif "A"
+        w = Traj().action("A", kind="run_test").propose("A", key="A", kind="run_test")  # self-loop: repeat true, motif "A"
         reports_seen.append(rt.evaluate(w))
     osc = [[r for r in reps if r.rule_id == "oscillation"] for reps in reports_seen]
     emitted = [bool(x) for x in osc]
@@ -111,7 +111,9 @@ def test_plan_compliance_signals_enabled_and_blocking():
     # The plan-compliance decomposition is enabled and blocking by default, with
     # its threshold state persisting across a block.
     rt = _runtime()
-    for sid in ("plan_compliance_premature_patch", "plan_compliance_premature_validate",
+    # premature_validate moved to extra_signals.glg (unreachable in the live profile),
+    # so the live plan-compliance family is the three reachable blocking signals.
+    for sid in ("plan_compliance_premature_patch",
                 "plan_compliance_skip_patch", "plan_compliance_skip_validation"):
         entry = rt.registry.get(sid)
         assert entry is not None and entry.enabled and entry.block_execution

@@ -75,13 +75,15 @@ def test_end_to_end_plan_compliance_premature_patch_via_adapter():
     assert "plan_compliance_premature_patch" not in lp.fired(w2)
 
 
-def test_end_to_end_repeated_failed_edit_via_adapter():
+def test_end_to_end_no_successful_patch_via_adapter():
+    # entered the Patch phase but every edit failed -> at submit no successful patch
+    # is recorded. Exercises an extra_signals candidate end-to-end through the adapter.
     _, ex = _programs()
     model = TrajectoryModel()
     model.commit_action(step=1, key="e", phase="P", kind="edit", outcome="failure")
     model.commit_action(step=2, key="e", phase="P", kind="edit", outcome="failure")
-    w = model.world_for_propose(step=3, key="e", phase="P", kind="edit")
-    assert "repeated_failed_edit" in ex.fired(w)
+    w = model.world_for_propose(step=3, key="sub", phase=None, kind="submit")
+    assert "no_successful_patch" in ex.fired(w)
 
 
 def test_observe_thought_episode_via_adapter():

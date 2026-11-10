@@ -34,13 +34,6 @@
 signal plan_compliance_premature_patch on propose when
   phase(q) in Patch and not seen(Localize)
 
-# Premature validation -- validating (Validate) before any patch. This single
-# predicate covers both legacy phase_skips that enter Validate too early: [P]
-# (validate after localizing, before patching) and [L,P] (validate with nothing
-# done) -- both are exactly "entered Validate while no Patch has been seen".
-signal plan_compliance_premature_validate on propose when
-  phase(q) in Validate and not seen(Patch)
-
 # Skip patching -- submitting without ever having patched (premature_ending).
 signal plan_compliance_skip_patch on propose when
   kind(q) = submit and not seen(Patch)
@@ -59,18 +52,34 @@ signal thought_oscillation on observe(thought) when
 # 2, A-B-C-A-B-C at period 3, ...). `cycle` desugars to a disjunction of `repeat`
 # over lengths 1..10. A bare `repeat(action, length=1, times=r_action)` would only
 # catch self-loops and silently miss multi-node cycles.
+# Excludes a `submit` proposal (`not kind(q)=submit`): finalization is governed by
+# the purposeful, state-aware plan-compliance submit family (skip_patch /
+# skip_validation / no_successful_patch / stale_validation) and by the harness's
+# review-on-submit protocol. A repeated `submit` is the agent re-attempting to
+# finalize after one of those gates (a skip_validation block, or a review prompt
+# asking it to clean up and resubmit), NOT a mechanical work-loop. Without this
+# guard the generic loop detector fires a BLOCKING "you are repeating submit with
+# nothing changed, its result will be the same" on the resubmit -- which is false
+# (the gate/review changes the result) and counterproductive (it tells the agent
+# not to finalize exactly when finalizing-after-addressing-the-gate is correct).
+# Observed in the v5 pilot; general across models/tasks that use review-on-submit.
 signal oscillation on propose when
+#  not (kind(q) = submit) and
   cycle(action, up_to=10, times=r_action)
 
-# Prolonged recurrence -- the same action node has already executed kappa_recur
-# times. This catches the legacy `two+_node_cycle` case the strict-periodic
+# Action recurrence -- the same action node has already executed kappa_recur
+# times. This catches the case the strict-periodic
 # `cycle` misses: an agent re-running one substantive action (a test/repro/edit)
 # many times interspersed with *varying* work, so there is no clean period but the
-# node recurs excessively (measured 5-23x). Gated to non-general actions so benign
-# utility commands (cd/ls/env setup) that merely recur are not flagged. Normalizes
-# to the `oscillation` category.
-signal oscillation_recurrence on propose when
+# node recurs excessively. Gated to non-general actions so benign
+# utility commands (cd/ls/env setup) that merely recur are not flagged. 
+# Excludes a `submit` proposal for the same
+# reason `oscillation` does (see above): a re-issued submit is finalization driven
+# by the review-on-submit, not a mechanical loop,
+# so flagging its recurrence would be a false positive at exactly the wrong moment.
+signal action_recurrence on propose when
   not (kind(q) = general) and
+  not (kind(q) = submit) and
   count { x in history(action) | key(x) = key(q) } >= kappa_recur
 
 # Prolonged dwell in a single phase: the last theta_* phase occurrences all

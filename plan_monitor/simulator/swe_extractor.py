@@ -41,9 +41,20 @@ class ActionExtractor:
         if 'trajectory' not in self._data:
             raise ValueError("Trajectory missing 'trajectory' field")
 
-    def extract_actions(self) -> Iterator[tuple[ActionEvent, str, str]]:
+    def extract_actions(
+        self, include_thought_steps: bool = False
+    ) -> Iterator[tuple[ActionEvent, str, str]]:
         """
         Extract all action events from the trajectory with thought and observation.
+
+        Args:
+            include_thought_steps: when True, also yield steps that carry a thought
+                but no action (``command=""``). These mirror the online monitor's
+                thought-only turns: ``GuardMonitor.check_step_pre_emptively`` routes
+                an empty command to its ``observe(thought)`` path, which is what
+                ``thought_oscillation`` is evaluated on. The default (False) preserves
+                the historical behaviour every other consumer relies on — only
+                steps with a parseable action are surfaced.
 
         Yields:
             Tuples of (ActionEvent, thought, observation) for each step
@@ -62,7 +73,10 @@ class ActionExtractor:
             action = step.get('action', '')
             observation = step.get('observation', '')
 
-            if action:
+            # An action step, or — when asked — a thought-only step (a turn the
+            # model spent reasoning without issuing a command). A step with neither
+            # is skipped in both modes.
+            if action or (include_thought_steps and thought):
                 event = ActionEvent(
                     step_index=step_index,
                     command=action,

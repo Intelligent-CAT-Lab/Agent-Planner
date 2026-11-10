@@ -64,20 +64,60 @@ _PATHISH = re.compile(
     re.IGNORECASE,
 )
 
-# CHANGE 2: common non-Python test runners. They reuse the existing
-# L_reproduce / V_regression_test phase logic below.
-DIRECT_TEST_CMDS: Set[str] = {"pytest", "py.test", "jest", "vitest", "rspec"}
+# Cross-language test-runner recognition. These only BROADEN which steps are seen
+# as test/check runs; the pre/post-patch phase semantics (L_reproduce vs V_*) are
+# unchanged. Kept precise (well-known runner names, explicit test sub-tokens) so a
+# build/lint/run step is not misread as a test.
+#
+# (a) Runners that ARE a test invocation on their own (any call runs tests).
+DIRECT_TEST_CMDS: Set[str] = {
+    # python
+    "pytest", "py.test", "nosetests", "nose2", "tox",
+    # js / ts
+    "jest", "vitest", "mocha", "ava", "jasmine", "cypress", "playwright",
+    # ruby
+    "rspec", "cucumber",
+    # php
+    "phpunit", "pest", "phpspec",
+    # go / c / c++
+    "gotestsum", "ginkgo", "ctest",
+    # shell
+    "bats",
+}
+# (b) Host commands that run tests only under a specific sub-token: `<cmd> <sub>`.
 TEST_SUBCOMMANDS: Dict[str, Set[str]] = {
     "go": {"test"},
-    "cargo": {"test"},
-    "npm": {"test"},
+    "cargo": {"test", "nextest"},
+    "dotnet": {"test"},
+    "npm": {"test", "t"},
     "yarn": {"test"},
     "pnpm": {"test"},
-    "mvn": {"test"},
-    "mvnw": {"test"},
-    "gradle": {"test"},
-    "gradlew": {"test"},
-    "dotnet": {"test"},
+    "bun": {"test"},
+    "deno": {"test"},
+    "mvn": {"test", "verify"},
+    "mvnw": {"test", "verify"},
+    "gradle": {"test", "check"},
+    "gradlew": {"test", "check"},
+    "rake": {"test", "spec"},
+    "rails": {"test"},
+    "mix": {"test"},
+    "swift": {"test"},
+    "stack": {"test"},
+    "cabal": {"test"},
+    "dune": {"test", "runtest"},
+    "meson": {"test"},
+    "ninja": {"test"},
+    "bazel": {"test"},
+    "composer": {"test"},
+    "lein": {"test"},
+    "sbt": {"test"},
+    "just": {"test"},
+    "make": {"test", "check"},
+}
+# (c) Launchers that delegate to whatever runner follows: `npx jest`,
+# `poetry run pytest`, `bundle exec rspec`, `uv run pytest`.
+RUNNER_LAUNCHERS: Set[str] = {
+    "npx", "bunx", "pnpm", "yarn", "poetry", "pipenv", "pdm", "uv", "hatch", "bundle",
 }
 
 # --------------------------- Flatten / token helpers ---------------------------
@@ -187,12 +227,34 @@ def _is_test_related(paths: List[str]) -> bool:
     """Test-related if ANY collected path-like token looks like a test."""
     return any(_is_test_path(p) for p in paths)
 
+def _cmd_base(tok: str) -> str:
+    """Basename of a command token: strip a leading './' and any directory, so
+    `./gradlew`, `/usr/bin/go`, and `bin/pytest` match their runner names."""
+    t = (tok or "").strip()
+    if t.startswith("./"):
+        t = t[2:]
+    if "/" in t:
+        t = t.rsplit("/", 1)[-1]
+    return t
+
+
 def _is_test_command(cmd: str, tokens: List[str]) -> bool:
-    """Recognize common test runners without changing phase semantics."""
-    if cmd in DIRECT_TEST_CMDS:
+    """Recognize test runners across languages, precisely (no phase-semantics change).
+
+    Three shapes: a direct runner (`pytest`, `jest`, `rspec`); a host command with a
+    test sub-token (`go test`, `npm test`, `make check`); or a launcher delegating to
+    a runner (`npx jest`, `poetry run pytest`, `bundle exec rspec`).
+    """
+    base = _cmd_base(cmd)
+    if base in DIRECT_TEST_CMDS:
         return True
-    subcommands = TEST_SUBCOMMANDS.get(cmd)
-    return bool(subcommands and any(t in subcommands for t in tokens))
+    toks = [_cmd_base(t) for t in tokens]
+    subs = TEST_SUBCOMMANDS.get(base)
+    if subs and any(t in subs for t in toks):
+        return True
+    if base in RUNNER_LAUNCHERS and any(t in DIRECT_TEST_CMDS or t == "test" for t in toks):
+        return True
+    return False
 
 # --------------------------- Shell helpers ---------------------------
 

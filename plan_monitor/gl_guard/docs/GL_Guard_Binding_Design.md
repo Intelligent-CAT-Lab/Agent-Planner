@@ -210,8 +210,8 @@ Signal names mirror the legacy rule IDs so the differential is an identity map.
 |---|---|---|---|
 | `dwell_L_navigate` / `dwell_L_reproduce` / `dwell_P` / `dwell_V` | `run(F) >= θ` over the persistent dwell stream | `every_n(θ)` | **Exact** — 0 discrepancies over 24,259 real SWE-agent steps. Requires the three binding details in §5.1. |
 | `repeated_view` | `kind(q)=view and revisit(action)` | `once_per_key` (`q.key`) | **Exact for simple commands.** Diverges on compound commands: legacy keys by the full trajectory command string, GL-Guard by the merged graph node ("location"). The two identities cannot be unified (`oscillation` needs node merging; legacy `repeated_view` needs full-command distinction). |
-| `oscillation` — self-loop + multi-node *periodic* cycles | `cycle(action, up_to=10, times=r)` | `max_per_pattern` keyed by loop node-set, **blocking** | **Precise periodic-loop detector.** Catches self-loops and real period-3/4 cycles (including those the legacy misses). It does *not* fire on the legacy's *non-periodic* back-edge recurrences — those are handled, more conservatively, by `oscillation_recurrence`. See §5.2. |
-| `oscillation_recurrence` — excessive non-periodic recurrence | `not kind(q)=general and count{x in history | key(x)=key(q)} >= κ_recur` (κ=7) | `once_per_key` (`q.key`), **non-blocking advisory** | The legacy `two+_node_cycle` case the strict `cycle` misses: a substantive action re-run ≥8× interspersed with varying work (measured 5–23×). High threshold + advisory by design — without observations we cannot tell *stuck* from *productive-but-long*, so it advises rather than blocks. Normalizes to the `oscillation` category. See §5.2. |
+| `oscillation` — self-loop + multi-node *periodic* cycles | `cycle(action, up_to=10, times=r)` | `max_per_pattern` keyed by loop node-set, **blocking** | **Precise periodic-loop detector.** Catches self-loops and real period-3/4 cycles (including those the legacy misses). It does *not* fire on the legacy's *non-periodic* back-edge recurrences — those are handled, more conservatively, by `action_recurrence`. See §5.2. |
+| `action_recurrence` — excessive non-periodic recurrence | `not kind(q)=general and count{x in history | key(x)=key(q)} >= κ_recur` (κ=7) | `once_per_key` (`q.key`), **non-blocking advisory** | The legacy `two+_node_cycle` case the strict `cycle` misses: a substantive action re-run ≥8× interspersed with varying work (measured 5–23×). High threshold + advisory by design — without observations we cannot tell *stuck* from *productive-but-long*, so it advises rather than blocks. Normalizes to the `oscillation` category. See §5.2. |
 | `thought_oscillation` | `repeat(thought, m, r)` on the episode | `max_per_pattern` | Strict consecutive repetition vs the legacy windowed count — see §5.2. |
 | `plan_compliance_premature_patch` | `phase(q) in Patch and not seen(Localize)` | `once_per_key`, `persist_on_block`, blocking | legacy `phase_skip [L]`. |
 | `plan_compliance_premature_validate` | `phase(q) in Validate and not seen(Patch)` | `once_per_key`, `persist_on_block`, blocking | legacy `phase_skip [P]` **and** `[L,P]` in one predicate — both are "entered Validate with no Patch yet". |
@@ -272,7 +272,7 @@ behaviour is *defensible*, not merely different.
   - `oscillation` (strict periodic, **blocking**) stays the precise detector of
     mechanical loops — self-loops and period-k cycles. A clean period is a strong,
     low-false-positive signal, so blocking is justified.
-  - `oscillation_recurrence` (**non-blocking advisory**, κ_recur = 7) covers the
+  - `action_recurrence` (**non-blocking advisory**, κ_recur = 7) covers the
     high-recurrence case *conservatively*. The threshold was tuned on the default
     set: at ≥5× it over-fires (+218 `gl_only` — it sweeps in productive edit→test
     iteration the periodic detector rightly ignores), so it is set to ≥8× (clearly
@@ -411,14 +411,14 @@ the very patterns being measured). 998 trajectories, 17,254 steps, deepseek-v3:
 | `dwell_L_navigate` / `dwell_L_reproduce` / `dwell_P` / `dwell_V` | 486 / **0** / **0** | **exact** — the §5.1 binding details |
 | `plan_compliance` | 360 / 2 / **0** | **99.4% recall, 0 false positives** — the faithful decomposition (§5 matrix, §5.2). Residual = 2 rare out-of-order `phase_skip` orderings. |
 | `repeated_view` | 149 / 1 / 15 | exact for simple commands; residual = compound-command full-command vs node keying (§5.2) |
-| `oscillation` (incl. `oscillation_recurrence`) | 1337 / 151 / 597 | `cycle` catches mechanical periodic loops precisely (blocking); `oscillation_recurrence` advises on ≥8× non-periodic recurrence (non-blocking). The per-step shadow diff over-counts `gl_only` here because the recurrence advisory and legacy's `two+_node_cycle` fire at *different* steps on the same loop — by design GL-Guard is not replicating legacy's blanket blocking (§5.2). |
+| `oscillation` (incl. `action_recurrence`) | 1337 / 151 / 597 | `cycle` catches mechanical periodic loops precisely (blocking); `action_recurrence` advises on ≥8× non-periodic recurrence (non-blocking). The per-step shadow diff over-counts `gl_only` here because the recurrence advisory and legacy's `two+_node_cycle` fire at *different* steps on the same loop — by design GL-Guard is not replicating legacy's blanket blocking (§5.2). |
 | `thought_oscillation` | agrees on consecutive repetition | residual = windowed-but-non-consecutive (§5.2) |
 
 Two measured notes: (1) an earlier run over the `monitor` trajectory sets showed
 `oscillation` at 0 legacy-only — the intervened runs simply contain fewer long
 loops; the default set is the honest one. (2) A recurrence threshold of ≥5×
 over-fired (+218 `gl_only`, sweeping in productive edit→test iteration), which is
-why `oscillation_recurrence` uses ≥8× and advises rather than blocks (§5.2).
+why `action_recurrence` uses ≥8× and advises rather than blocks (§5.2).
 
 Run it with `python -m plan_monitor.gl_guard.shadow <traj-or-dir> --agent swe-agent`;
 it exits non-zero iff an **exact** category disagrees (a real bug), and prints a
@@ -447,7 +447,7 @@ oscillation/thought reconstruction paths).
    decomposition enabled and validated (360/362). *(done — §2.1,
    [`guard_monitor.py`](../guard_monitor.py), `SWE-agent/sweagent/agent/agents.py`)*
 6. **Oscillation precision (done)** — `cycle` (blocking) for mechanical periodic
-   loops + `oscillation_recurrence` (non-blocking advisory, ≥8×, non-`general`) for
+   loops + `action_recurrence` (non-blocking advisory, ≥8×, non-`general`) for
    excessive recurrence. Thresholds tuned on the default set (§5.2); observations
    are unavailable at `propose`, so the advisory is the non-misleading choice.
 7. **(Optional) incremental optimization** — the per-step occurrence scan
