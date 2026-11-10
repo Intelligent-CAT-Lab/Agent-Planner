@@ -1,265 +1,290 @@
+"""Evaluate each configuration on its own deterministic subset of runs 1 and 2.
+
+An instance is deterministic when it has the same outcome in both runs.
+Success rate = both resolved / (both resolved + both unresolved).
+
+SWE-bench Pro uses only instances graded in both reports. SWE-bench reports
+provide resolved IDs only, so an existing report is assumed to cover the full
+Verified test set; IDs absent from resolved_ids are treated as unresolved.
 """
-Get two default runs (run-id 1 and 2), take the instances with consistent results (i.e. both resolved or both unresolved in the two runs). And compare the success rate with the config on this subset.
-dataset default to swebench. model default to deepseek-chat-v3-0324.
-"""
-import json
+
 import argparse
+import json
+from dataclasses import dataclass
+from math import comb
 from pathlib import Path
-from typing import Set, Dict, List
+from typing import Dict, List, Optional, Set, Tuple
 
 
-def load_report(agent_dir: Path, config: str, dataset: str, model: str, run_id: int, version: str = None) -> Set[str]:
-    """Load resolved instance IDs from report file (from collect_pattern_resolution.py)."""
-    dataset_path = dataset if dataset != 'swebench-pro' else f"{dataset}/python"
+@dataclass
+class ConfigResult:
+    config: str
+    run1: Dict[str, bool]
+    run2: Dict[str, bool]
+    both_resolved: Set[str]
+    both_unresolved: Set[str]
+    inconsistent: Set[str]
 
-    # For swebench-pro, report is eval_results.json in the run folder
-    if dataset == 'swebench-pro':
-        if config in ['refiner', 'refiner-only'] and version:
-            report_path = agent_dir / "reports" / config / f"version-{version}" / dataset_path / model / f"run-{run_id}" / "eval_results.json"
-        else:
-            report_path = agent_dir / "reports" / config / dataset_path / model / f"run-{run_id}" / "eval_results.json"
-
-        if report_path.exists():
-            try:
-                with open(report_path, 'r') as f:
-                    data = json.load(f)
-                    return {inst_id for inst_id, resolved in data.items() if resolved}
-            except Exception as e:
-                print(f"Error loading report {report_path}: {e}")
-        return set()
-
-    # For swebench, report is in model directory
-    if config in ['refiner', 'refiner-only'] and version:
-        reports_dir = agent_dir / "reports" / config / f"version-{version}" / dataset_path / model
-    else:
-        reports_dir = agent_dir / "reports" / config / dataset_path / model
-
-    if not reports_dir.exists():
-        return set()
-
-    possible_names = [
-        f"{model}.run_{run_id}.json",
-        f"{model}.run-{run_id}.json",
-        f"{model}.{run_id}.json",
-    ]
-
-    for name in possible_names:
-        report_path = reports_dir / name
-        if report_path.exists():
-            try:
-                with open(report_path, 'r') as f:
-                    data = json.load(f)
-                    return set(data.get('resolved_ids', []))
-            except Exception as e:
-                print(f"Error loading report {report_path}: {e}")
-
-    return set()
+    @property
+    def deterministic(self) -> Set[str]:
+        return self.both_resolved | self.both_unresolved
 
 
-def get_all_instances(dataset: str) -> Set[str]:
-    """Get all instance IDs for a dataset."""
-    if dataset == 'swebench':
-        from datasets import load_dataset
-        swe_bench = load_dataset("princeton-nlp/SWE-bench_Verified", split="test")
-        return set(swe_bench['instance_id'])
-    elif dataset == 'swebench-pro':
-        # Load from sampled instances file
-        import yaml
-        script_dir = Path(__file__).parent.parent
-        sampled_file = script_dir / "SWE-bench_Pro-os" / "SWE-agent" / "script" / "sample-data" / "samples" / "python" / "swebench-pro" / "sampled_instances.yaml"
-        with open(sampled_file, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-        return set(item['instance_id'] for item in data if 'instance_id' in item)
+def load_report_map(
+    agent_dir: Path,
+    config: str,
+    dataset: str,
+    model: str,
+    run_id: int,
+    version: Optional[str] = None,
+    all_instances: Optional[Set[str]] = None,
+) -> Dict[str, bool]:
+    """Load explicit outcomes, raising on missing or invalid reports.
+
+    An empty report is valid and is distinct from a missing report.
+    """
+    reports_dir = agent_dir / "reports" / config
+    if config in {"refiner", "refiner-only"} and version:
+        reports_dir /= f"version-{version}"
+
+    if dataset == "swebench-pro":
+        candidates = [
+            reports_dir / dataset / "python" / model
+            / f"run-{run_id}" / "eval_results.json"
+        ]
+    elif dataset == "swebench":
+        reports_dir = reports_dir / dataset / model
+        candidates = [
+            reports_dir / name
+            for name in (
+                f"{model}.run_{run_id}.json",
+                f"{model}.run-{run_id}.json",
+                f"{model}.{run_id}.json",
+            )
+        ]
     else:
         raise ValueError(f"Unknown dataset: {dataset}")
 
+    report_path = next((path for path in candidates if path.is_file()), None)
+    if report_path is None:
+        raise FileNotFoundError(
+            "No report found; tried: " + ", ".join(str(p) for p in candidates)
+        )
+    with report_path.open(encoding="utf-8") as stream:
+        data = json.load(stream)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a JSON object in {report_path}")
 
-def analyze_non_determinism(dataset: str = 'swebench',
-                            model: str = 'deepseek-chat-v3-0324',
-                            baseline_config: str = 'default',
-                            comparison_config: str = 'refiner',
-                            configs_to_compare: List[str] = None,
-                            version: str = '5'):
-    """
-    Analyze non-determinism by comparing two runs of baseline config.
-    Then evaluate all configs on the consistent subset.
-    """
-    script_dir = Path(__file__).parent.parent
+    if dataset == "swebench-pro":
+        if any(not isinstance(value, bool) for value in data.values()):
+            raise ValueError(f"Expected boolean outcomes in {report_path}")
+        return data
 
-    # Determine agent directory
-    if dataset == 'swebench':
-        agent_dir = script_dir / "SWE-agent"
-    elif dataset == 'swebench-pro':
-        agent_dir = script_dir / "SWE-bench_Pro-os" / "SWE-agent"
+    if all_instances is None:
+        raise ValueError("SWE-bench requires the full instance set")
+    resolved_ids = data.get("resolved_ids")
+    if not isinstance(resolved_ids, list) or any(
+        not isinstance(instance_id, str) for instance_id in resolved_ids
+    ):
+        raise ValueError(f"Expected a resolved_ids list of strings in {report_path}")
+    resolved = set(resolved_ids)
+    if resolved - all_instances:
+        raise ValueError(f"Report contains IDs outside the dataset: {report_path}")
+    return {instance_id: instance_id in resolved for instance_id in all_instances}
+
+
+def summarize_config(
+    config: str, run1: Dict[str, bool], run2: Dict[str, bool]
+) -> ConfigResult:
+    """Partition instances observed in both runs by their paired outcomes."""
+    common = run1.keys() & run2.keys()
+    return ConfigResult(
+        config=config,
+        run1=run1,
+        run2=run2,
+        both_resolved={i for i in common if run1[i] and run2[i]},
+        both_unresolved={i for i in common if not run1[i] and not run2[i]},
+        inconsistent={i for i in common if run1[i] != run2[i]},
+    )
+
+
+def load_config_names() -> Dict[str, str]:
+    """Load CONFIG_NAME_MAP; fall back to raw names if the file is absent."""
+    name_map = Path(__file__).resolve().parent / "visualize" / "name_map.json"
+    try:
+        with name_map.open(encoding="utf-8") as stream:
+            return json.load(stream).get("CONFIG_NAME_MAP", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def format_rate(resolved: int, total: int) -> str:
+    return f"{resolved / total:.2%}" if total else "N/A"
+
+
+def pass_k_metrics(
+    result: ConfigResult, total: int, k: int = 2
+) -> Tuple[float, float]:
+    """Pass@k (Reach) and pass^k (Consistency) averaged over `total` instances.
+
+    With n=2 runs per instance and c resolved, per-instance estimates are
+    pass@k = 1 - C(n-c, k)/C(n, k) and pass^k = C(c, k)/C(n, k). `total` is a
+    shared dividend across configs (the largest paired count); instances absent
+    from a config's report count as c=0, so they add nothing to either sum but
+    still occupy the denominator -- i.e. treated as both-unresolved.
+    """
+    n = 2
+    denom = comb(n, k)
+    if not total or denom == 0:
+        return float("nan"), float("nan")
+    reach = consistency = 0.0
+    for instance in result.run1.keys() & result.run2.keys():
+        c = int(result.run1[instance]) + int(result.run2[instance])
+        reach += 1 - comb(n - c, k) / denom
+        consistency += comb(c, k) / denom
+    return reach / total, consistency / total
+
+
+def format_fraction(value: float) -> str:
+    return "N/A" if value != value else f"{value:.2%}"
+
+
+def print_comparison(
+    baseline: ConfigResult,
+    comparison: ConfigResult,
+    names: Dict[str, str],
+) -> None:
+    """Compare outcomes only where both configurations are deterministic."""
+    base_name = names.get(baseline.config, baseline.config)
+    comp_name = names.get(comparison.config, comparison.config)
+    shared = baseline.deterministic & comparison.deterministic
+    baseline_resolved = baseline.both_resolved & shared
+    comparison_resolved = comparison.both_resolved & shared
+    baseline_unresolved = baseline.both_unresolved & shared
+
+    print(f"\nDetailed comparison: {base_name} vs {comp_name}")
+    print(f"Intersection of their deterministic subsets: {len(shared)}")
+    if not shared:
+        print("No shared deterministic instances to compare.")
+        return
+
+    print(f"Both resolved: {len(baseline_resolved & comparison_resolved)}")
+    print(f"Only {base_name} resolved: {len(baseline_resolved - comparison_resolved)}")
+    print(f"Only {comp_name} resolved: {len(comparison_resolved - baseline_resolved)}")
+    print(f"Both unresolved: {len(shared - baseline_resolved - comparison_resolved)}")
+    for label, subset in (
+        (f"{base_name} resolved", baseline_resolved),
+        (f"{base_name} unresolved", baseline_unresolved),
+    ):
+        count = len(comparison_resolved & subset)
+        print(
+            f"{comp_name} success where {label}: "
+            f"{count}/{len(subset)} ({format_rate(count, len(subset))})"
+        )
+
+
+def analyze_non_determinism(
+    dataset: str = "swebench-pro",
+    model: str = "deepseek-chat-v3-0324",
+    baseline_config: str = "default",
+    comparison_config: str = "refiner",
+    configs_to_compare: Optional[List[str]] = None,
+    version: str = "5",
+    project_root: Optional[Path] = None,
+) -> Dict[str, ConfigResult]:
+    """Load two runs per config and report each config's own subset rate."""
+    root = Path(project_root) if project_root is not None else Path(__file__).resolve().parent.parent
+    if dataset == "swebench":
+        from datasets import load_dataset
+
+        agent_dir = root / "SWE-agent"
+        all_instances = set(
+            load_dataset("princeton-nlp/SWE-bench_Verified", split="test")["instance_id"]
+        )
+    elif dataset == "swebench-pro":
+        agent_dir = root / "SWE-bench_Pro-os" / "SWE-agent"
+        all_instances = None
     else:
         raise ValueError(f"Unknown dataset: {dataset}")
 
     if configs_to_compare is None:
-        configs_to_compare = ['sage', 'monitor', 'refiner-only', 'refiner']
+        configs_to_compare = ["sage", "monitor", "refiner-only", "refiner"]
+    configs = list(dict.fromkeys([baseline_config, *configs_to_compare]))
+    names = load_config_names()
+    results = {}
+    errors = {}
+    for config in configs:
+        try:
+            runs = [
+                load_report_map(
+                    agent_dir, config, dataset, model, run_id, version, all_instances
+                )
+                for run_id in (1, 2)
+            ]
+            results[config] = summarize_config(config, *runs)
+        except (OSError, ValueError) as error:
+            errors[config] = str(error)
 
-    print(f"\n{'='*70}")
-    print(f"Non-Determinism Analysis")
-    print(f"{'='*70}")
-    print(f"Dataset: {dataset}")
-    print(f"Model: {model}")
-    print(f"Baseline config: {baseline_config}")
-    print(f"Configs to compare: {configs_to_compare}")
-    print(f"Detailed analysis config: {comparison_config}")
-    print(f"Version: {version}")
-    print(f"{'='*70}\n")
+    print(f"Dataset: {dataset} | Model: {model} | Refiner version: {version}")
+    print("Each row uses that configuration's own deterministic subset (runs 1 and 2).")
+    if dataset == "swebench":
+        print("Assumption: each existing report covers the full Verified test set.")
+    print(
+        f"\n{'Config':<20} {'Subset':>7} {'Resolved':>9} {'Success':>9} "
+        f"{'pass@2':>9} {'pass^2':>9}"
+    )
+    print("-" * 92)
+    shared_total = max(
+        (len(r.run1.keys() & r.run2.keys()) for r in results.values()), default=0
+    )
+    for config in configs:
+        name = names.get(config, config)
+        if config in errors:
+            print(f"{name:<20} unavailable")
+            continue
+        result = results[config]
+        size = len(result.deterministic)
+        resolved = len(result.both_resolved)
+        reach, consistency = pass_k_metrics(result, shared_total, k=2)
+        print(
+            f"{name:<20} {size:>7} {resolved:>9} "
+            f"{format_rate(resolved, size):>9} "
+            f"{format_fraction(reach):>9} {format_fraction(consistency):>9}"
+        )
+    print("Subset = both resolved + both unresolved; success = resolved / subset.")
+    print("Subset membership and size can differ across configurations.")
+    print(
+        f"pass@2 (Reach) / pass^2 (Consistency) share one dividend "
+        f"({shared_total}, the largest paired count); missing = unresolved (k=2, n=2)."
+    )
+    for config, error in errors.items():
+        print(f"\n{names.get(config, config)}: {error}")
 
-    # Load baseline runs
-    print(f"Loading {baseline_config} run-1...")
-    baseline_run1 = load_report(agent_dir, baseline_config, dataset, model, run_id=1, version=version)
-    print(f"  Resolved: {len(baseline_run1)}")
-
-    print(f"Loading {baseline_config} run-2...")
-    baseline_run2 = load_report(agent_dir, baseline_config, dataset, model, run_id=2, version=version)
-    print(f"  Resolved: {len(baseline_run2)}")
-
-    if not baseline_run1 or not baseline_run2:
-        print("\nError: Missing baseline data for one or both runs")
-        return
-
-    # Get all instances
-    all_instances = get_all_instances(dataset)
-    print(f"\nTotal instances in dataset: {len(all_instances)}")
-
-    # Find consistent instances
-    both_resolved = baseline_run1 & baseline_run2
-    both_unresolved = (all_instances - baseline_run1) & (all_instances - baseline_run2)
-    consistent_instances = both_resolved | both_unresolved
-
-    inconsistent_instances = all_instances - consistent_instances
-
-    print(f"\nConsistency Analysis ({baseline_config}):")
-    print(f"  Both resolved: {len(both_resolved)}")
-    print(f"  Both unresolved: {len(both_unresolved)}")
-    print(f"  Consistent total: {len(consistent_instances)} ({len(consistent_instances)/len(all_instances)*100:.1f}%)")
-    print(f"  Inconsistent: {len(inconsistent_instances)} ({len(inconsistent_instances)/len(all_instances)*100:.1f}%)")
-
-    # Load all configs to compare
-    print(f"\nLoading configs for comparison:")
-    config_results = {}
-
-    for config in configs_to_compare:
-        print(f"  Loading {config} run-1...")
-        resolved = load_report(agent_dir, config, dataset, model, run_id=1, version=version)
-        if resolved:
-            print(f"    Resolved: {len(resolved)}")
-            config_results[config] = resolved
-        else:
-            print(f"    No data found")
-
-    if not config_results:
-        print(f"\nError: No config data found")
-        return
-
-    # Compute success rates on consistent subset
-    baseline_consistent_resolved = both_resolved
-
-    print(f"\n{'='*70}")
-    print(f"Results on Consistent Subset ({len(consistent_instances)} instances)")
-    print(f"{'='*70}")
-
-    # Print table header
-    print(f"\n{'Config':<20} {'Resolved':>10} {'Success Rate':>15} {'Available':>12}")
-    print(f"{'-'*60}")
-
-    # Baseline row
-    print(f"{baseline_config:<20} {len(baseline_consistent_resolved):>10} "
-          f"{len(baseline_consistent_resolved)/len(consistent_instances)*100:>14.2f}% {'Yes':>12}")
-
-    # Other config rows
-    for config in configs_to_compare:
-        if config in config_results:
-            resolved_on_consistent = config_results[config] & consistent_instances
-            success_rate = len(resolved_on_consistent) / len(consistent_instances) * 100
-            print(f"{config:<20} {len(resolved_on_consistent):>10} {success_rate:>14.2f}% {'Yes':>12}")
-        else:
-            print(f"{config:<20} {'-':>10} {'-':>15} {'No':>12}")
-
-    # Compare with full dataset results
-    print(f"\n{'='*70}")
-    print(f"Comparison with Full Dataset Results")
-    print(f"{'='*70}")
-    print(f"\n{'Config':<20} {'Full Dataset':>15} {'Consistent':>15} {'Difference':>12}")
-    print(f"{'-'*65}")
-
-    baseline_full_rate = len(baseline_run1) / len(all_instances) * 100
-    baseline_consistent_rate = len(baseline_consistent_resolved) / len(consistent_instances) * 100
-    baseline_diff = baseline_consistent_rate - baseline_full_rate
-    print(f"{baseline_config:<20} {baseline_full_rate:>14.2f}% {baseline_consistent_rate:>14.2f}% {baseline_diff:>11.2f}%")
-
-    for config in configs_to_compare:
-        if config in config_results:
-            full_rate = len(config_results[config]) / len(all_instances) * 100
-            consistent_resolved = config_results[config] & consistent_instances
-            consistent_rate = len(consistent_resolved) / len(consistent_instances) * 100
-            diff = consistent_rate - full_rate
-            print(f"{config:<20} {full_rate:>14.2f}% {consistent_rate:>14.2f}% {diff:>11.2f}%")
-
-    # Detailed analysis for comparison_config (if available)
-    if comparison_config in config_results:
-        comparison_resolved = config_results[comparison_config]
-        comparison_consistent_resolved = comparison_resolved & consistent_instances
-
-        # Additional analysis: unique resolutions
-        unique_to_comparison = comparison_consistent_resolved - baseline_consistent_resolved
-        unique_to_baseline = baseline_consistent_resolved - comparison_consistent_resolved
-        overlap = baseline_consistent_resolved & comparison_consistent_resolved
-
-        print(f"\n{'='*70}")
-        print(f"Resolution Overlap: {baseline_config} vs {comparison_config}")
-        print(f"{'='*70}")
-        print(f"Both configs resolved: {len(overlap)}")
-        print(f"Only {comparison_config} resolved: {len(unique_to_comparison)}")
-        print(f"Only {baseline_config} resolved: {len(unique_to_baseline)}")
-
-        # Analysis on subsets: resolved vs unresolved by baseline
-        comparison_resolved_on_baseline_resolved = comparison_resolved & both_resolved
-        comparison_resolved_on_baseline_unresolved = comparison_resolved & both_unresolved
-
-        print(f"\n{'='*70}")
-        print(f"{comparison_config} Performance by Baseline Result")
-        print(f"{'='*70}")
-        print(f"On instances {baseline_config} resolved (both runs):")
-        print(f"  Total: {len(both_resolved)}")
-        print(f"  {comparison_config} also resolved: {len(comparison_resolved_on_baseline_resolved)}")
-        print(f"  Resolve rate: {len(comparison_resolved_on_baseline_resolved)/len(both_resolved)*100:.2f}%")
-
-        print(f"\nOn instances {baseline_config} failed (both runs):")
-        print(f"  Total: {len(both_unresolved)}")
-        print(f"  {comparison_config} resolved: {len(comparison_resolved_on_baseline_unresolved)}")
-        print(f"  Resolve rate: {len(comparison_resolved_on_baseline_unresolved)/len(both_unresolved)*100:.2f}%")
+    if baseline_config in results and comparison_config in results:
+        print_comparison(
+            results[baseline_config], results[comparison_config], names
+        )
+    return results
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Analyze non-determinism and compare configs on consistent subset')
-    parser.add_argument('--dataset', type=str, default='swebench',
-                       choices=['swebench', 'swebench-pro'],
-                       help='Dataset name')
-    parser.add_argument('--model', type=str, default='deepseek-chat-v3-0324',
-                       help='Model name')
-    parser.add_argument('--baseline', type=str, default='default',
-                       help='Baseline config (default: default)')
-    parser.add_argument('--configs', nargs='+',
-                       default=['sage', 'monitor', 'refiner-only', 'refiner'],
-                       help='Configs to compare (default: sage monitor refiner-only refiner)')
-    parser.add_argument('--comparison', type=str, default='refiner',
-                       help='Config for detailed U-R analysis (default: refiner)')
-    parser.add_argument('--version', type=str, default='5',
-                       help='Version for refiner configs')
-
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset", default="swebench-pro", choices=["swebench", "swebench-pro"])
+    parser.add_argument("--model", default="deepseek-chat-v3-0324")
+    parser.add_argument("--baseline", default="default", help="Config shown first and used for detailed comparison")
+    parser.add_argument("--configs", nargs="+", default=["sage", "monitor", "refiner-only", "refiner"])
+    parser.add_argument("--comparison", default="refiner", help="Detailed comparison config; must also be in --configs")
+    parser.add_argument("--version", default="5", help="Version for refiner and refiner-only")
+    parser.add_argument("--project-root", type=Path, help="Directory containing SWE-agent and SWE-bench_Pro-os (default: script's grandparent)")
     args = parser.parse_args()
-
     analyze_non_determinism(
         dataset=args.dataset,
         model=args.model,
         baseline_config=args.baseline,
         comparison_config=args.comparison,
         configs_to_compare=args.configs,
-        version=args.version
+        version=args.version,
+        project_root=args.project_root,
     )
 
 

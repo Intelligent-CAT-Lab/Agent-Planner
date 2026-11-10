@@ -8,6 +8,11 @@
 #   * SWE-bench      -> SWE-agent/                      (swe-rex >= 1.4.0, local Docker)
 #   * SWE-bench-Pro  -> SWE-bench_Pro-os/SWE-agent/     (swe-rex[modal] == 1.2.0, Modal)
 #
+# NOTE: the Pro fork's swe-rex 1.2.0 drives Modal through its *blocking* API, so
+# it requires modal==1.2.4 (pinned in SWE-bench_Pro-os/SWE-agent/pyproject.toml).
+# modal>=1.5 enforces async usage and breaks that path (sandbox tunnel not ready
+# -> RemoteDisconnected on startup). This is the planner-v1 combo.
+#
 # Each env also gets this repo installed editable, which provides the shared
 # LivePlan code: `adapters`, `plan_monitor`, `plan_refiner`.
 #
@@ -58,6 +63,17 @@ setup_env() {
 
     echo "==> [$env_name] installing fork: $fork_path"
     "${run[@]}" python -m pip install -e "$fork_path"   # `sweagent` + its pinned swe-rex
+
+    # The Pro fork drives Modal with the stock swe-rex 1.2.0, which does NOT reset
+    # the base image's ENTRYPOINT. The SWE-bench-Pro images (jefzda/sweap-images)
+    # set ENTRYPOINT ["/bin/bash"], so swe-rex's `Sandbox.create("/bin/bash", ...)`
+    # becomes `/bin/bash /bin/bash -c ...` -> "cannot execute binary file" and the
+    # sandbox dies on startup. swerex_patches/ vendors a swe-rex that adds
+    # `.entrypoint([])` (and a pyenv 3.11 runtime); apply it to this env's swe-rex.
+    if [[ -f "$fork_path/swerex_patches/patch.py" ]]; then
+        echo "==> [$env_name] applying swe-rex patches (ENTRYPOINT reset for Modal)"
+        "${run[@]}" python "$fork_path/swerex_patches/patch.py" --yes
+    fi
 
     echo "==> [$env_name] installing shared LivePlan code (adapters/plan_monitor/plan_refiner)"
     "${run[@]}" python -m pip install -e "$REPO_ROOT"   # this repo editable

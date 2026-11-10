@@ -1,1016 +1,298 @@
 """
-Comprehensive analysis of pattern resolution comparing vanilla and planner runs (monitor/refiner).
+Analyze pattern-resolution data into the detailed-analysis JSON, from the tidy table
+written by ``analysis/collect_pattern_resolution.py``.
 
-Analyzes:
-1. Overall resolution statistics (R-R, R-U, U-R, U-U)
-2. Trigger status breakdown
-3. Instance-level details for U-R and R-U cases
-4. Cost and step comparisons
-5. Pattern analysis
+Output is a DROP-IN for the legacy detailed-analysis JSON (same ``config`` / ``summary`` /
+``category_details`` schema, same per-instance ``vanilla``+``<config>`` entries, same
+``planner_stats``, written to the same ``comparison/detailed-analysis/<config>/`` path), so
+the visualize/ and other downstream consumers are unaffected. The ONLY thing that changes is
+the SIGNALS: ``patterns`` is now sourced from the production GL-Guard replay instead of the
+deprecated monitor + CSV text-matching. The legacy 7 pattern names are preserved (as
+buckets, same semantics) and the finer GL-Guard signals are added alongside — so downstream
+reads its familiar keys and gains the precise ones ("our updated version's signals may be
+more"). ``planner_stats`` (the online intervention record) is still recorded, with precise
+``rule_ids`` from ``rule_triggers`` (decomposed on gl_guard runs; legacy names + the
+``plan_violation`` exclusion-recovery on v5).
 
-Usage:
-    python analysis/analyze_pattern_resolution.py --agent SWE-agent --model deepseek-chat-v3-0324 --dataset swebench --config refiner
-    python analysis/analyze_pattern_resolution.py --agent SWE-agent --model deepseek-chat-v3-0324 --dataset swebench --config monitor
+Example:
+  python analysis/analyze_pattern_resolution.py --agent SWE-agent \
+      --model deepseek-chat-v3-0324 --dataset swebench --config monitor refiner-only refiner
 """
+from __future__ import annotations
 
-import json
-import csv
 import argparse
+import json
+import sys
+from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
-from collections import defaultdict, Counter
-from dataclasses import dataclass, asdict
-
-
-@dataclass
-class InstanceData:
-    """Data structure for a single instance run."""
-    instance_id: str
-    resolved: bool
-    has_issue: bool
-    patterns: Dict[str, bool]
-    lang: str
-    unique_phases: str
-    cost: float
-    steps: int
-    has_planner: bool = False
-    overlapping_issues: List[str] = None
-
-    def __post_init__(self):
-        if self.overlapping_issues is None:
-            self.overlapping_issues = []
-
-
-@dataclass
-class ComparisonResult:
-    """Results comparing vanilla and planner runs."""
-    category: str  # R-R, R-U, U-R, U-U
-    count: int
-    percentage: float
-    instances: List[Dict]
-    avg_vanilla_cost: float
-    avg_planner_cost: float
-    avg_vanilla_steps: float
-    avg_planner_steps: float
-    pattern_distribution: Dict[str, int]
-
-
-class CSVParser:
-    """Smart CSV parser that dynamically detects column structure."""
-
-    def __init__(self, csv_path: Path):
-        self.csv_path = csv_path
-        self.header_rows = []
-        self.data_rows = []
-        self.column_map = {}
-        self._load_csv()
-        self._detect_structure()
-
-    def _load_csv(self):
-        """Load CSV and separate headers from data."""
-        with open(self.csv_path, 'r') as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-
-        # First 3 rows are headers
-        self.header_rows = rows[:3]
-        self.data_rows = rows[3:]
-
-    def _detect_structure(self):
-        """
-        Detect which columns correspond to which configs.
-
-        Expected structure:
-        - Vanilla Run: 10 columns (no trigger status)
-        - Monitor Run: 12 columns (includes trigger status)
-        - Refiner/Live-Plan Run: 12 columns (includes trigger status)
-        """
-        # Parse header row 1 to find config sections
-        header1 = self.header_rows[0]
-        header2 = self.header_rows[1]
-
-        current_col = 0
-        config_sections = {}
-
-        # Skip Instance ID column
-        current_col = 1
-
-        # Identify sections by header row 1
-        while current_col < len(header1):
-            section_name = header1[current_col].strip()
-            if not section_name:
-                current_col += 1
-                continue
-
-            section_start = current_col
-
-            # Determine section width based on config type
-            # Baseline configs: 13 columns (removed long_stagnation, added 4 dwell sub-patterns = net +3)
-            # Planner configs: 15 columns (removed long_stagnation, added 4 dwell sub-patterns = net +3)
-            if 'Vanilla Run' in section_name and 'Re-run' not in section_name and 'Monitor' not in section_name:
-                section_width = 13  # Updated from 10: 2 + 7 patterns + 4 = 13
-                config_sections['vanilla'] = (section_start, section_start + section_width)
-            elif 'Sage Run' in section_name:
-                section_width = 13  # Updated from 10: 2 + 7 patterns + 4 = 13
-                config_sections['sage'] = (section_start, section_start + section_width)
-            elif 'Monitor Run' in section_name or 'Monitor' in section_name:
-                section_width = 15  # Updated from 12: 4 + 7 patterns + 4 = 15
-                config_sections['monitor'] = (section_start, section_start + section_width)
-            elif 'Refiner-Only Run' in section_name:
-                section_width = 15  # Updated from 12: 4 + 7 patterns + 4 = 15
-                config_sections['refiner-only'] = (section_start, section_start + section_width)
-            elif 'Live-Plan' in section_name or 'Refiner' in section_name:
-                section_width = 15  # Updated from 12: 4 + 7 patterns + 4 = 15
-                config_sections['refiner'] = (section_start, section_start + section_width)
-            else:
-                # Unknown section, skip
-                section_width = 1
-
-            current_col = section_start + section_width
-
-        self.column_map = config_sections
-
-    def has_config(self, config: str) -> bool:
-        """Check if a config section exists in the CSV."""
-        return config in self.column_map
-
-    def parse_baseline_data(self, row: List[str], config: str = 'vanilla') -> Optional[InstanceData]:
-        """
-        Parse baseline run data (vanilla or sage) from a row.
-
-        Baseline structure (13 columns):
-        0: Resolution Status
-        1: Has Issue
-        2-8: Patterns (plan_violation, oscillation, dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V, repeated view)
-        9: Lang
-        10: Unique Phases
-        11: Cost
-        12: Steps
-        """
-        if config not in self.column_map:
-            return None
-
-        start, end = self.column_map[config]
-        if len(row) <= start or not row[start]:
-            return None
-
-        try:
-            instance_id = row[0]
-            resolved = row[start] == '1'
-            has_issue = row[start + 1] == '1'
-            patterns = {
-                'plan_violation': row[start + 2] == '1',
-                'oscillation': row[start + 3] == '1',
-                'dwell_L_navigate': row[start + 4] == '1',
-                'dwell_L_reproduce': row[start + 5] == '1',
-                'dwell_P': row[start + 6] == '1',
-                'dwell_V': row[start + 7] == '1',
-                'repeated_view': row[start + 8] == '1'
-            }
-            lang = row[start + 9] if len(row) > start + 9 else ''
-            unique_phases = row[start + 10] if len(row) > start + 10 else ''
-            cost = float(row[start + 11]) if len(row) > start + 11 and row[start + 11] else 0.0
-            steps = int(row[start + 12]) if len(row) > start + 12 and row[start + 12] else 0
-
-            return InstanceData(
-                instance_id=instance_id,
-                resolved=resolved,
-                has_issue=has_issue,
-                patterns=patterns,
-                lang=lang,
-                unique_phases=unique_phases,
-                cost=cost,
-                steps=steps
-            )
-        except (ValueError, IndexError) as e:
-            print(f"Warning: Error parsing {config} data for row: {e}")
-            return None
-
-    def parse_vanilla_data(self, row: List[str]) -> Optional[InstanceData]:
-        """Parse vanilla run data from a row."""
-        return self.parse_baseline_data(row, 'vanilla')
-
-    def parse_sage_data(self, row: List[str]) -> Optional[InstanceData]:
-        """Parse sage run data from a row."""
-        return self.parse_baseline_data(row, 'sage')
-
-    def parse_planner_data(self, row: List[str], config: str) -> Optional[InstanceData]:
-        """
-        Parse monitor/refiner run data from a row.
-
-        Structure (15 columns per section):
-        0: Trigger Status
-        1: Resolution Status
-        2: Has Issue
-        3: Overlapping issues
-        4-10: Patterns (plan_violation, oscillation, dwell_L_navigate, dwell_L_reproduce, dwell_P, dwell_V, repeated view)
-        11: Lang
-        12: Unique Phases
-        13: Cost
-        14: Steps
-        """
-        if config not in self.column_map:
-            return None
-
-        start, end = self.column_map[config]
-        if len(row) <= start or not row[start]:
-            return None
-
-        try:
-            instance_id = row[0]
-            has_planner = row[start] == '1'
-            resolved = row[start + 1] == '1' if len(row) > start + 1 else False
-            has_issue = row[start + 2] == '1' if len(row) > start + 2 else False
-            overlapping_str = row[start + 3] if len(row) > start + 3 else ''
-            overlapping_issues = overlapping_str.split(',') if overlapping_str else []
-            patterns = {
-                'plan_violation': row[start + 4] == '1' if len(row) > start + 4 else False,
-                'oscillation': row[start + 5] == '1' if len(row) > start + 5 else False,
-                'dwell_L_navigate': row[start + 6] == '1' if len(row) > start + 6 else False,
-                'dwell_L_reproduce': row[start + 7] == '1' if len(row) > start + 7 else False,
-                'dwell_P': row[start + 8] == '1' if len(row) > start + 8 else False,
-                'dwell_V': row[start + 9] == '1' if len(row) > start + 9 else False,
-                'repeated_view': row[start + 10] == '1' if len(row) > start + 10 else False
-            }
-            lang = row[start + 11] if len(row) > start + 11 else ''
-            unique_phases = row[start + 12] if len(row) > start + 12 else ''
-            cost = float(row[start + 13]) if len(row) > start + 13 and row[start + 13] else 0.0
-            steps = int(row[start + 14]) if len(row) > start + 14 and row[start + 14] else 0
-
-            return InstanceData(
-                instance_id=instance_id,
-                resolved=resolved,
-                has_issue=has_issue,
-                patterns=patterns,
-                lang=lang,
-                unique_phases=unique_phases,
-                cost=cost,
-                steps=steps,
-                has_planner=has_planner,
-                overlapping_issues=overlapping_issues
-            )
-        except (ValueError, IndexError) as e:
-            print(f"Warning: Error parsing {config} data for row: {e}")
-            return None
-
-
-class PatternAnalyzer:
-    """Analyzer for pattern resolution data."""
-
-    PATTERN_TYPES = ['plan_violation', 'oscillation', 'dwell_L_navigate', 'dwell_L_reproduce', 'dwell_P', 'dwell_V', 'repeated_view']
-    BASELINE_CONFIGS = ['vanilla', 'sage']  # Configs without trigger status (10 columns)
-    PLANNER_CONFIGS = ['monitor', 'refiner-only', 'refiner']  # Configs with trigger status (12 columns)
-
-    def __init__(self, csv_path: Path, config: str, agent_dir: Path = None,
-                 model: str = None, dataset: str = None, run_id: int = 1, version: str = '5'):
-        self.csv_path = csv_path
-        self.config = config  # 'vanilla', 'sage', 'monitor', 'refiner', or 'refiner-only'
-        self.is_baseline = config in self.BASELINE_CONFIGS
-        self.agent_dir = agent_dir
-        self.model = model
-        self.dataset = dataset
-        self.run_id = run_id
-        self.version = version
-        self.vanilla_data: Dict[str, InstanceData] = {}
-        self.planner_data: Dict[str, InstanceData] = {}
-        self._load_data()
-
-    def _load_data(self):
-        """Load and parse CSV data using smart parser."""
-        parser = CSVParser(self.csv_path)
-
-        # Auto-detect baseline: prefer vanilla, fallback to sage
-        baseline_config = 'vanilla' if parser.has_config('vanilla') else ('sage' if parser.has_config('sage') else None)
-
-        if not baseline_config:
-            print("Warning: No baseline data (vanilla or sage) found in CSV")
-
-        if not parser.has_config(self.config):
-            raise ValueError(f"Config '{self.config}' not found in CSV. Available: {list(parser.column_map.keys())}")
-
-        # Parse all data rows
-        for row in parser.data_rows:
-            if not row or not row[0]:
-                continue
-
-            instance_id = row[0]
-
-            # Parse baseline data (vanilla or sage) for comparison
-            if baseline_config:
-                if baseline_config == 'sage':
-                    baseline = parser.parse_sage_data(row)
-                else:
-                    baseline = parser.parse_vanilla_data(row)
-
-                if baseline:
-                    self.vanilla_data[instance_id] = baseline
-
-            # Parse target config data
-            if self.is_baseline:
-                # Target is also a baseline (vanilla or sage comparison)
-                if self.config == 'sage':
-                    target = parser.parse_sage_data(row)
-                else:
-                    target = parser.parse_vanilla_data(row)
-                if target:
-                    self.planner_data[instance_id] = target
-            else:
-                # Target is a planner config (monitor, refiner, refiner-only)
-                planner = parser.parse_planner_data(row, self.config)
-                if planner:
-                    self.planner_data[instance_id] = planner
-
-    def _load_planner_json(self, instance_id: str) -> Optional[Dict]:
-        """Load planner.json for a given instance."""
-        if not self.agent_dir or not self.model or not self.dataset:
-            return None
-
-        dataset_path = self.dataset if self.dataset != 'swebench-pro' else f"{self.dataset}/python"
-
-        # Baseline configs don't have planner.json
-        if self.is_baseline:
-            return None
-
-        # Map config to trajectory path
-        if self.config in ['refiner', 'refiner-only'] and self.version:
-            planner_path = (self.agent_dir / "trajectories" / self.config / f"version-{self.version}" /
-                          dataset_path / self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.planner.json")
-        else:
-            planner_path = (self.agent_dir / "trajectories" / self.config / dataset_path /
-                          self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.planner.json")
-
-        if not planner_path.exists():
-            return None
-
-        try:
-            with open(planner_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Warning: Error loading planner.json for {instance_id}: {e}")
-            return None
-
-    def _classify_monitor_trigger(self, content: str) -> str:
-        """
-        Classify monitor trigger content into specific rule IDs from default_rules.json.
-
-        Uses refiner naming convention for consistency:
-        - oscillation_self_loop (not oscillations_self_loop)
-        - oscillation_two_plus_node (not oscillations_two_node_cycle)
-        - thought_oscillation_self_loop
-        - thought_oscillation_cycle
-        """
-        content_lower = content.lower()
-
-        # plan_compliance (line 8)
-        if 'plan compliance' in content_lower or 'skipped phases' in content_lower:
-            return 'plan_violation'
-
-        # dwell_times rules (lines 26-43)
-        if 'seem to navigate' in content_lower or 'navigate between files' in content_lower:
-            return 'dwell_L_navigate'
-        if 'trying to reproduce' in content_lower:
-            return 'dwell_L_reproduce'
-        if 'spent the last' in content_lower and 'editing' in content_lower:
-            return 'dwell_P'
-        if 'spent the last' in content_lower and 'validating' in content_lower:
-            return 'dwell_V'
-
-        # oscillations rules (lines 45-59) - use refiner naming
-        if 'repeating action' in content_lower and 'last trajectory' in content_lower:
-            return 'oscillation_self_loop'
-        if 'repeated actions' in content_lower and 'revisiting' in content_lower:
-            return 'oscillation_two_plus_node'
-
-        # thought_oscillation rules (lines 68-82)
-        if 'repeating the same reasoning' in content_lower or 'circular reasoning' in content_lower:
-            return 'thought_oscillation_self_loop'
-        if 'oscillating between' in content_lower and 'reasoning patterns' in content_lower:
-            return 'thought_oscillation_cycle'
-
-        # max_repeats_rule (shared by oscillations line 50 and thought_oscillation line 72)
-        if 'cannot make further progress' in content_lower:
-            return 'oscillation_max_repeats'
-
-        # repeated_action.repeated_view (line 63)
-        if 'already reviewed this location' in content_lower or 'have already reviewed' in content_lower:
-            return 'repeated_view'
-
-        return 'unknown'
-
-    def _load_trajectory(self, instance_id: str) -> Optional[Dict]:
-        """Load trajectory file for a given instance."""
-        if not self.agent_dir or not self.model or not self.dataset:
-            return None
-
-        dataset_path = self.dataset if self.dataset != 'swebench-pro' else f"{self.dataset}/python"
-
-        # Map config to trajectory path
-        if self.config == 'vanilla':
-            config_path = 'default'
-        elif self.config == 'sage':
-            config_path = 'sage'
-        else:
-            config_path = self.config
-
-        if self.config in ['refiner', 'refiner-only'] and self.version:
-            traj_path = (self.agent_dir / "trajectories" / config_path / f"version-{self.version}" /
-                        dataset_path / self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.traj")
-        else:
-            traj_path = (self.agent_dir / "trajectories" / config_path / dataset_path /
-                        self.model / f"run-{self.run_id}" / instance_id / f"{instance_id}.traj")
-
-        if not traj_path.exists():
-            return None
-
-        try:
-            with open(traj_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Warning: Error loading trajectory for {instance_id}: {e}")
-            return None
-
-    def _find_next_action_after_intervention(self, intervention_step: int, intervention_content: str,
-                                              trajectory: List) -> Tuple[str, str]:
-        """
-        Find the next agent action after an intervention by searching for when this specific
-        intervention first appeared in the trajectory query messages.
-
-        Args:
-            intervention_step: The step index from planner.json where intervention occurred
-            intervention_content: The full content of the intervention
-            trajectory: The trajectory list from .traj file
-
-        Returns (next_action, next_thought)
-
-        Note: If multiple interventions point to the same next step, that's fine - it means
-        the agent took the same action in response to different interventions.
-        """
-        if not trajectory or intervention_step is None:
-            return '', ''
-
-        # Extract a unique signature from the intervention content
-        # Use first 80 chars after the header as a unique identifier
-        lines = intervention_content.split('\n')
-        if len(lines) > 2:
-            # Skip the header line and get the actual guidance content
-            unique_signature = '\n'.join(lines[2:4])[:80]
-        else:
-            unique_signature = intervention_content[:80]
-
-        # Search for this intervention in query messages
-        # Interventions persist in context, so we find where it was newly added (not in previous step)
-        # Search in a range around the intervention_step
-        search_start = max(0, intervention_step - 2)
-        search_end = min(len(trajectory), intervention_step + 5)
-
-        # Find all occurrences where this intervention first appeared (not in previous step)
-        new_occurrences = []
-        for idx in range(search_start, search_end):
-            step = trajectory[idx]
-            has_signature = False
-            for msg in step.get('query', []):
-                content_parts = msg.get('content', [])
-                # Handle both list of parts and direct string
-                if isinstance(content_parts, list):
-                    for part in content_parts:
-                        if isinstance(part, dict) and 'text' in part:
-                            if unique_signature in part['text']:
-                                has_signature = True
-                                break
-                elif isinstance(content_parts, str) and unique_signature in content_parts:
-                    has_signature = True
-                    break
-                if has_signature:
-                    break
-
-            # Check if this is a new occurrence (not in previous step)
-            if has_signature and (idx == 0 or not self._intervention_in_step(trajectory[idx - 1], unique_signature)):
-                new_occurrences.append(idx)
-
-        # Pick the occurrence closest to intervention_step
-        # This handles duplicate intervention content by matching based on step proximity
-        if new_occurrences:
-            first_occurrence_idx = min(new_occurrences, key=lambda x: abs(x - intervention_step))
-        else:
-            return '', ''
-
-        # Return the action from the step where intervention first appeared
-        # The intervention is injected INTO the query of a step, so the action/thought
-        # at that step is the agent's response to the intervention
-        if first_occurrence_idx < len(trajectory):
-            response_step = trajectory[first_occurrence_idx]
-            return response_step.get('action', ''), response_step.get('thought', '')
-
-        return '', ''
-
-    def _intervention_in_step(self, step: Dict, signature: str) -> bool:
-        """Check if an intervention signature exists in a step's query messages."""
-        for msg in step.get('query', []):
-            content_parts = msg.get('content', [])
-            if isinstance(content_parts, list):
-                for part in content_parts:
-                    if isinstance(part, dict) and 'text' in part:
-                        if signature in part['text']:
-                            return True
-            elif isinstance(content_parts, str) and signature in content_parts:
-                return True
-        return False
-
-    def _extract_planner_stats(self, planner_data: Dict, traj_data: Dict = None) -> Dict:
-        """Extract summary statistics from planner.json."""
-        if not planner_data:
-            return None
-
-        summary = planner_data.get('summary', {})
-        interventions = planner_data.get('interventions', [])
-        trajectory = traj_data.get('trajectory', []) if traj_data else []
-
-        # Extract intervention details
-        intervention_details = []
-        for intervention in interventions:
-            planner_type = intervention.get('planner_type')
-            step_idx = intervention.get('step')
-            content = intervention.get('content', '')
-
-            # Find next agent action by searching in trajectory
-            next_action, next_thought = self._find_next_action_after_intervention(step_idx, content, trajectory)
-
-            if planner_type == 'monitor':
-                intervention_details.append({
-                    'step': step_idx,
-                    'planner_type': 'monitor',
-                    'content': content[:200],
-                    'pattern': self._classify_monitor_trigger(content),
-                    'next_action': next_action,
-                    'next_thought': next_thought
-                })
-            elif planner_type == 'refiner':
-                rule_triggers = intervention.get('state_summary', {}).get('rule_triggers', [])
-                # Extract rule_id strings - handle both string and dict formats
-                rule_ids = []
-                if rule_triggers:
-                    for trigger in rule_triggers:
-                        if isinstance(trigger, dict):
-                            rule_ids.append(trigger.get('rule_id', 'unknown'))
-                        else:
-                            rule_ids.append(str(trigger))
-                else:
-                    rule_ids = ['plan_violation']
-
-                intervention_details.append({
-                    'step': step_idx,
-                    'planner_type': 'refiner',
-                    'content': content,
-                    'rule_ids': rule_ids,
-                    'next_action': next_action,
-                    'next_thought': next_thought
-                })
-
-        return {
-            'total_interventions': summary.get('total_interventions', 0),
-            'monitor_count': summary.get('monitor_count', 0),
-            'refiner_count': summary.get('refiner_count', 0),
-            'monitor_total_latency_ms': summary.get('monitor_total_latency_ms', 0.0),
-            'refiner_total_latency_ms': summary.get('refiner_total_latency_ms', 0.0),
-            'refiner_total_cost': summary.get('refiner_total_cost', 0.0),
-            'interventions': intervention_details
-        }
-
-    def _compute_pattern_stats(self) -> Dict:
-        """Compute pattern statistics for vanilla and config data."""
-        stats = {}
-
-        for name, data_dict in [('vanilla', self.vanilla_data), (self.config, self.planner_data)]:
-            with_patterns = sum(1 for d in data_dict.values() if any(d.patterns.values()))
-            plan_violation = sum(1 for d in data_dict.values() if d.patterns.get('plan_violation', False))
-            oscillation = sum(1 for d in data_dict.values() if d.patterns.get('oscillation', False))
-            dwell_L_navigate = sum(1 for d in data_dict.values() if d.patterns.get('dwell_L_navigate', False))
-            dwell_L_reproduce = sum(1 for d in data_dict.values() if d.patterns.get('dwell_L_reproduce', False))
-            dwell_P = sum(1 for d in data_dict.values() if d.patterns.get('dwell_P', False))
-            dwell_V = sum(1 for d in data_dict.values() if d.patterns.get('dwell_V', False))
-            repeated_view = sum(1 for d in data_dict.values() if d.patterns.get('repeated_view', False))
-
-            blocking = plan_violation + oscillation
-            non_blocking = dwell_L_navigate + dwell_L_reproduce + dwell_P + dwell_V + repeated_view
-
-            stats[name] = {
-                'with_patterns': with_patterns,
-                'blocking': blocking,
-                'plan_violation': plan_violation,
-                'oscillation': oscillation,
-                'non_blocking': non_blocking,
-                'dwell_L_navigate': dwell_L_navigate,
-                'dwell_L_reproduce': dwell_L_reproduce,
-                'dwell_P': dwell_P,
-                'dwell_V': dwell_V,
-                'repeated_view': repeated_view
-            }
-
-        return stats
-
-    def analyze_trigger_status(self) -> Dict:
-        """Analyze instances based on trigger status."""
-        triggered = [iid for iid, data in self.planner_data.items() if data.has_planner]
-        non_triggered = [iid for iid, data in self.planner_data.items() if not data.has_planner]
-
-        triggered_resolved = sum(1 for iid in triggered if self.planner_data[iid].resolved)
-        triggered_unresolved = len(triggered) - triggered_resolved
-
-        return {
-            'total_planner_instances': len(self.planner_data),
-            'triggered_count': len(triggered),
-            'triggered_percentage': len(triggered) / len(self.planner_data) * 100 if self.planner_data else 0,
-            'triggered_resolved': triggered_resolved,
-            'triggered_unresolved': triggered_unresolved,
-            'non_triggered_count': len(non_triggered)
-        }
-
-    def categorize_instances(self, triggered_only: bool = True) -> Dict[str, List[str]]:
-        """Categorize instances by resolution pattern (R-R, R-U, U-R, U-U)."""
-        categories = {
-            'R-R': [],  # Resolved -> Resolved
-            'R-U': [],  # Resolved -> Unresolved
-            'U-R': [],  # Unresolved -> Resolved
-            'U-U': []   # Unresolved -> Unresolved
-        }
-
-        # Get instances to analyze
-        if triggered_only:
-            instances_to_check = [iid for iid, data in self.planner_data.items() if data.has_planner]
-        else:
-            instances_to_check = list(self.planner_data.keys())
-
-        for instance_id in instances_to_check:
-            if instance_id not in self.vanilla_data:
-                continue
-
-            vanilla = self.vanilla_data[instance_id]
-            planner = self.planner_data[instance_id]
-
-            if vanilla.resolved and planner.resolved:
-                categories['R-R'].append(instance_id)
-            elif vanilla.resolved and not planner.resolved:
-                categories['R-U'].append(instance_id)
-            elif not vanilla.resolved and planner.resolved:
-                categories['U-R'].append(instance_id)
-            else:
-                categories['U-U'].append(instance_id)
-
-        return categories
-
-    def analyze_category_details(self, category: str, instance_ids: List[str]) -> ComparisonResult:
-        """Detailed analysis for a specific category."""
-        instances_detail = []
-        vanilla_costs = []
-        planner_costs = []
-        vanilla_steps_list = []
-        planner_steps_list = []
-        pattern_counter = Counter()
-
-        for iid in instance_ids:
-            if iid not in self.vanilla_data or iid not in self.planner_data:
-                continue
-
-            vanilla = self.vanilla_data[iid]
-            planner = self.planner_data[iid]
-
-            vanilla_costs.append(vanilla.cost)
-            planner_costs.append(planner.cost)
-            vanilla_steps_list.append(vanilla.steps)
-            planner_steps_list.append(planner.steps)
-
-            # Count patterns in vanilla run
-            for pattern, triggered in vanilla.patterns.items():
-                if triggered:
-                    pattern_counter[pattern] += 1
-
-            # Load planner stats if has_planner
-            planner_stats = None
-            if planner.has_planner:
-                planner_data_json = self._load_planner_json(iid)
-                traj_data_json = self._load_trajectory(iid)
-                planner_stats = self._extract_planner_stats(planner_data_json, traj_data_json)
-
-            planner_detail = {
-                'resolved': planner.resolved,
-                'has_issue': planner.has_issue,
-                'patterns': planner.patterns,
-                'overlapping_issues': planner.overlapping_issues,
-                'lang': planner.lang,
-                'unique_phases': planner.unique_phases,
-                'cost': planner.cost,
-                'steps': planner.steps,
-                'has_planner': planner.has_planner
-            }
-
-            if planner_stats:
-                planner_detail['planner_stats'] = planner_stats
-
-            instances_detail.append({
-                'instance_id': iid,
-                'vanilla': {
-                    'resolved': vanilla.resolved,
-                    'has_issue': vanilla.has_issue,
-                    'patterns': vanilla.patterns,
-                    'lang': vanilla.lang,
-                    'unique_phases': vanilla.unique_phases,
-                    'cost': vanilla.cost,
-                    'steps': vanilla.steps
-                },
-                f'{self.config}': planner_detail
-            })
-
-        # Use max of vanilla and planner data for fair resolution rate comparison
-        total_instances = max(len(self.vanilla_data), len(self.planner_data))
-
-        return ComparisonResult(
-            category=category,
-            count=len(instance_ids),
-            percentage=len(instance_ids) / total_instances * 100 if total_instances > 0 else 0,
-            instances=instances_detail,
-            avg_vanilla_cost=sum(vanilla_costs) / len(vanilla_costs) if vanilla_costs else 0,
-            avg_planner_cost=sum(planner_costs) / len(planner_costs) if planner_costs else 0,
-            avg_vanilla_steps=sum(vanilla_steps_list) / len(vanilla_steps_list) if vanilla_steps_list else 0,
-            avg_planner_steps=sum(planner_steps_list) / len(planner_steps_list) if planner_steps_list else 0,
-            pattern_distribution=dict(pattern_counter)
-        )
-
-    def analyze_planner_aggregates(self, triggered_instances: List[str]) -> Dict:
-        """Aggregate planner statistics across all triggered instances."""
-        total_triggered = len(triggered_instances)
-        total_interventions = 0
-        total_monitor_count = 0
-        total_refiner_count = 0
-        total_monitor_latency_ms = 0.0
-        total_refiner_latency_ms = 0.0
-        total_refiner_cost = 0.0
-        trigger_type_counter = Counter()
-
-        for iid in triggered_instances:
-            planner_data = self._load_planner_json(iid)
-            if not planner_data:
-                continue
-
-            traj_data = self._load_trajectory(iid)
-            planner_stats = self._extract_planner_stats(planner_data, traj_data)
-            if not planner_stats:
-                continue
-
-            total_interventions += planner_stats['total_interventions']
-            total_monitor_count += planner_stats['monitor_count']
-            total_refiner_count += planner_stats['refiner_count']
-            total_monitor_latency_ms += planner_stats['monitor_total_latency_ms']
-            total_refiner_latency_ms += planner_stats['refiner_total_latency_ms']
-            total_refiner_cost += planner_stats['refiner_total_cost']
-
-            for intervention in planner_stats['interventions']:
-                planner_type = intervention.get('planner_type')
-                if planner_type == 'monitor':
-                    # Count monitor triggers by pattern type
-                    pattern = intervention.get('pattern', 'unknown')
-                    trigger_type_counter[f"monitor_{pattern}"] += 1
-                elif planner_type == 'refiner':
-                    # Count refiner triggers by rule_id
-                    for rule_id in intervention.get('rule_ids', ['unknown']):
-                        trigger_type_counter[rule_id] += 1
-
-        # Return per-instance averages
-        stats = {
-            'total_triggered': total_triggered,
-            'trigger_type_distribution': dict(trigger_type_counter)
-        }
-
-        if total_triggered > 0:
-            stats['avg_interventions'] = total_interventions / total_triggered
-            stats['avg_monitor_count'] = total_monitor_count / total_triggered
-            stats['avg_refiner_count'] = total_refiner_count / total_triggered
-            stats['avg_monitor_latency_ms'] = total_monitor_latency_ms / total_triggered
-            stats['avg_refiner_latency_ms'] = total_refiner_latency_ms / total_triggered
-            stats['avg_refiner_cost'] = total_refiner_cost / total_triggered
-
-        return stats
-
-    def generate_report(self, output_dir: Path):
-        """Generate comprehensive analysis report."""
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # 1. Trigger status analysis
-        trigger_analysis = self.analyze_trigger_status()
-
-        # 2. Categorize instances (triggered only)
-        categories = self.categorize_instances(triggered_only=True)
-
-        # 3. Aggregate planner statistics
-        triggered_instances = [iid for iid, data in self.planner_data.items() if data.has_planner]
-        planner_aggregates = self.analyze_planner_aggregates(triggered_instances)
-
-        # 4. Detailed analysis for each category
-        category_results = {}
-        for cat, instance_ids in categories.items():
-            category_results[cat] = self.analyze_category_details(cat, instance_ids)
-
-        # Compile full report
-        report = {
-            'config': self.config,
-            'summary': {
-                'total_instances': len(self.planner_data),
-                'trigger_status': trigger_analysis,
-                'planner_aggregates': planner_aggregates,
-                'categories': {
-                    cat: {
-                        'count': len(instance_ids),
-                        'percentage': len(instance_ids) / len(self.planner_data) * 100 if self.planner_data else 0
-                    }
-                    for cat, instance_ids in categories.items()
-                }
-            },
-            'category_details': {
-                cat: {
-                    'count': result.count,
-                    'percentage': result.percentage,
-                    'avg_vanilla_cost': result.avg_vanilla_cost,
-                    f'avg_{self.config}_cost': result.avg_planner_cost,
-                    'avg_vanilla_steps': result.avg_vanilla_steps,
-                    f'avg_{self.config}_steps': result.avg_planner_steps,
-                    'pattern_distribution': result.pattern_distribution,
-                    'instances': result.instances
-                }
-                for cat, result in category_results.items()
-            }
-        }
-
-        # Save JSON report
-        json_path = output_dir / f"{self.csv_path.stem}-{self.config}-analysis.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
-
-        print(f"\n✓ JSON report saved to: {json_path}")
-
-        # Print summary
-        self._print_summary(report)
-
-        return report
-
-    def _print_summary(self, report: Dict):
-        """Print formatted summary to console."""
-        config = report['config']
-        config_display = config.capitalize()
-
-        print("\n" + "="*80)
-        print(f"PATTERN RESOLUTION ANALYSIS SUMMARY - {config_display.upper()}")
-        print("="*80)
-
-        summary = report['summary']
-        print(f"\nTotal instances: {summary['total_instances']}")
-
-        # Pattern comparison
-        pattern_stats = self._compute_pattern_stats()
-        print(f"\nPattern Statistics:")
-        print(f"  Vanilla run-1:")
-        print(f"    With patterns: {pattern_stats['vanilla']['with_patterns']}")
-        print(f"    Blocking patterns: {pattern_stats['vanilla']['blocking']} (plan_violation: {pattern_stats['vanilla']['plan_violation']}, oscillation: {pattern_stats['vanilla']['oscillation']})")
-        print(f"    Non-blocking patterns: {pattern_stats['vanilla']['non_blocking']} (dwell_L_navigate: {pattern_stats['vanilla']['dwell_L_navigate']}, dwell_L_reproduce: {pattern_stats['vanilla']['dwell_L_reproduce']}, dwell_P: {pattern_stats['vanilla']['dwell_P']}, dwell_V: {pattern_stats['vanilla']['dwell_V']}, repeated_view: {pattern_stats['vanilla']['repeated_view']})")
-        print(f"  {config_display}:")
-        print(f"    With patterns: {pattern_stats[config]['with_patterns']}")
-        print(f"    Blocking patterns: {pattern_stats[config]['blocking']} (plan_violation: {pattern_stats[config]['plan_violation']}, oscillation: {pattern_stats[config]['oscillation']})")
-        print(f"    Non-blocking patterns: {pattern_stats[config]['non_blocking']} (dwell_L_navigate: {pattern_stats[config]['dwell_L_navigate']}, dwell_L_reproduce: {pattern_stats[config]['dwell_L_reproduce']}, dwell_P: {pattern_stats[config]['dwell_P']}, dwell_V: {pattern_stats[config]['dwell_V']}, repeated_view: {pattern_stats[config]['repeated_view']})")
-
-        trigger = summary['trigger_status']
-        print(f"\nTrigger Status:")
-        print(f"  Triggered: {trigger['triggered_count']} ({trigger['triggered_percentage']:.1f}%)")
-        print(f"    - Resolved: {trigger['triggered_resolved']}")
-        print(f"    - Unresolved: {trigger['triggered_unresolved']}")
-        print(f"  Non-triggered: {trigger['non_triggered_count']}")
-
-        # Planner aggregates
-        if 'planner_aggregates' in summary and summary['planner_aggregates']['total_triggered'] > 0:
-            pa = summary['planner_aggregates']
-            print(f"\nPlanner Statistics (Per triggered instance):")
-            print(f"  Avg interventions: {pa.get('avg_interventions', 0):.2f}")
-            print(f"  Avg monitor count: {pa.get('avg_monitor_count', 0):.2f}")
-            print(f"  Avg refiner count: {pa.get('avg_refiner_count', 0):.2f}")
-            print(f"  Avg monitor latency: {pa.get('avg_monitor_latency_ms', 0):.2f}ms")
-            print(f"  Avg refiner latency: {pa.get('avg_refiner_latency_ms', 0):.2f}ms")
-            print(f"  Avg refiner cost: ${pa.get('avg_refiner_cost', 0):.6f}")
-            print(f"  Trigger type distribution:")
-            for ttype, count in sorted(pa['trigger_type_distribution'].items(), key=lambda x: -x[1]):
-                print(f"    {ttype}: {count}")
-
-        print(f"\nResolution Categories (Triggered instances only):")
-        for cat, stats in summary['categories'].items():
-            print(f"  {cat}: {stats['count']} ({stats['percentage']:.1f}%)")
-
-        print(f"\nCost & Steps Comparison:")
-        for cat in ['R-R', 'R-U', 'U-R', 'U-U']:
-            details = report['category_details'][cat]
-            if details['count'] == 0:
-                continue
-            print(f"\n  {cat} ({details['count']} instances):")
-            print(f"    Vanilla   - Avg cost: ${details['avg_vanilla_cost']:.4f}, Avg steps: {details['avg_vanilla_steps']:.1f}")
-            print(f"    {config_display:9s} - Avg cost: ${details[f'avg_{config}_cost']:.4f}, Avg steps: {details[f'avg_{config}_steps']:.1f}")
-            if details['avg_vanilla_cost'] > 0:
-                cost_change = (details[f'avg_{config}_cost'] - details['avg_vanilla_cost']) / details['avg_vanilla_cost'] * 100
-                step_change = (details[f'avg_{config}_steps'] - details['avg_vanilla_steps']) / details['avg_vanilla_steps'] * 100
-                print(f"    Change    - Cost: {cost_change:+.1f}%, Steps: {step_change:+.1f}%")
-
-        print("\n" + "="*80)
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description='Comprehensive analysis of pattern resolution data'
-    )
-    parser.add_argument('--agent', type=str, default='SWE-agent',
-                       help='Agent name (default: SWE-agent)')
-    parser.add_argument('--model', type=str, required=True,
-                       help='Model name (e.g., deepseek-chat-v3-0324)')
-    parser.add_argument('--dataset', type=str, default='swebench',
-                       help='Dataset name (default: swebench)')
-    parser.add_argument('--config', type=str, nargs='+', default=['monitor', 'refiner'],
-                       choices=['vanilla', 'sage', 'monitor', 'refiner-only', 'refiner'],
-                       help='Config(s) to analyze (default: monitor refiner)')
-    parser.add_argument('--run', type=int, default=1,
-                       help='Run ID (default: 1)')
-    parser.add_argument('--refiner-version', type=str, default='5',
-                       help='Refiner version (default: 5, only used for refiner config)')
-    parser.add_argument('--csv', type=Path, default=None,
-                       help='Path to CSV file (default: analysis/analysis-results/comparison/{agent}-{model}-{dataset}.csv)')
-    parser.add_argument('--output-dir', type=Path, default=None,
-                       help='Output directory for analysis results (default: analysis/analysis-results/detailed-analysis/{config}/)')
-
-    args = parser.parse_args()
-
-    # Determine paths
-    script_dir = Path(__file__).parent.parent
-
-    if args.csv:
-        csv_path = args.csv
-    else:
-        csv_path = script_dir / "analysis" / "analysis-results" / "comparison" / f"{args.agent}-{args.model}-{args.dataset}.csv"
-
-    if not csv_path.exists():
-        raise FileNotFoundError(f"CSV file not found: {csv_path}")
-
-    # Determine agent directory for loading planner.json files
-    if args.dataset == 'swebench':
-        agent_dir = script_dir / args.agent
-    elif args.dataset == 'swebench-pro':
-        agent_dir = script_dir / "SWE-bench_Pro-os" / args.agent
-    else:
-        raise ValueError(f"Unknown dataset: {args.dataset}")
-
-    print(f"Analyzing: {csv_path}")
-    print(f"Agent directory: {agent_dir}")
-
-    # Detect available configs in CSV
-    parser_obj = CSVParser(csv_path)
-    available_configs = [cfg for cfg in args.config if parser_obj.has_config(cfg)]
-
-    if not available_configs:
-        print(f"\nWarning: None of the requested configs {args.config} are available in the CSV.")
-        print(f"Available configs: {list(parser_obj.column_map.keys())}")
-        return
-
-    print(f"Requested configs: {args.config}")
-    print(f"Available configs: {available_configs}")
-
-    # Process each available config
-    processed_count = 0
-    for config in available_configs:
-        print(f"\n{'='*80}")
-        print(f"Processing Config: {config.upper()}")
-        print(f"{'='*80}")
-
-        if args.output_dir:
-            output_dir = args.output_dir / config
-        else:
-            output_dir = script_dir / "analysis" / "analysis-results" / "comparison" / "detailed-analysis" / config
-
-        try:
-            # Run analysis
-            analyzer = PatternAnalyzer(
-                csv_path,
-                config=config,
-                agent_dir=agent_dir,
-                model=args.model,
-                dataset=args.dataset,
-                run_id=args.run,
-                version=args.refiner_version if config in ['refiner', 'refiner-only'] else None
-            )
-            report = analyzer.generate_report(output_dir)
-            processed_count += 1
-
-        except Exception as e:
-            print(f"\nError processing {config} config: {e}")
+from typing import Dict, List, Optional
+
+from analysis.pattern_resolution.schema import BASELINE_CONFIGS, read_long
+from analysis.pattern_resolution.sources import extract_planner_stats, traj_base
+
+REPO = Path(__file__).resolve().parent.parent
+
+# Legacy pattern buckets, in legacy order. Preserved (names + semantics) so downstream
+# keeps working; the finer GL-Guard signals are appended under their own (non-colliding)
+# names by :func:`patterns_from_signals`.
+LEGACY_BUCKETS = ("plan_violation", "oscillation", "dwell_L_navigate",
+                  "dwell_L_reproduce", "dwell_P", "dwell_V", "repeated_view")
+
+
+def patterns_from_signals(sig: Dict[str, bool]) -> Dict[str, bool]:
+    """Replay signal map -> ``patterns`` dict: legacy 7 buckets + precise extras.
+
+    Buckets fold the GL-Guard signals into the legacy taxonomy (``plan_violation`` = any
+    ``plan_compliance_*``; ``oscillation`` = oscillation | action_recurrence |
+    thought_oscillation; the dwell/repeated_view buckets equal their like-named signals).
+    Every GL-Guard signal whose name is not a bucket name is then added verbatim, so the
+    decomposed plan-compliance family and the oscillation/thought variants are available
+    without disturbing the legacy keys.
+    """
+    out = {
+        "plan_violation": any(v for k, v in sig.items() if k.startswith("plan_compliance")),
+        "oscillation": bool(sig.get("oscillation") or sig.get("action_recurrence")
+                            or sig.get("thought_oscillation")),
+        "dwell_L_navigate": bool(sig.get("dwell_L_navigate")),
+        "dwell_L_reproduce": bool(sig.get("dwell_L_reproduce")),
+        "dwell_P": bool(sig.get("dwell_P")),
+        "dwell_V": bool(sig.get("dwell_V")),
+        "repeated_view": bool(sig.get("repeated_view")),
+    }
+    for k, v in sig.items():                         # precise extras (declaration order)
+        if k not in LEGACY_BUCKETS:
+            out[k] = bool(v)
+    return out
+
+
+def by_config(rows: List[Dict]) -> Dict[str, Dict[str, Dict]]:
+    out: Dict[str, Dict[str, Dict]] = {}
+    for r in rows:
+        out.setdefault(r["config"], {})[r["instance_id"]] = r
+    return out
+
+
+def _cost(r: Dict) -> float:
+    try:
+        return float(r.get("cost") or 0.0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _steps(r: Dict) -> int:
+    try:
+        return int(r.get("steps") or 0)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _avg(xs: List[float]) -> float:
+    return sum(xs) / len(xs) if xs else 0.0
+
+
+def _view(row: Dict) -> Dict:
+    """Legacy per-run view: resolved/has_issue/patterns/lang/unique_phases/cost/steps."""
+    patterns = patterns_from_signals(row["signals"])
+    return {
+        "resolved": row["resolved_bool"] is True,     # missing label -> False (legacy parity)
+        "has_issue": any(patterns.values()),
+        "patterns": patterns,
+        "lang": row.get("lang", ""),
+        "unique_phases": row.get("unique_phases", ""),
+        "cost": _cost(row),
+        "steps": _steps(row),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Report pieces (legacy schema)
+# --------------------------------------------------------------------------- #
+
+def trigger_status(cfg: Dict[str, Dict]) -> Dict:
+    triggered = [i for i, r in cfg.items() if r["has_planner_bool"]]
+    t_res = sum(1 for i in triggered if cfg[i]["resolved_bool"] is True)
+    return {
+        "total_planner_instances": len(cfg),
+        "triggered_count": len(triggered),
+        "triggered_percentage": (len(triggered) / len(cfg) * 100) if cfg else 0,
+        "triggered_resolved": t_res,
+        "triggered_unresolved": len(triggered) - t_res,
+        "non_triggered_count": len(cfg) - len(triggered),
+    }
+
+
+def categorize(base: Dict[str, Dict], cfg: Dict[str, Dict], triggered_only: bool = True) -> Dict[str, List[str]]:
+    cats = {"R-R": [], "R-U": [], "U-R": [], "U-U": []}
+    iids = [i for i, r in cfg.items() if r["has_planner_bool"]] if triggered_only else list(cfg)
+    for i in iids:
+        if i not in base:
             continue
+        v = "R" if base[i]["resolved_bool"] is True else "U"
+        p = "R" if cfg[i]["resolved_bool"] is True else "U"
+        cats[f"{v}-{p}"].append(i)
+    return cats
 
-    if processed_count == 0:
-        print("\n✗ No configs were successfully processed.")
-    else:
-        print(f"\n{'='*80}")
-        print(f"✓ Analysis complete! Processed {processed_count} config(s).")
-        print(f"{'='*80}")
+
+def planner_aggregates(triggered: List[str], stats_by_iid: Dict[str, Dict]) -> Dict:
+    n = len(triggered)
+    tot = {"interventions": 0, "monitor": 0, "refiner": 0,
+           "mon_lat": 0.0, "ref_lat": 0.0, "ref_cost": 0.0}
+    dist: Counter = Counter()
+    for i in triggered:
+        ps = stats_by_iid.get(i)
+        if not ps:
+            continue
+        tot["interventions"] += ps["total_interventions"]
+        tot["monitor"] += ps["monitor_count"]
+        tot["refiner"] += ps["refiner_count"]
+        tot["mon_lat"] += ps["monitor_total_latency_ms"]
+        tot["ref_lat"] += ps["refiner_total_latency_ms"]
+        tot["ref_cost"] += ps["refiner_total_cost"]
+        for iv in ps["interventions"]:
+            if iv["planner_type"] == "monitor":
+                dist[f"monitor_{iv.get('pattern', 'unknown')}"] += 1
+            else:
+                for rid in iv.get("rule_ids", ["unknown"]):
+                    dist[rid] += 1
+    out = {"total_triggered": n, "trigger_type_distribution": dict(dist)}
+    if n:
+        out.update({
+            "avg_interventions": tot["interventions"] / n,
+            "avg_monitor_count": tot["monitor"] / n,
+            "avg_refiner_count": tot["refiner"] / n,
+            "avg_monitor_latency_ms": tot["mon_lat"] / n,
+            "avg_refiner_latency_ms": tot["ref_lat"] / n,
+            "avg_refiner_cost": tot["ref_cost"] / n,
+        })
+    return out
+
+
+def category_details(iids: List[str], base: Dict[str, Dict], cfg: Dict[str, Dict],
+                     config: str, stats_by_iid: Dict[str, Dict]) -> Dict:
+    instances, vcost, pcost, vstep, pstep = [], [], [], [], []
+    pattern_counter: Counter = Counter()
+    for i in iids:
+        if i not in base or i not in cfg:
+            continue
+        bv, cv = _view(base[i]), _view(cfg[i])
+        vcost.append(bv["cost"]); pcost.append(cv["cost"])
+        vstep.append(bv["steps"]); pstep.append(cv["steps"])
+        for p, on in bv["patterns"].items():
+            if on:
+                pattern_counter[p] += 1
+        cdict = dict(cv)
+        cdict["overlapping_issues"] = [p for p, on in cv["patterns"].items()
+                                       if on and bv["patterns"].get(p)]
+        cdict["has_planner"] = cfg[i]["has_planner_bool"]
+        ps = stats_by_iid.get(i)
+        if cfg[i]["has_planner_bool"] and ps:
+            cdict["planner_stats"] = ps
+        instances.append({"instance_id": i, "vanilla": bv, config: cdict})
+    total = max(len(base), len(cfg))
+    return {
+        "count": len(iids),
+        "percentage": (len(iids) / total * 100) if total else 0,
+        "avg_vanilla_cost": _avg(vcost), f"avg_{config}_cost": _avg(pcost),
+        "avg_vanilla_steps": _avg(vstep), f"avg_{config}_steps": _avg(pstep),
+        "pattern_distribution": dict(pattern_counter),
+        "instances": instances,
+    }
+
+
+def generate_report(config: str, base: Dict[str, Dict], cfg: Dict[str, Dict],
+                    stats_by_iid: Dict[str, Dict]) -> Dict:
+    categories = categorize(base, cfg, triggered_only=True)
+    triggered = [i for i, r in cfg.items() if r["has_planner_bool"]]
+    return {
+        "config": config,
+        "summary": {
+            "total_instances": len(cfg),
+            "trigger_status": trigger_status(cfg),
+            "planner_aggregates": planner_aggregates(triggered, stats_by_iid),
+            "categories": {cat: {"count": len(iids),
+                                 "percentage": (len(iids) / len(cfg) * 100) if cfg else 0}
+                           for cat, iids in categories.items()},
+        },
+        "category_details": {cat: category_details(iids, base, cfg, config, stats_by_iid)
+                             for cat, iids in categories.items()},
+    }
+
+
+# --------------------------------------------------------------------------- #
+
+def _collect_planner_stats(agent_dir: Path, cfg: Dict[str, Dict], config: str,
+                           dataset: str, model: str, run: int, version: Optional[str]) -> Dict[str, Dict]:
+    """``planner_stats`` for every triggered instance (locating planner.json + traj)."""
+    ver = version if config in ("refiner", "refiner-only") else None
+    base_dir = traj_base(agent_dir, config, dataset, model, run, ver)
+    out = {}
+    for iid, r in cfg.items():
+        if not r["has_planner_bool"]:
+            continue
+        inst = base_dir / iid
+        ps = extract_planner_stats(inst / f"{iid}.planner.json", inst / f"{iid}.traj")
+        if ps is not None:
+            out[iid] = ps
+    return out
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--agent", default="SWE-agent")
+    ap.add_argument("--model", required=True)
+    ap.add_argument("--dataset", default="swebench", choices=["swebench", "swebench-pro"])
+    ap.add_argument("--config", nargs="+", default=["monitor", "refiner-only", "refiner"])
+    ap.add_argument("--run", type=int, default=1)
+    ap.add_argument("--refiner-version", default="5")
+    ap.add_argument("--long", type=Path, default=None, help="path to the long CSV")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="default: analysis/analysis-results/comparison/detailed-analysis")
+    args = ap.parse_args(argv)
+
+    stem = f"{args.agent}-{args.model}-{args.dataset}"
+    long_path = args.long or (REPO / "analysis" / "analysis-results" / "pattern-resolution"
+                              / f"{stem}.long.json")
+    if not long_path.is_file():
+        print(f"[skip] long table not found: {long_path} (run collect first)",
+              file=sys.stderr)
+        return 1
+    agent_dir = (REPO / args.agent if args.dataset == "swebench"
+                 else REPO / "SWE-bench_Pro-os" / args.agent)
+    out_dir = args.out_dir or (REPO / "analysis" / "analysis-results" / "comparison"
+                               / "detailed-analysis")
+
+    cfgs = by_config(read_long(long_path))
+    baseline = next((b for b in BASELINE_CONFIGS if b in cfgs), None)
+    base_map = cfgs.get(baseline, {})
+    if not baseline:
+        print("[warn] no baseline (default/sage) in table — categories will be empty.")
+
+    requested = [c for c in args.config if c in cfgs]
+    missing = [c for c in args.config if c not in cfgs]
+    if missing:
+        print(f"[warn] not in table, skipped: {missing}. Present: {sorted(cfgs)}")
+
+    for config in requested:
+        stats = _collect_planner_stats(agent_dir, cfgs[config], config, args.dataset,
+                                       args.model, args.run, args.refiner_version)
+        report = generate_report(config, base_map, cfgs[config], stats)
+        dest = out_dir / config / f"{stem}-{config}-analysis.json"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        ts = report["summary"]["trigger_status"]
+        cats = report["summary"]["categories"]
+        cat_summary = ", ".join(f"{k}={v['count']}" for k, v in cats.items())
+        print(f"  {config}: {len(cfgs[config])} instances, triggered "
+              f"{ts['triggered_count']}, [{cat_summary}] -> {dest}")
+    if not requested:
+        # A baseline-only table (e.g. a model/dataset with no intervention runs) has
+        # nothing to compare — a clean no-op, not a failure.
+        print(f"[skip] {stem}: no requested intervention config present "
+              f"(table has {sorted(cfgs)}) — nothing to analyze.")
+        return 0
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

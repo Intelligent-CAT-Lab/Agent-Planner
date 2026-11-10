@@ -1,0 +1,405 @@
+{
+  "loc": {
+    "scope": "default liveplan.glg profile only; extra_signals.glg and the process taxonomy excluded",
+    "convention": "nonblank, noncomment physical lines; docstrings count as comments; DSL per-rule = signal formula block, legacy per-rule = detector class split (state/verdict/detection) via AST",
+    "groups": [
+      {
+        "group": "dwell",
+        "condition": "Prolonged single-phase dwell",
+        "note": "One legacy class, four config instances; four DSL signals over run(Group) >= theta.",
+        "dsl": {
+          "signals": {
+            "dwell_L_navigate": 2,
+            "dwell_L_reproduce": 2,
+            "dwell_P": 2,
+            "dwell_V": 2
+          },
+          "n_signals": 4,
+          "formula_loc": 8
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "DwellTimeRule",
+              "span": [
+                129,
+                210
+              ],
+              "total": 51,
+              "state": 15,
+              "verdict": 10,
+              "detection": 26
+            }
+          ],
+          "total": 51,
+          "state": 15,
+          "verdict": 10,
+          "detection": 26
+        },
+        "ratio_total": 6.4,
+        "ratio_detection": 3.2
+      },
+      {
+        "group": "oscillation",
+        "condition": "Action oscillation",
+        "note": "Legacy wrapper + detector (cycle-matching algorithms); DSL cycle(...).",
+        "dsl": {
+          "signals": {
+            "oscillation": 2
+          },
+          "n_signals": 1,
+          "formula_loc": 2
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "OscillationRule",
+              "span": [
+                610,
+                626
+              ],
+              "total": 11,
+              "state": 6,
+              "verdict": 0,
+              "detection": 5
+            },
+            {
+              "class": "OscillationDetector",
+              "span": [
+                213,
+                597
+              ],
+              "total": 202,
+              "state": 8,
+              "verdict": 24,
+              "detection": 170
+            }
+          ],
+          "total": 213,
+          "state": 14,
+          "verdict": 24,
+          "detection": 175
+        },
+        "ratio_total": 106.5,
+        "ratio_detection": 87.5
+      },
+      {
+        "group": "repeated_action",
+        "condition": "Repeated view",
+        "note": "Identity recurrence of a view; DSL kind(q)=view and revisit(action).",
+        "dsl": {
+          "signals": {
+            "repeated_view": 2,
+            "action_recurrence": 4
+          },
+          "n_signals": 2,
+          "formula_loc": 6
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "RepeatedViewRule",
+              "span": [
+                629,
+                712
+              ],
+              "total": 50,
+              "state": 11,
+              "verdict": 20,
+              "detection": 19
+            }
+          ],
+          "total": 50,
+          "state": 11,
+          "verdict": 20,
+          "detection": 19
+        },
+        "ratio_total": 8.3,
+        "ratio_detection": 3.2
+      },
+      {
+        "group": "thought_oscillation",
+        "condition": "Thought oscillation",
+        "note": "Repeated reasoning motif in the current episode; DSL repeat(thought,...).",
+        "dsl": {
+          "signals": {
+            "thought_oscillation": 2
+          },
+          "n_signals": 1,
+          "formula_loc": 2
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "ThoughtOscillationRule",
+              "span": [
+                715,
+                877
+              ],
+              "total": 106,
+              "state": 10,
+              "verdict": 40,
+              "detection": 56
+            }
+          ],
+          "total": 106,
+          "state": 10,
+          "verdict": 40,
+          "detection": 56
+        },
+        "ratio_total": 53.0,
+        "ratio_detection": 28.0
+      },
+      {
+        "group": "plan_compliance",
+        "condition": "Plan-order compliance: premature / skip",
+        "note": "Legacy stateful L->P->V automaton; DSL four memoryless propose predicates.",
+        "dsl": {
+          "signals": {
+            "plan_compliance_premature_patch": 2,
+            "plan_compliance_skip_patch": 2,
+            "plan_compliance_skip_validation": 2
+          },
+          "n_signals": 3,
+          "formula_loc": 6
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "PlanComplianceRule",
+              "span": [
+                880,
+                1194
+              ],
+              "total": 154,
+              "state": 22,
+              "verdict": 28,
+              "detection": 104
+            }
+          ],
+          "total": 154,
+          "state": 22,
+          "verdict": 28,
+          "detection": 104
+        },
+        "ratio_total": 25.7,
+        "ratio_detection": 17.3
+      }
+    ],
+    "totals": {
+      "dsl_formula_loc": 24,
+      "legacy_class_total": 574,
+      "legacy_detection_loc": 380,
+      "ratio_total": 23.9,
+      "ratio_detection": 15.8,
+      "n_dsl_signals": 11,
+      "n_legacy_classes": 6
+    },
+    "shared_infrastructure": {
+      "dsl": {
+        "engine_modules": {
+          "lexer": 71,
+          "ast": 145,
+          "parser": 320,
+          "typecheck": 153,
+          "config": 54,
+          "kleene": 38,
+          "interpreter": 155,
+          "engine": 64,
+          "runtime": 180,
+          "emission": 107,
+          "advice": 105,
+          "model": 111,
+          "adapters": 200
+        },
+        "engine_total": 1703,
+        "binding_module": {
+          "guard_monitor": 195
+        },
+        "data_json": {
+          "liveplan.config.json": 34,
+          "liveplan.advice.json": 93
+        },
+        "note": "Engine + binding are shared Python amortized over every signal; the JSON files are shared DATA (thresholds, messages, policies), not per-rule code."
+      },
+      "legacy": {
+        "shared_classes": {
+          "RuleMatch": 7,
+          "Rule": 11,
+          "GraphectoryRule": 5,
+          "RuleEngine": 192
+        },
+        "shared_classes_total": 215,
+        "monitor_py": 448,
+        "phases_py": 109,
+        "note": "RuleMatch/Rule/GraphectoryRule bases + RuleEngine (rules.py) plus the StatefulPhaseMonitor loop (monitor.py) and phase dataclasses (phases.py); shared across all legacy detectors."
+      }
+    },
+    "legacy_unmatched_detectors": {
+      "PhaseTransitionRule": 24,
+      "StrategyShiftRule": 23
+    },
+    "dsl_only_signals": {
+      "signals": {
+        "action_recurrence": 4
+      },
+      "rationale": "No legacy Python counterpart: the legacy OscillationDetector catches only strict periodic cycles, so non-periodic prolonged recurrence was added natively in the DSL. Excluded from the matched comparison (nothing to compare against)."
+    }
+  },
+  "ast_size": {
+    "metric": "program size in AST nodes (conciseness companion to LOC; not an edit distance, not expressive power)",
+    "caveat": "cross-language node counts are only weakly commensurable; the DSL count is a conservative upper bound (cycle/seen/revisit are desugared before counting)",
+    "groups": [
+      {
+        "group": "dwell",
+        "dsl": {
+          "signals": {
+            "dwell_L_navigate": 3,
+            "dwell_L_reproduce": 3,
+            "dwell_P": 3,
+            "dwell_V": 3
+          },
+          "n_signals": 4,
+          "nodes": 12
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "DwellTimeRule",
+              "total": 232,
+              "state": 83,
+              "verdict": 21,
+              "detection": 128
+            }
+          ],
+          "total": 232,
+          "detection": 128
+        },
+        "ratio_total": 19.3,
+        "ratio_detection": 10.7
+      },
+      {
+        "group": "oscillation",
+        "dsl": {
+          "signals": {
+            "oscillation": 31
+          },
+          "n_signals": 1,
+          "nodes": 31
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "OscillationRule",
+              "total": 61,
+              "state": 36,
+              "verdict": 0,
+              "detection": 25
+            },
+            {
+              "class": "OscillationDetector",
+              "total": 1263,
+              "state": 48,
+              "verdict": 84,
+              "detection": 1131
+            }
+          ],
+          "total": 1324,
+          "detection": 1156
+        },
+        "ratio_total": 42.7,
+        "ratio_detection": 37.3
+      },
+      {
+        "group": "repeated_action",
+        "dsl": {
+          "signals": {
+            "repeated_view": 7,
+            "action_recurrence": 12
+          },
+          "n_signals": 2,
+          "nodes": 19
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "RepeatedViewRule",
+              "total": 227,
+              "state": 64,
+              "verdict": 44,
+              "detection": 119
+            }
+          ],
+          "total": 227,
+          "detection": 119
+        },
+        "ratio_total": 11.9,
+        "ratio_detection": 6.3
+      },
+      {
+        "group": "thought_oscillation",
+        "dsl": {
+          "signals": {
+            "thought_oscillation": 3
+          },
+          "n_signals": 1,
+          "nodes": 3
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "ThoughtOscillationRule",
+              "total": 552,
+              "state": 64,
+              "verdict": 72,
+              "detection": 416
+            }
+          ],
+          "total": 552,
+          "detection": 416
+        },
+        "ratio_total": 184.0,
+        "ratio_detection": 138.7
+      },
+      {
+        "group": "plan_compliance",
+        "dsl": {
+          "signals": {
+            "plan_compliance_premature_patch": 9,
+            "plan_compliance_skip_patch": 8,
+            "plan_compliance_skip_validation": 8
+          },
+          "n_signals": 3,
+          "nodes": 25
+        },
+        "legacy": {
+          "classes": [
+            {
+              "class": "PlanComplianceRule",
+              "total": 769,
+              "state": 123,
+              "verdict": 79,
+              "detection": 567
+            }
+          ],
+          "total": 769,
+          "detection": 567
+        },
+        "ratio_total": 30.8,
+        "ratio_detection": 22.7
+      }
+    ],
+    "totals": {
+      "dsl_nodes": 90,
+      "legacy_total": 3104,
+      "legacy_detection": 2386,
+      "ratio_total": 34.5,
+      "ratio_detection": 26.5
+    },
+    "dsl_only_signals": {
+      "signals": {
+        "action_recurrence": 12
+      }
+    }
+  }
+}

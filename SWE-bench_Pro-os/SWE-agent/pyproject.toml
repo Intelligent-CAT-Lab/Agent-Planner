@@ -54,13 +54,23 @@ dependencies = [
     "pydantic",
     "python-dotenv",
     "pydantic_settings",
-    "litellm",
+    # Pin to the litellm the working planner-v1 env uses. litellm>=~1.9x lazily
+    # imports the optional `mcp` package in its query path, so a run dies mid-query
+    # with "ModuleNotFoundError: No module named 'mcp'". 1.80.5 has no such import.
+    "litellm==1.80.5",
     "GitPython",
     "ghapi",
     "swe-rex[modal]==1.2.0",
     "tabulate",
     "textual>=1.0.0",
-    "modal"
+    # swe-rex 1.2.0's ModalDeployment uses modal's *blocking* interface
+    # (App.lookup/Sandbox.create/.tunnels/.poll/.read) inside async methods.
+    # modal>=1.5 enforces async usage (AsyncUsageWarning) and changed
+    # sandbox/tunnel timing, which breaks that blocking path (tunnel not ready ->
+    # is_alive hits RemoteDisconnected). Pin to the modal that swe-rex 1.2.0 was
+    # built against (same combo as the working planner-v1 env). Do not bump
+    # without bumping swe-rex to an async-interface release (>=1.4.0).
+    "modal==1.2.4"
 ]
 
 [project.scripts]

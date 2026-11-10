@@ -12,6 +12,8 @@ END_IDX="${3:-}"
 MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="monitor"
+# Existing hand-written monitor engine (not the GL-Guard DSL default).
+MONITOR_ENGINE="legacy"
 DATASET="swebench-pro"
 SAMPLE_APPROACH="python"
 COST=2.0
@@ -89,6 +91,7 @@ sweagent_command: |
     --instances.deployment.type=modal \\
     --instances.deployment.startup_timeout 1800 \\
     --instances.deployment.runtime_timeout 3600 \\
+    --agent.monitor_engine ${MONITOR_ENGINE} \\
     --agent.model.name ${MODEL} \\
     --agent.model.api_base https://openrouter.ai/api/v1 \\
     --agent.model.api_key \$OPENROUTER_API_KEY
