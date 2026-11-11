@@ -6,12 +6,12 @@ Output is a DROP-IN for the legacy detailed-analysis JSON (same ``config`` / ``s
 ``category_details`` schema, same per-instance ``vanilla``+``<config>`` entries, same
 ``planner_stats``, written to the same ``comparison/detailed-analysis/<config>/`` path), so
 the visualize/ and other downstream consumers are unaffected. The ONLY thing that changes is
-the SIGNALS: ``patterns`` is now sourced from the production GL-Guard replay instead of the
+the SIGNALS: ``patterns`` is now sourced from the production Drift-QL replay instead of the
 deprecated monitor + CSV text-matching. The legacy 7 pattern names are preserved (as
-buckets, same semantics) and the finer GL-Guard signals are added alongside — so downstream
+buckets, same semantics) and the finer Drift-QL signals are added alongside — so downstream
 reads its familiar keys and gains the precise ones ("our updated version's signals may be
 more"). ``planner_stats`` (the online intervention record) is still recorded, with precise
-``rule_ids`` from ``rule_triggers`` (decomposed on gl_guard runs; legacy names + the
+``rule_ids`` from ``rule_triggers`` (decomposed on drift_ql runs; legacy names + the
 ``plan_violation`` exclusion-recovery on v5).
 
 Example:
@@ -33,7 +33,7 @@ from analysis.pattern_resolution.sources import extract_planner_stats, traj_base
 REPO = Path(__file__).resolve().parent.parent
 
 # Legacy pattern buckets, in legacy order. Preserved (names + semantics) so downstream
-# keeps working; the finer GL-Guard signals are appended under their own (non-colliding)
+# keeps working; the finer Drift-QL signals are appended under their own (non-colliding)
 # names by :func:`patterns_from_signals`.
 LEGACY_BUCKETS = ("plan_violation", "oscillation", "dwell_L_navigate",
                   "dwell_L_reproduce", "dwell_P", "dwell_V", "repeated_view")
@@ -42,10 +42,10 @@ LEGACY_BUCKETS = ("plan_violation", "oscillation", "dwell_L_navigate",
 def patterns_from_signals(sig: Dict[str, bool]) -> Dict[str, bool]:
     """Replay signal map -> ``patterns`` dict: legacy 7 buckets + precise extras.
 
-    Buckets fold the GL-Guard signals into the legacy taxonomy (``plan_violation`` = any
+    Buckets fold the Drift-QL signals into the legacy taxonomy (``plan_violation`` = any
     ``plan_compliance_*``; ``oscillation`` = oscillation | action_recurrence |
     thought_oscillation; the dwell/repeated_view buckets equal their like-named signals).
-    Every GL-Guard signal whose name is not a bucket name is then added verbatim, so the
+    Every Drift-QL signal whose name is not a bucket name is then added verbatim, so the
     decomposed plan-compliance family and the oscillation/thought variants are available
     without disturbing the legacy keys.
     """

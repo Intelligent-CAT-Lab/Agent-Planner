@@ -1,11 +1,11 @@
-# analysis/expressiveness — GL-Guard (DriftQL) expressiveness
+# analysis/expressiveness — Drift-QL (DriftQL) expressiveness
 
-Does the GL-Guard DSL express the drift conditions it was built for using its
+Does the Drift-QL DSL express the drift conditions it was built for using its
 existing operators and runtime data, and how much rule-specific code does that take
 versus the Python detectors?
 
 **Scope — the LIVE default profile only.** The study compares the default
-signals in `plan_monitor/gl_guard/specs/liveplan.glg` against the five legacy
+signals in `plan_monitor/drift_ql/specs/liveplan.glg` against the five legacy
 detector classes in `plan_monitor/rules.py` that implement the same conditions. The
 shadow `extra_signals.glg` candidates and the 50-entry process taxonomy are
 deliberately **out of scope**: the extra signals have no legacy Python counterpart
@@ -31,7 +31,7 @@ excluded from the matched LOC comparison — there is nothing to compare it agai
 2. **AST-node program size** (`astsize.py`) — a formatting-robust companion to LOC,
    always computed. Same size dimension as LOC but immune to line-wrapping/whitespace.
 3. **Behavioral agreement** (`behavioral.py`) — opt-in (`--behavioral`). Reuses the
-   production shadow differential (`plan_monitor.gl_guard.shadow`) to replay both
+   production shadow differential (`plan_monitor.drift_ql.shadow`) to replay both
    implementations over the same recorded trajectory prefixes and report where they
    agree, disagree, and why.
 
@@ -56,7 +56,7 @@ disjunction), so the reported advantage is a lower bound.
 A *code line* is a nonblank, noncomment physical source line; a module/class/function
 docstring counts as a comment. The same nonblank/noncomment rule applies to `.glg`.
 
-A GL-Guard signal is three decoupled pieces (`DSL_REFERENCE.md`): detection (`.glg`),
+A Drift-QL signal is three decoupled pieces (`DSL_REFERENCE.md`): detection (`.glg`),
 thresholds (`liveplan.config.json`), and message + fire-timing
 (`liveplan.advice.json`). Only the detection formula is rule-specific *code*; the rest
 is shared **data** driven by a shared **engine**. So:
@@ -65,7 +65,7 @@ is shared **data** driven by a shared **engine**. So:
 - **Legacy per-rule cost** = the detector class(es) + rule-specific helpers, split
   objectively from the Python AST into the parts the DSL offloads to its shared
   layers:
-  - `state` = `__init__` + `reset` → DSL `config.json` + `GuardRuntime`
+  - `state` = `__init__` + `reset` → DSL `config.json` + `DriftRuntime`
   - `verdict` = `RuleMatch(...)` constructions → DSL `advice.json`
   - `detection` = everything else (predicate + the rule-local suppression / rate
     state machine) → DSL `when` formula + the shared emission policy
@@ -83,7 +83,7 @@ evaluations that disagree, which is exactly what `behavioral.py` reports.
 ## Reproduce
 
 ```sh
-PY=/home/shuyang/miniconda3/envs/planner/bin/python
+PY=python   # the 'planner' conda env interpreter (e.g. `conda run -n planner python`)
 # LOC only (instant)
 $PY -m analysis.expressiveness.analyze
 # LOC + behavioral agreement over the in-scope default trajectories
@@ -109,7 +109,7 @@ $PY -m pytest analysis/expressiveness/tests -q
   DSL's memoryless / strict-period / node-identity semantics diverge from the legacy
   stateful detectors for documented, benign reasons (bounded escalation, strict
   period vs windowed scan, memoryless vs stateful plan automaton, node-identity vs
-  full-command revisit) — see the `plan_monitor.gl_guard.shadow` module docstring.
+  full-command revisit) — see the `plan_monitor.drift_ql.shadow` module docstring.
   These are reported, not asserted. Agreement establishes the two implementations
   compute the same verdicts on the tested inputs; whether *intervening* helps the
   agent is a separate steering experiment, not something replay can establish.

@@ -440,7 +440,7 @@ Edit refiner config to adjust:
 Once validated on samples:
 ```bash
 # Generate full dataset config
-python sample_py_instances.py --dockerhub_username shuyangliu1 --language python
+python sample_py_instances.py --dockerhub_username <your_dockerhub_username> --language python
 
 ./create_wrapper_config.sh full_python openrouter/deepseek/deepseek-chat-v3-0324 python
 

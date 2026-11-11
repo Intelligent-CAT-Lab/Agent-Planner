@@ -2,7 +2,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Default to run-2: run-1 under version-5 is the prior gl_guard pass; this is the
+# Default to run-2: run-1 under version-5 is the prior drift_ql pass; this is the
 # legacy-monitor re-run with extra signals disabled (baseline liveplan signals only).
 RUN_ID="${1:-2}"
 # if not provided, will run on all instances in the sampled file. Otherwise, can specify a slice of instances to run on, e.g. "0" "100" to run on the first 100 instances.
@@ -16,7 +16,7 @@ MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="refiner"
 VERSION_ID="5"
-# Existing hand-written monitor engine (not the GL-Guard DSL). See dsl_run_refiner.sh for gl_guard.
+# Existing hand-written monitor engine (not the Drift-QL DSL). See dsl_run_refiner.sh for drift_ql.
 MONITOR_ENGINE="legacy"
 DATASET="swebench-pro"
 SAMPLE_APPROACH="python"

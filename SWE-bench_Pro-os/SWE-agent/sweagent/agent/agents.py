@@ -60,7 +60,7 @@ try:
     # LivePlan seam: all monitor/refiner intervention logic lives in the `adapters`
     # package (see adapters/swe_agent_adapter.py). The scaffold keeps only the thin
     # seam below; when `adapters` is unavailable the agent behaves like upstream
-    # vanilla. Shared with the root SWE-agent fork — Pro-os uses the same gl_guard
+    # vanilla. Shared with the root SWE-agent fork — Pro-os uses the same drift_ql
     # engine and adapter; only benchmark-specific behavior (Modal execution,
     # multi-language repos) differs.
     from adapters import build_interceptor
@@ -174,11 +174,13 @@ class DefaultAgentConfig(BaseModel):
     monitor_rules_config: str = "default_rules"
     """Configuration for plan monitor rules"""
 
-    monitor_engine: Literal["gl_guard", "legacy"] = "gl_guard"
+    monitor_engine: Literal["drift_ql", "gl_guard", "legacy"] = "drift_ql"
     """Rule engine backing the plan monitor (shared with the root SWE-agent fork):
-    - "gl_guard" (default): signals from the declarative GL-Guard DSL specs
-      (plan_monitor/gl_guard/specs). Validated for semantic equivalence against the
+    - "drift_ql" (default): signals from the declarative Drift-QL DSL specs
+      (plan_monitor/drift_ql/specs). Validated for semantic equivalence against the
       legacy engine (exact on dwell; a documented superset on oscillation).
+    - "gl_guard": deprecated alias for "drift_ql" (the engine's former name), kept
+      so recorded run configs/trajectories replay unchanged.
     - "legacy": the hand-written RuleEngine (plan_monitor/rules.py + JSON config).
     Both share the same Graphectory/Langutory and the same monitor API."""
 
@@ -550,7 +552,7 @@ class DefaultAgent(AbstractAgent):
 
         # LivePlan seam: build the monitor/refiner interceptor from config. It owns
         # all intervention state and logic (three modes: monitor / refiner-only /
-        # monitor-triggered refiner) and uses the same gl_guard engine as the root
+        # monitor-triggered refiner) and uses the same drift_ql engine as the root
         # fork. Returns None (vanilla) unless a monitor or refiner is enabled.
         if LIVEPLAN_AVAILABLE:
             agent._interceptor = build_interceptor(config, agent)

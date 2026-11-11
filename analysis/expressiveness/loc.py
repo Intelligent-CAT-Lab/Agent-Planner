@@ -1,5 +1,5 @@
 """
-Lines-of-code comparison: default GL-Guard (DriftQL) signals vs their legacy
+Lines-of-code comparison: default Drift-QL (DriftQL) signals vs their legacy
 Python detectors.
 
 Scope -- the LIVE ``liveplan.glg`` profile ONLY. The twelve default signals are
@@ -18,7 +18,7 @@ nonblank/noncomment rule is applied to ``.glg`` source.
 
 What is charged to a rule, and what is shared
 ---------------------------------------------
-A GL-Guard signal is three decoupled pieces (DSL_REFERENCE.md): detection
+A Drift-QL signal is three decoupled pieces (DSL_REFERENCE.md): detection
 (``.glg``), thresholds (``liveplan.config.json``), and message + fire-timing
 (``liveplan.advice.json``). Only the detection formula is rule-specific *code*; the
 config and advice are shared DATA driven by one shared ENGINE. So:
@@ -61,10 +61,10 @@ REPO = Path(__file__).resolve().parents[2]
 RULES_PY = REPO / "plan_monitor" / "rules.py"
 MONITOR_PY = REPO / "plan_monitor" / "monitor.py"
 PHASES_PY = REPO / "plan_monitor" / "phases.py"
-GLG = REPO / "plan_monitor" / "gl_guard" / "specs" / "liveplan.glg"
-CONFIG_JSON = REPO / "plan_monitor" / "gl_guard" / "specs" / "liveplan.config.json"
-ADVICE_JSON = REPO / "plan_monitor" / "gl_guard" / "specs" / "liveplan.advice.json"
-GLG_DIR = REPO / "plan_monitor" / "gl_guard"
+GLG = REPO / "plan_monitor" / "drift_ql" / "specs" / "liveplan.glg"
+CONFIG_JSON = REPO / "plan_monitor" / "drift_ql" / "specs" / "liveplan.config.json"
+ADVICE_JSON = REPO / "plan_monitor" / "drift_ql" / "specs" / "liveplan.advice.json"
+GLG_DIR = REPO / "plan_monitor" / "drift_ql"
 
 # --------------------------------------------------------------------------- #
 # Matched groups: one drift condition family, its default DSL signal(s), and the
@@ -126,7 +126,7 @@ DSL_ENGINE_MODULES = [
     "lexer", "ast", "parser", "typecheck", "config", "kleene", "interpreter",
     "engine", "runtime", "emission", "advice", "model", "adapters",
 ]  # the language machinery, amortized over every signal
-DSL_BINDING_MODULE = "guard_monitor"  # live monitor integration (analog of monitor.py)
+DSL_BINDING_MODULE = "drift_monitor"  # live monitor integration (analog of monitor.py)
 
 LEGACY_SHARED_CLASSES = ["RuleMatch", "Rule", "GraphectoryRule", "RuleEngine"]
 
@@ -273,7 +273,7 @@ def legacy_class_breakdown(pf: PyFile, class_name: str) -> Dict[str, int]:
         "class": class_name,
         "span": [s["cls"].lineno, s["cls"].end_lineno],
         "total": len(s["class_code"]),
-        "state": len(s["state"]),       # -> DSL liveplan.config.json + GuardRuntime
+        "state": len(s["state"]),       # -> DSL liveplan.config.json + DriftRuntime
         "verdict": len(s["verdict"]),   # -> DSL liveplan.advice.json
         "detection": len(s["detection"]),  # -> DSL `when` formula (+ emission policy)
     }
@@ -404,7 +404,7 @@ def compute_loc() -> Dict:
 
 def to_markdown(result: Dict) -> str:
     L: List[str] = []
-    L.append("## LOC: default GL-Guard signals vs legacy Python detectors")
+    L.append("## LOC: default Drift-QL signals vs legacy Python detectors")
     L.append("")
     L.append(f"_Scope:_ {result['scope']}.  ")
     L.append(f"_Convention:_ {result['convention']}.")

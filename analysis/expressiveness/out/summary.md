@@ -1,6 +1,6 @@
-# GL-Guard (DriftQL) expressiveness
+# Drift-QL (DriftQL) expressiveness
 
-## LOC: default GL-Guard signals vs legacy Python detectors
+## LOC: default Drift-QL signals vs legacy Python detectors
 
 _Scope:_ default liveplan.glg profile only; extra_signals.glg and the process taxonomy excluded.  
 _Convention:_ nonblank, noncomment physical lines; docstrings count as comments; DSL per-rule = signal formula block, legacy per-rule = detector class split (state/verdict/detection) via AST.
@@ -49,7 +49,7 @@ _DSL-only signals with no legacy counterpart, excluded from the matched comparis
 
 ### Shared infrastructure (counted once, not charged to any rule)
 
-**DSL engine** (amortized over all signals): 1703 LOC across 13 modules + 195 LOC live binding (guard_monitor.py); shared data: liveplan.config.json 34 + liveplan.advice.json 93 nonblank JSON lines.
+**DSL engine** (amortized over all signals): 1703 LOC across 13 modules + 195 LOC live binding (drift_monitor.py); shared data: liveplan.config.json 34 + liveplan.advice.json 93 nonblank JSON lines.
 
 **Legacy shared**: bases + RuleEngine 215 LOC (rules.py) + monitor.py 448 + phases.py 109.
 

@@ -50,7 +50,7 @@ class ActionExtractor:
         Args:
             include_thought_steps: when True, also yield steps that carry a thought
                 but no action (``command=""``). These mirror the online monitor's
-                thought-only turns: ``GuardMonitor.check_step_pre_emptively`` routes
+                thought-only turns: ``DriftMonitor.check_step_pre_emptively`` routes
                 an empty command to its ``observe(thought)`` path, which is what
                 ``thought_oscillation`` is evaluated on. The default (False) preserves
                 the historical behaviour every other consumer relies on — only

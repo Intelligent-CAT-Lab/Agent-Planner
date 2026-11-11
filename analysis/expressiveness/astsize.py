@@ -21,7 +21,7 @@ indicative, not exact.
 
 Counting convention
 -------------------
-  * DSL: the number of GL-Guard AST nodes in a signal's ``when`` formula (every
+  * DSL: the number of Drift-QL AST nodes in a signal's ``when`` formula (every
     dataclass node, operators and operand leaves alike), parsed by the production
     parser. The parser DESUGARS ``cycle`` / ``seen`` / ``revisit`` before this count
     sees them -- ``cycle(action, up_to=10, ...)`` becomes a 10-way disjunction -- so
@@ -44,18 +44,18 @@ import ast as pyast
 import dataclasses
 from typing import Dict, List
 
-from plan_monitor.gl_guard.parser import parse_program
+from plan_monitor.drift_ql.parser import parse_program
 
 from analysis.expressiveness import loc
 
 
 # --------------------------------------------------------------------------- #
-# DSL side: GL-Guard AST node count.
+# DSL side: Drift-QL AST node count.
 # --------------------------------------------------------------------------- #
 
 
 def _dsl_node_count(node) -> int:
-    """Count GL-Guard AST dataclass nodes reachable from ``node`` (inclusive)."""
+    """Count Drift-QL AST dataclass nodes reachable from ``node`` (inclusive)."""
     if not dataclasses.is_dataclass(node):
         return 0
     total = 1

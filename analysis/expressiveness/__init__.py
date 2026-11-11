@@ -1,4 +1,4 @@
-"""Expressiveness study for the GL-Guard (DriftQL) DSL.
+"""Expressiveness study for the Drift-QL (DriftQL) DSL.
 
 Measures how concisely the DSL expresses the drift conditions it was built for,
 versus the legacy Python detectors, on the LIVE default profile only.

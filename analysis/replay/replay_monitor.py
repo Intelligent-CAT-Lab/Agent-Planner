@@ -2,7 +2,7 @@
 Deterministic, non-executing replay of a SWE-agent trajectory.
 
 :class:`ReplayMonitor` subclasses the production
-:class:`~plan_monitor.gl_guard.guard_monitor.GuardMonitor` so detection reuses the
+:class:`~plan_monitor.drift_ql.drift_monitor.DriftMonitor` so detection reuses the
 *real* graph builder, adapters, three-valued interpreter, and emission policies —
 no rule is re-implemented. It differs from the live monitor in exactly the two ways
 an offline replay requires, and is otherwise byte-identical:
@@ -43,20 +43,20 @@ from functools import lru_cache
 from typing import Dict
 
 from plan_monitor.buildGraph import build_online_graph_from_trajectory
-from plan_monitor.gl_guard import ast as _ast
-from plan_monitor.gl_guard.adapters import (propose_world_from_graph,
+from plan_monitor.drift_ql import ast as _ast
+from plan_monitor.drift_ql.adapters import (propose_world_from_graph,
                                             thought_world_from_hashes)
-from plan_monitor.gl_guard.advice import AdviceRegistry
-from plan_monitor.gl_guard.config import Config
-from plan_monitor.gl_guard.engine import GuardProgram
-from plan_monitor.gl_guard.guard_monitor import GuardMonitor, _SPEC_DIR
-from plan_monitor.gl_guard.kleene import Kleene as _K
-from plan_monitor.gl_guard.model import Hook
-from plan_monitor.gl_guard.parser import parse_program
-from plan_monitor.gl_guard.runtime import GuardRuntime
+from plan_monitor.drift_ql.advice import AdviceRegistry
+from plan_monitor.drift_ql.config import Config
+from plan_monitor.drift_ql.engine import DriftProgram
+from plan_monitor.drift_ql.drift_monitor import DriftMonitor, _SPEC_DIR
+from plan_monitor.drift_ql.kleene import Kleene as _K
+from plan_monitor.drift_ql.model import Hook
+from plan_monitor.drift_ql.parser import parse_program
+from plan_monitor.drift_ql.runtime import DriftRuntime
 from plan_monitor.simulator.swe_extractor import ActionExtractor
 
-# Candidate signals under study live in their own spec so production ``GuardMonitor``
+# Candidate signals under study live in their own spec so production ``DriftMonitor``
 # never loads them. The replay evaluates them in SHADOW alongside the live profile.
 # Dropping a new ``(spec, advice)`` here (or passing ``shadow_specs``) adds it to the
 # study with no engine change; passing ``shadow_specs=()`` replays the live profile
@@ -68,8 +68,8 @@ DEFAULT_SHADOW_SPECS = (("extra_signals.glg", "extra_signals.advice.json"),)
 def _study_program(shadow_specs):
     """Parse the merged ``liveplan`` ∪ candidate spec set ONCE per process.
 
-    Returns the immutable ``(GuardProgram, AdviceRegistry)`` pair. Both are read-only
-    during evaluation — all mutable emission state lives in :class:`GuardRuntime` — so
+    Returns the immutable ``(DriftProgram, AdviceRegistry)`` pair. Both are read-only
+    during evaluation — all mutable emission state lives in :class:`DriftRuntime` — so
     the parsed result is cached and every :func:`build_study_runtime` call wraps it in a
     *fresh* runtime. ``shadow_specs`` is the cache key (a tuple of ``(glg, advice)``
     pairs), so passing ``()`` (the live profile) caches separately from the default.
@@ -89,13 +89,13 @@ def _study_program(shadow_specs):
         if apath.is_file():
             for name, entry in AdviceRegistry.load(apath).entries.items():
                 entries.setdefault(name, entry)  # live advice wins on overlap
-    program = GuardProgram(rules, config)
+    program = DriftProgram(rules, config)
     registry = AdviceRegistry(
         entries, non_blocking_action_kinds=base_reg.non_blocking_action_kinds)
     return program, registry
 
 
-def build_study_runtime(shadow_specs=DEFAULT_SHADOW_SPECS) -> GuardRuntime:
+def build_study_runtime(shadow_specs=DEFAULT_SHADOW_SPECS) -> DriftRuntime:
     """The live ``liveplan`` program + shadow candidate specs, as one runtime.
 
     All specs share ``liveplan.config.json`` (so the candidates' phase groups
@@ -108,11 +108,11 @@ def build_study_runtime(shadow_specs=DEFAULT_SHADOW_SPECS) -> GuardRuntime:
     :class:`ReplayMonitor` and the analysis build from it, so they never drift.
 
     The spec parse is memoized per process (:func:`_study_program`) and only the small
-    mutable :class:`GuardRuntime` is rebuilt per call — so replaying thousands of
+    mutable :class:`DriftRuntime` is rebuilt per call — so replaying thousands of
     trajectories in one worker parses the ``.glg`` specs once, not once per trajectory.
     """
     program, registry = _study_program(tuple(shadow_specs))
-    return GuardRuntime(program, registry)
+    return DriftRuntime(program, registry)
 
 
 def _top_level_conjuncts(node):
@@ -156,8 +156,8 @@ def _blank_runstat() -> Dict:
             "n_emit": 0, "n_block": 0, "first_true_step": None}
 
 
-class ReplayMonitor(GuardMonitor):
-    """A ``GuardMonitor`` that records counterfactual verdicts and never rolls back."""
+class ReplayMonitor(DriftMonitor):
+    """A ``DriftMonitor`` that records counterfactual verdicts and never rolls back."""
 
     def __init__(self, *args, shadow_specs=DEFAULT_SHADOW_SPECS, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -188,7 +188,7 @@ class ReplayMonitor(GuardMonitor):
         """Swap in the shadow-augmented runtime (``liveplan`` ∪ candidates).
 
         A no-op when no candidate spec file is present, so the replay then mirrors the
-        live profile (honouring any custom spec passed to ``GuardMonitor``). The
+        live profile (honouring any custom spec passed to ``DriftMonitor``). The
         general-step restriction is re-synced to the merged program (the live monitor
         skips dwell/run signals on general-only steps).
         """
@@ -300,7 +300,7 @@ class ReplayMonitor(GuardMonitor):
         self._accumulate(raw, emitted, world.q.step)
         return None
 
-    # observe_result is inherited from GuardMonitor: it fills each committed action
+    # observe_result is inherited from DriftMonitor: it fills each committed action
     # node's recorded outcome via buildGraph.check_command_outcome (the single, fixed
     # outcome binding) and is a no-op for think nodes. The replay drives it in the
     # live order (propose, then observe), so committed-history outcomes are available

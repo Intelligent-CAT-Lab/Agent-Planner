@@ -4,7 +4,7 @@ Tests for the replay-based pattern-resolution pipeline.
 Covers the two properties that matter most:
   * **signal-count-agnostic tidy schema** — columns are additive in the signal set, read
     back BY NAME, and the wide pivot's section spans are computed from the data.
-  * **legacy-compatible analysis** — ``patterns`` folds the GL-Guard replay signals into
+  * **legacy-compatible analysis** — ``patterns`` folds the Drift-QL replay signals into
     the legacy 7 buckets (names/semantics preserved) and appends the precise extras, and
     the ported ``planner_stats`` extraction keeps the online record (precise ``rule_ids``
     with the ``plan_violation`` exclusion-recovery).
@@ -171,7 +171,7 @@ def test_extract_planner_stats_precise_and_recovered(tmp_path):
     assert ps["total_interventions"] == 3 and ps["refiner_count"] == 2
     ivs = ps["interventions"]
     assert ivs[0]["pattern"] == "plan_violation"                 # monitor classified
-    assert ivs[1]["rule_ids"] == ["plan_compliance_skip_validation"]   # precise (gl_guard)
+    assert ivs[1]["rule_ids"] == ["plan_compliance_skip_validation"]   # precise (drift_ql)
     assert ivs[2]["rule_ids"] == ["plan_violation"]             # recovered from empty triggers
 
 
@@ -202,7 +202,7 @@ def test_read_planner_meta_recovers_legacy_plan_compliance(tmp_path):
     assert "oscillation_self_loop" in pm["refiner_online_triggers"]  # directly recorded
 
 
-def test_read_planner_meta_glguard_precise_no_generic_token(tmp_path):
+def test_read_planner_meta_driftql_precise_no_generic_token(tmp_path):
     interventions = [
         {"planner_type": "refiner", "content": "...",
          "state_summary": {"rule_triggers": [{"rule_id": "plan_compliance_skip_validation"}]}},

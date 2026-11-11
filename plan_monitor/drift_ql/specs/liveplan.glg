@@ -1,0 +1,101 @@
+# =============================================================================
+# The ten original LIVEPLAN signals, expressed in Drift-QL.
+#
+# Signal names mirror the legacy rule IDs in plan_monitor/rules.py so the shadow
+# differential harness compares like-named signals directly:
+#
+#   dwell_L_navigate / dwell_L_reproduce / dwell_P / dwell_V   (DwellTimeRule)
+#   oscillation                                                (OscillationRule)
+#   repeated_view                                              (RepeatedViewRule)
+#   thought_oscillation                                        (ThoughtOscillationRule)
+#   plan_compliance_*                                          (PlanComplianceRule, decomposed)
+#
+# Thresholds and phase groups are configuration (see liveplan.config.json), not
+# language constants. These specifications express the *intended* meaning of each
+# signal; exact agreement with the legacy cycle counters and hook timing is a
+# matter of differential testing against the original monitor (design section 8).
+# =============================================================================
+
+# =============================================================================
+# Plan compliance -- a memoryless decomposition of the legacy ordered-plan
+# automaton (intended plan L -> P -> V, per-violation-type threshold 1, blocking).
+#
+# The legacy PlanComplianceRule fires two violation families, each at most once:
+#   * phase_skip       -- entering a plan phase later than expected, skipping
+#                         intermediate phases;
+#   * premature_ending -- submitting before the plan is complete.
+# Below, each family member is a memoryless predicate over the current proposal
+# and the committed history. "Fire at most once per violation type" is realized
+# by the emission policy (once_per_key on the signal) in liveplan.advice.json,
+# and the legacy "threshold state survives a block" behaviour by persist_on_block.
+# =============================================================================
+
+# Premature patching -- editing (Patch) before any localization (phase_skip [L]).
+signal plan_compliance_premature_patch on propose when
+  phase(q) in Patch and not seen(Localize)
+
+# Skip patching -- submitting without ever having patched (premature_ending).
+signal plan_compliance_skip_patch on propose when
+  kind(q) = submit and not seen(Patch)
+
+# Skip validation -- submitting without ever having validated (premature_ending).
+signal plan_compliance_skip_validation on propose when
+  kind(q) = submit and not seen(Validate)
+
+# Thought Oscillation -- a repeated reasoning motif within the current
+# reasoning episode (scoped since the last executable action).
+signal thought_oscillation on observe(thought) when
+  repeat(thought, length=m_thought, times=r_thought)
+
+# Action Oscillation -- stuck in a loop of any period up to 10, the same coverage
+# as the legacy OscillationDetector (self-loop A A at period 1, A-B-A-B at period
+# 2, A-B-C-A-B-C at period 3, ...). `cycle` desugars to a disjunction of `repeat`
+# over lengths 1..10. A bare `repeat(action, length=1, times=r_action)` would only
+# catch self-loops and silently miss multi-node cycles.
+# Excludes a `submit` proposal (`not kind(q)=submit`): finalization is governed by
+# the purposeful, state-aware plan-compliance submit family (skip_patch /
+# skip_validation / no_successful_patch / stale_validation) and by the harness's
+# review-on-submit protocol. A repeated `submit` is the agent re-attempting to
+# finalize after one of those gates (a skip_validation block, or a review prompt
+# asking it to clean up and resubmit), NOT a mechanical work-loop. Without this
+# guard the generic loop detector fires a BLOCKING "you are repeating submit with
+# nothing changed, its result will be the same" on the resubmit -- which is false
+# (the gate/review changes the result) and counterproductive (it tells the agent
+# not to finalize exactly when finalizing-after-addressing-the-gate is correct).
+# Observed in the v5 pilot; general across models/tasks that use review-on-submit.
+signal oscillation on propose when
+#  not (kind(q) = submit) and
+  cycle(action, up_to=10, times=r_action)
+
+# Action recurrence -- the same action node has already executed kappa_recur
+# times. This catches the case the strict-periodic
+# `cycle` misses: an agent re-running one substantive action (a test/repro/edit)
+# many times interspersed with *varying* work, so there is no clean period but the
+# node recurs excessively. Gated to non-general actions so benign
+# utility commands (cd/ls/env setup) that merely recur are not flagged. 
+# Excludes a `submit` proposal for the same
+# reason `oscillation` does (see above): a re-issued submit is finalization driven
+# by the review-on-submit, not a mechanical loop,
+# so flagging its recurrence would be a false positive at exactly the wrong moment.
+signal action_recurrence on propose when
+  not (kind(q) = general) and
+  not (kind(q) = submit) and
+  count { x in history(action) | key(x) = key(q) } >= kappa_recur
+
+# Prolonged dwell in a single phase: the last theta_* phase occurrences all
+# belong to one phase group.
+signal dwell_L_navigate on propose when
+  run(Navigate) >= theta_N
+
+signal dwell_L_reproduce on propose when
+  run(Reproduce) >= theta_R
+
+signal dwell_P on propose when
+  run(Patch) >= theta_P
+
+signal dwell_V on propose when
+  run(Validate) >= theta_V
+
+# Action Revisit -- re-viewing a code location already visited before.
+signal repeated_view on propose when
+  kind(q) = view and revisit(action)

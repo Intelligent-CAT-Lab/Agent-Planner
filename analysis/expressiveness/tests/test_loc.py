@@ -78,5 +78,5 @@ def test_compute_loc_shape_and_ratio():
 
 def test_markdown_renders():
     md = loc.to_markdown(loc.compute_loc())
-    assert "LOC: default GL-Guard signals" in md
+    assert "LOC: default Drift-QL signals" in md
     assert "detection×" in md

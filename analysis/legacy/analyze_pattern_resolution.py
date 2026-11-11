@@ -5,7 +5,7 @@ CSV via the fragile ``CSVParser`` (hardcoded 3 header rows, section widths 13/15
 pattern offsets) and recovers the online signal via planner.json rule-id/text matching
 (``_classify_monitor_trigger`` + the "empty rule_triggers -> plan_violation" fallback).
 The replacement reads the signal-count-agnostic tidy table by COLUMN NAME (no offsets)
-and recovers online signals from the GL-Guard replay + the refiner rule_triggers trail.
+and recovers online signals from the Drift-QL replay + the refiner rule_triggers trail.
 Retained so the old analysis JSON remains reproducible; do not extend. NOTE: other
 scripts still import ``CSVParser``/``InstanceData`` from here (e.g. the misc Fisher test).
 

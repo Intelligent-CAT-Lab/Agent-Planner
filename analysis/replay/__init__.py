@@ -1,15 +1,15 @@
-"""Offline, non-executing replay of SWE-agent trajectories through GL-Guard.
+"""Offline, non-executing replay of SWE-agent trajectories through Drift-QL.
 
 A reusable detection engine: it replays a recorded trajectory through the *real*
-production :class:`~plan_monitor.gl_guard.guard_monitor.GuardMonitor` (no rule
+production :class:`~plan_monitor.drift_ql.drift_monitor.DriftMonitor` (no rule
 re-implemented), with no future leakage and an unconditional commit after any
 hypothetical block, and reports — per finalization proposal and per run — what each
-GL-Guard signal would have done. It is signal-agnostic and dataset-agnostic: point
+Drift-QL signal would have done. It is signal-agnostic and dataset-agnostic: point
 it at any ``.traj`` file to inspect signals on arbitrary data.
 
   * :func:`~analysis.replay.replay_monitor.replay_trajectory` — replay one
     trajectory, return its per-submission ledger + per-run signal rollup.
-  * :class:`~analysis.replay.replay_monitor.ReplayMonitor` — the GuardMonitor
+  * :class:`~analysis.replay.replay_monitor.ReplayMonitor` — the DriftMonitor
     subclass that backs it.
 
 The offline signal-selection *study* (discovery, labels, prevalence, association)

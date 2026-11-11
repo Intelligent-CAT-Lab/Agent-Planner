@@ -63,12 +63,12 @@ except ImportError:
     MONITOR_AVAILABLE = False
 
 try:
-    # GL-Guard engine: a drop-in StatefulPhaseMonitor whose rules come from the
+    # Drift-QL engine: a drop-in StatefulPhaseMonitor whose rules come from the
     # declarative DSL specs instead of the hand-written RuleEngine.
-    from plan_monitor.gl_guard.guard_monitor import GuardMonitor
-    GL_GUARD_AVAILABLE = True
+    from plan_monitor.drift_ql.drift_monitor import DriftMonitor
+    DRIFT_QL_AVAILABLE = True
 except ImportError:
-    GL_GUARD_AVAILABLE = False
+    DRIFT_QL_AVAILABLE = False
 
 try:
     from plan_refiner import PlanRefiner
@@ -187,12 +187,14 @@ class DefaultAgentConfig(BaseModel):
     monitor_rules_config: str = "default_rules"
     """Configuration for plan monitor rules"""
 
-    monitor_engine: Literal["gl_guard", "legacy"] = "gl_guard"
+    monitor_engine: Literal["drift_ql", "gl_guard", "legacy"] = "drift_ql"
     """Rule engine backing the plan monitor:
-    - "gl_guard" (default): signals are evaluated from the declarative GL-Guard DSL
-      specs (plan_monitor/gl_guard/specs). New signals are added by editing the
+    - "drift_ql" (default): signals are evaluated from the declarative Drift-QL DSL
+      specs (plan_monitor/drift_ql/specs). New signals are added by editing the
       specs — no per-rule Python. Validated for semantic equivalence against the
       legacy engine (exact on dwell; a documented superset on oscillation).
+    - "gl_guard": deprecated alias for "drift_ql" (the engine's former name), kept
+      so recorded run configs/trajectories replay unchanged.
     - "legacy": the hand-written RuleEngine (plan_monitor/rules.py + JSON config).
     Both share the same Graphectory/Langutory and the same monitor API, so the
     refiner and agent logic are identical either way. `monitor_rules_config` still
@@ -582,13 +584,13 @@ class DefaultAgent(AbstractAgent):
         agent._save_monitor_graph = config.save_monitor_graph
 
         if config.enable_monitor and MONITOR_AVAILABLE:
-            if config.monitor_engine == "gl_guard":
-                if not GL_GUARD_AVAILABLE:
+            if config.monitor_engine in ("drift_ql", "gl_guard"):  # gl_guard: back-compat alias
+                if not DRIFT_QL_AVAILABLE:
                     raise ImportError(
-                        "monitor_engine='gl_guard' but plan_monitor.gl_guard could not be "
-                        "imported; set monitor_engine='legacy' or fix the gl_guard install."
+                        "monitor_engine='drift_ql' but plan_monitor.drift_ql could not be "
+                        "imported; set monitor_engine='legacy' or fix the drift_ql install."
                     )
-                monitor_cls = GuardMonitor
+                monitor_cls = DriftMonitor
             else:
                 monitor_cls = StatefulPhaseMonitor
             agent._plan_monitor = monitor_cls(

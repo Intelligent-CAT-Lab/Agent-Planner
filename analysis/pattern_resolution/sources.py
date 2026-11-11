@@ -1,6 +1,6 @@
 """
 Data sources for pattern-resolution collection: where trajectories live, their official
-labels, their cost/step + planner.json metadata, and the GL-Guard replay-detail driver.
+labels, their cost/step + planner.json metadata, and the Drift-QL replay-detail driver.
 
 All signal detection is the production replay engine (``analysis.replay``); nothing here
 re-implements a monitor or matches rule text. The one place we read planner.json is for
@@ -91,12 +91,12 @@ def read_traj_metrics(traj_path: Path) -> Dict[str, float]:
 
 
 # Canonical plan-compliance message anchor. Both the legacy ``default_rules.json`` and the
-# gl_guard ``liveplan.advice.json`` plan-compliance templates lead with this exact,
+# drift_ql ``liveplan.advice.json`` plan-compliance templates lead with this exact,
 # placeholder-free phrase, so matching it on a monitor-only ``content`` is a structural
 # marker (the system's own template), not an ad-hoc keyword guess.
 _PC_MESSAGE_ANCHOR = "Plan compliance violation:"
 # The legacy generic plan-compliance id, used as the recovered token so a legacy run's
-# online trail is engine-honest (gl_guard runs instead carry the decomposed names).
+# online trail is engine-honest (drift_ql runs instead carry the decomposed names).
 _PC_GENERIC = "plan_compliance"
 
 
@@ -108,7 +108,7 @@ def _recovers_plan_compliance(iv: Dict) -> bool:
       * Refiner entry: ``state_summary`` is present but ``rule_triggers`` is empty. The
         refiner's exclusion set is exactly ``["plan_compliance"]`` (exact match), so the
         only way all triggers vanish is that plan-compliance was the sole trigger. (A
-        gl_guard run keeps its decomposed ``plan_compliance_*`` ids, so it never lands
+        drift_ql run keeps its decomposed ``plan_compliance_*`` ids, so it never lands
         here.)
       * Monitor-only entry: ``state_summary`` is absent (monitor/cooling entries never
         write it, both engines), so the sole trace is ``content`` — which, for a
@@ -125,7 +125,7 @@ def read_planner_meta(planner_path: Path) -> Dict:
 
     ``refiner_online_triggers`` is the de-duplicated set of signals that fired online.
     Directly-recorded ids come from the refiner's ``state_summary.rule_triggers`` (precise
-    for gl_guard runs). On top of that we RECOVER plan-compliance firings that the record
+    for drift_ql runs). On top of that we RECOVER plan-compliance firings that the record
     does not store as a structured id — legacy excludes the bare ``plan_compliance`` from
     rule_triggers, and monitor-only entries omit state_summary entirely — via
     :func:`_recovers_plan_compliance`, emitting the generic ``plan_compliance`` token so a
@@ -158,7 +158,7 @@ def read_planner_meta(planner_path: Path) -> Dict:
 
 
 # --------------------------------------------------------------------------- #
-# GL-Guard replay detail (signals True/False + trajectory descriptors)
+# Drift-QL replay detail (signals True/False + trajectory descriptors)
 # --------------------------------------------------------------------------- #
 
 # --------------------------------------------------------------------------- #
@@ -166,8 +166,8 @@ def read_planner_meta(planner_path: Path) -> Dict:
 #
 # Ported from the legacy analyzer so the emitted ``planner_stats`` is byte-compatible
 # with the detailed-analysis JSON the visualize/ scripts consume. The ONLY behavioural
-# change vs legacy is upstream: ``patterns`` now comes from the GL-Guard replay. Refiner
-# rule-ids are the structured ``rule_triggers`` (precise decomposed names on gl_guard
+# change vs legacy is upstream: ``patterns`` now comes from the Drift-QL replay. Refiner
+# rule-ids are the structured ``rule_triggers`` (precise decomposed names on drift_ql
 # runs; legacy names on v5), defaulting to ``['plan_violation']`` when empty (the legacy
 # plan-compliance exclusion recovery). Monitor interventions are classified from the
 # canonical message text, returning the same fine labels the downstream coarse-mapper
@@ -298,7 +298,7 @@ def _subscript_runlength(phases: List[str]) -> str:
 
 
 def replay_detail(traj_path) -> Dict:
-    """Replay one ``.traj`` through GL-Guard and return its detection detail.
+    """Replay one ``.traj`` through Drift-QL and return its detection detail.
 
     Returns ``signals`` (name -> fired bool over EVERY evaluated signal, from
     ``n_true > 0``) and the phase-sequence descriptors (``lang`` run-length encoding +
@@ -307,7 +307,7 @@ def replay_detail(traj_path) -> Dict:
     trajectory, ``error`` is set and every signal is False.
     """
     # Imported lazily so worker processes pay the import once, and so this module stays
-    # importable without the heavy gl_guard stack for pure-schema callers.
+    # importable without the heavy drift_ql stack for pure-schema callers.
     from analysis.replay.replay_monitor import ReplayMonitor
     from plan_monitor.simulator.swe_extractor import ActionExtractor
 

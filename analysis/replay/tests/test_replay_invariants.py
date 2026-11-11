@@ -15,8 +15,8 @@ replay's single detection record. ``n_true > 0`` means the signal fired.
 """
 from analysis.replay.replay_monitor import replay_trajectory, submit_gated_signals
 from analysis.pattern_resolution.sources import replay_detail
-from plan_monitor.gl_guard.guard_monitor import GuardMonitor
-from plan_monitor.gl_guard.model import Hook
+from plan_monitor.drift_ql.drift_monitor import DriftMonitor
+from plan_monitor.drift_ql.model import Hook
 
 
 def _stat(out, signal):
@@ -115,9 +115,9 @@ def test_compound_nonlast_outcome_is_unknown_not_faked(make_traj):
     # observation belongs to the last sub-command (echo). The non-last sub-command
     # (python) must carry an UNKNOWN outcome, never a faked 'success' -- pending /
     # un-observed compound sub-commands do not enter committed history as successes.
-    from plan_monitor.gl_guard.guard_monitor import GuardMonitor
+    from plan_monitor.drift_ql.drift_monitor import DriftMonitor
     from plan_monitor.phases import ActionEvent
-    mon = GuardMonitor(); mon.reset()
+    mon = DriftMonitor(); mon.reset()
     ev = ActionEvent(step_index=1, command="python reproduce.py && echo done")
     mon.check_step_pre_emptively(ev, thought="")
     mon.observe_result("3 failed, 1 passed")     # real result, attributed to echo (last)
@@ -184,7 +184,7 @@ def test_action_steps_reset_the_reasoning_episode_counts(make_traj):
 def test_submit_gated_signals_detected_structurally():
     # The plan-compliance skip_* family REQUIRES kind(q)=submit and so is submit-gated;
     # oscillation / action_recurrence say `not kind(q)=submit` and must NOT be.
-    mon = GuardMonitor(); mon.reset()
+    mon = DriftMonitor(); mon.reset()
     gated = submit_gated_signals(mon.runtime.program, Hook.PROPOSE)
     assert {"plan_compliance_skip_patch", "plan_compliance_skip_validation"} <= gated
     assert "oscillation" not in gated          # negated occurrence, not a submit signal

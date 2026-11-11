@@ -1,9 +1,9 @@
 """
 Collect pattern-resolution data by replaying trajectories through the production
-GL-Guard engine (all 17 signals, True/False), across configs, into a tidy table.
+Drift-QL engine (all 17 signals, True/False), across configs, into a tidy table.
 
 For every ``(instance, config)`` run this records: the official resolution label; the
-GL-Guard signal map (``n_true > 0`` per signal, from a non-executing replay — the SAME
+Drift-QL signal map (``n_true > 0`` per signal, from a non-executing replay — the SAME
 engine that runs online, so no monitor is re-implemented and no rule text is matched);
 replay-derived trajectory descriptors (submitted, action/thought step counts, phase
 ``lang``/``unique_phases``); executor cost/steps; and, for intervention configs, the

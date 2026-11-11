@@ -5,7 +5,7 @@ by ``analysis/collect_pattern_resolution.py``. It detects patterns with the depr
 matching (``classify_monitor_trigger`` / the "empty rule_triggers -> plan_violation"
 fallback), and emits the fixed-width multi-section CSV (3 header rows, width 13/15, 7
 hardcoded patterns). The replacement replays each trajectory through the production
-GL-Guard engine (all 17 signals, True/False) and writes a signal-count-agnostic tidy
+Drift-QL engine (all 17 signals, True/False) and writes a signal-count-agnostic tidy
 table. This file is retained only so the old numbers remain reproducible; do not extend.
 
 Scan the statistics of resolution outcome, patterns, cost, and steps, and compare the vanilla run (default run-1),

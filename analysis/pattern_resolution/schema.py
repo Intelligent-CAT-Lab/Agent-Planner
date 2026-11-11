@@ -4,7 +4,7 @@ Tidy pattern-resolution schema + I/O.
 The detection record for one ``(instance, config)`` run is a flat dict with NAMED
 columns only. Columns stay close to the legacy field set — ``resolved`` (Resolution
 Status), ``any_signal`` (Has Issue), ``has_planner`` (Trigger Status), ``lang``,
-``unique_phases``, ``cost``, ``steps`` — plus one boolean column per GL-Guard signal
+``unique_phases``, ``cost``, ``steps`` — plus one boolean column per Drift-QL signal
 (the former "patterns") and one new signal-bearing field, ``refiner_online_triggers``
 (which signals fired *online*; not derivable from the committed trajectory). Nothing
 redundant is stored: overlap/transition views are derived in the analysis layer, and
@@ -48,8 +48,8 @@ OUTCOME_COLUMNS = ("resolved",)                 # 1 / 0 / "" (missing label)
 DERIVED_COLUMNS = ("any_signal",)               # Has Issue (any signal fired)
 # Intervention-only (blank for baseline configs). ``refiner_online_triggers`` is the
 # ONLY online intervention trail available post-hoc: a '|'-joined, de-duplicated list of
-# the gl_guard signal names recorded in planner.json ``state_summary.rule_triggers``
-# (precise for gl_guard runs; legacy names for legacy runs; empty for monitor-only
+# the drift_ql signal names recorded in planner.json ``state_summary.rule_triggers``
+# (precise for drift_ql runs; legacy names for legacy runs; empty for monitor-only
 # entries, which omit state_summary). It is structured rule-id text, parsed by exact
 # membership (never fuzzy message matching) -- see :func:`split_online_triggers`.
 INTERVENTION_COLUMNS = ("has_planner", "refiner_online_triggers")

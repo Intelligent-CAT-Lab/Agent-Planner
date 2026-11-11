@@ -1,5 +1,5 @@
 """
-analysis/expressiveness -- expressiveness study of the GL-Guard (DriftQL) DSL.
+analysis/expressiveness -- expressiveness study of the Drift-QL (DriftQL) DSL.
 
 One compact question (per the evaluation design): can the drift conditions the DSL
 was built for be expressed in the existing language and runtime, and how much
@@ -23,7 +23,7 @@ Writes ``out/analysis.json`` + ``out/summary.md``.
 
 Usage::
 
-    PY=/home/shuyang/miniconda3/envs/planner/bin/python
+    PY=python   # the 'planner' conda env interpreter (e.g. `conda run -n planner python`)
     # LOC only (instant)
     $PY -m analysis.expressiveness.analyze
     # LOC + behavioral agreement over the in-scope default trajectories
@@ -70,7 +70,7 @@ def main(argv=None) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "analysis.json").write_text(json.dumps(result, indent=2))
     (args.out_dir / "summary.md").write_text(
-        "# GL-Guard (DriftQL) expressiveness\n\n" + "\n".join(md) + "\n")
+        "# Drift-QL (DriftQL) expressiveness\n\n" + "\n".join(md) + "\n")
 
     print(f"wrote {args.out_dir/'analysis.json'}")
     print(f"wrote {args.out_dir/'summary.md'}")

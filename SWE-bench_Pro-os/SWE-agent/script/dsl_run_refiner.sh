@@ -2,8 +2,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# GL-Guard (DSL) refiner run. Baseline liveplan signals only; extra signals stay
-# disabled in plan_monitor/gl_guard/specs/liveplan.advice.json.
+# Drift-QL (DSL) refiner run. Baseline liveplan signals only; extra signals stay
+# disabled in plan_monitor/drift_ql/specs/liveplan.advice.json.
 RUN_ID="${1:-1}"
 # if not provided, will run on all instances in the sampled file. Otherwise, can specify a slice of instances to run on, e.g. "0" "100" to run on the first 100 instances.
 START_IDX="${2:-}"
@@ -16,8 +16,8 @@ MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="refiner"
 VERSION_ID="7"
-# GL-Guard DSL monitor engine (declarative specs under plan_monitor/gl_guard/specs).
-MONITOR_ENGINE="gl_guard"
+# Drift-QL DSL monitor engine (declarative specs under plan_monitor/drift_ql/specs).
+MONITOR_ENGINE="drift_ql"
 DATASET="swebench-pro"
 SAMPLE_APPROACH="python"
 COST=2.0

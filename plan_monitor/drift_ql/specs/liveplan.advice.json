@@ -1,0 +1,92 @@
+{
+  "_comment": "Advice/emission registry for LIVEPLAN signals. Signal names mirror the legacy rule IDs (dwell_*, oscillation, repeated_view, thought_oscillation, plan_compliance_*). Messages are the default_rules.json baselines. 'enabled:false' signals evaluate in shadow mode for differential logging but are never surfaced to the agent. The plan-compliance-derived signals stay shadow-only until the legacy stateful plan automaton is validated as an oracle. 'priority' is OPTIONAL (default 0): it only reorders signals that fire at the same hook; with the default, co-firing signals keep spec declaration order, which matches the legacy evaluation sequence. Set it only to deliberately override that order.",
+
+  "_policy_comment": "Global intervention policy, independent of any single signal and applied once at the block-decision point (DriftRuntime._render), on top of the faithful legacy aggregation (should_block = any blocking signal; message = concatenation of all fired signals). 'non_blocking_action_kinds' lists action kinds whose proposal is never worth hard-blocking no matter which blocking signal fires: a block exists to stop a harmful/wasteful action BEFORE it runs, and a side-effect-free read (view = str_replace view, cat, grep, ls) has nothing to stop — blocking it cannot prevent harm and only starves the agent of the information it is gathering (empirically it derails the agent into apology/empty turns and premature submission). Reads stay covered non-blockingly by repeated_view / action_recurrence / dwell. DETECTION IS UNCHANGED: the signal still fires and its message is still surfaced; only the block is downgraded to an advisory, so the shadow differential (which compares which signals fire, not the block flag) is unaffected.",
+  "policy": {
+    "non_blocking_action_kinds": ["view"]
+  },
+
+  "signals": {
+    "dwell_L_navigate": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You seem to navigate between files and code locations in the past {threshold} steps. Options: (1) keep exploring but focus on relevant code only; (2) create and run a reproduction test to better localize the bug; (3) if you already have enough information, edit the source to implement the fix."}
+    },
+    "dwell_L_reproduce": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You are trying to reproduce the bug in the last {threshold} steps. If you cannot resolve dependencies to create or run reproduction tests within a few attempts, pay more attention to the issue description to locate the bug without reproduction, or start patching if you have localized it."}
+    },
+    "dwell_P": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have spent the last {threshold} steps editing files to patch the bug. Options: (1) if edits are unsuccessful, reconsider the edit location or string replacements; (2) long sequences of edits can indicate incorrect localization; (3) validate changes step by step rather than batching them."}
+    },
+    "dwell_V": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "every_n", "period": 7},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have spent the last {threshold} steps validating your changes. Reflect on your code execution rather than writing more tests. If confident the patch is correct, submit it; otherwise revisit the patch."}
+    },
+
+    "repeated_view": {
+      "enabled": true, "key": "q.key",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": false},
+      "advice": {"template": "You have already reviewed this location. If verifying a recent edit, focus on the changed lines; otherwise view a new relevant location or proceed to edit or test."}
+    },
+
+    "oscillation": {
+      "enabled": true, "key": "motif",
+      "emit": {"mode": "max_per_pattern", "max": 5, "terminal_variant": "max_repeats"},
+      "_persist_on_block": "The escalation counter records warnings already delivered to the agent; a block prevents the action but does not un-tell the agent, so it must survive the rollback. Without this the counter resets on every block and the max_repeats terminal is unreachable, so a stuck agent is blocked forever with no exit ramp (a latent bug shared with the legacy monitor, whose block rollback likewise reverts OscillationDetector.pattern_counts). Persisting makes legacy's own intended warn-N-then-stop-or-submit ladder actually reachable.",
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {
+        "template": "You are repeating the action {action} with nothing changed since the last time, so its result will be the same. Before running it again, decide what new information or change is actually needed; if nothing would differ, take a different action that moves toward resolving the issue.",
+        "variants": {
+          "multi_node": "You are cycling between the actions {actions} (now back to {action}) around steps {steps}, returning to the same states without changing the result. Reason about why you keep revisiting these steps, then take a different action that makes progress on the issue.",
+          "max_repeats": "You have repeated this loop several times without progress. If you cannot make further progress, stop or submit your patch."
+        }
+      }
+    },
+    "action_recurrence": {
+      "enabled": true, "key": "q.key",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": false},
+      "_wording": "Outcome-agnostic by design: the pre-emptive propose hook cannot see whether the prior runs succeeded or failed, so the message must not assert 'without resolving the issue' / 'not working' (misleading when the agent is productively iterating edit->test->edit->test, as at the 8th repro run that confirmed a fix). It hedges on the same-result condition the agent CAN judge, and names both the stuck case and the productive-iteration case so it never pushes a converging agent to give up.",
+      "advice": {"template": "You have run the action {action} {threshold}+ times in this trajectory. If it keeps returning the same result, running it again will not change the outcome. Reason about why before retrying, try a different approach, or submit your current patch. If each run is checking a new edit, make sure the results are actually improving."}
+    },
+    "thought_oscillation": {
+      "enabled": true, "key": "motif",
+      "emit": {"mode": "max_per_pattern", "max": 5, "terminal_variant": "max_repeats"},
+      "_persist_on_block": "Same as oscillation: the escalation counter survives a block so the max_repeats terminal is reachable and a repeated-reasoning loop is not blocked forever.",
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {
+        "template": "You are repeating the same reasoning without producing executable actions. This suggests a format error or circular reasoning. Review the action format requirements and try a different approach.",
+        "variants": {"max_repeats": "If you cannot make further progress, stop or submit your patch."}
+      }
+    },
+
+    "plan_compliance_premature_patch": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are editing in the {phase} phase before any localization. Explore and localize the bug first, then implement the patch."}
+    },
+    "plan_compliance_skip_patch": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are about to submit without having patched the code. Implement a fix before submitting."}
+    },
+    "plan_compliance_skip_validation": {
+      "enabled": true, "key": "signal",
+      "emit": {"mode": "once_per_key"},
+      "intervention": {"block_execution": true, "persist_on_block": true},
+      "advice": {"template": "Plan compliance violation: you are about to submit without validating your changes. Run a test to confirm the fix before submitting."}
+    }
+  }
+}

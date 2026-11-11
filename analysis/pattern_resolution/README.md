@@ -1,4 +1,4 @@
-# Pattern-resolution analysis (GL-Guard replay)
+# Pattern-resolution analysis (Drift-QL replay)
 
 It answers,
 per `(instance, config)`: which process signals the trajectory exhibits, whether the task
@@ -7,7 +7,7 @@ resolved, and how the intervention configs compare to the baseline.
 ## Why this exists (the three fixes)
 
 1. **Signals from the real engine, not a re-implementation.** Detection is a non-executing
-   replay of each `.traj` through the production GL-Guard monitor
+   replay of each `.traj` through the production Drift-QL monitor
    (`analysis.replay.replay_monitor`) using the **live profile only** (`liveplan.glg`,
    `shadow_specs=()`), so the signals are exactly what the online monitor runs — no
    `extra_signals.glg` shadow candidates. Each is reported as clean `True/False`
@@ -16,7 +16,7 @@ resolved, and how the intervention configs compare to the baseline.
 
 2. **Precise online signals, two complementary sources.** The replay tells us what is true
    on the *committed* trajectory. `planner.json` tells us what fired *online*:
-   - **gl_guard runs (v6+):** `state_summary.rule_triggers[].rule_id` carries the exact
+   - **drift_ql runs (v6+):** `state_summary.rule_triggers[].rule_id` carries the exact
      decomposed names (`plan_compliance_skip_patch`, `…_skip_validation`, …). We read the
      structured ids into the `refiner_online_triggers` column. The
      historical `exclude_rule_patterns=["plan_compliance"]` filter is **exact-match**, so
@@ -29,7 +29,7 @@ resolved, and how the intervention configs compare to the baseline.
      `["plan_compliance"]`); a monitor-only entry whose `content` leads with the canonical
      template anchor `"Plan compliance violation:"`. Both emit the generic `plan_compliance`
      token, so a legacy/monitor run's online plan-compliance is never spuriously zero.
-     `analyze` reports it family-matched (generic legacy id ∪ gl_guard `plan_compliance_*`)
+     `analyze` reports it family-matched (generic legacy id ∪ drift_ql `plan_compliance_*`)
      against the committed replay.
    `analyze` reconciles the two (`online` vs `committed_only` vs `online_only`): a signal
    that fired on a *blocked, rolled-back* proposal shows as `online_only` (absent from the
@@ -60,7 +60,7 @@ Analyzer — `analysis/analysis-results/comparison/detailed-analysis/<config>/`:
   detailed-analysis JSON (identical `config` / `summary` / `category_details` /
   `planner_stats` schema), so the `visualize/` and other consumers are unaffected. The only
   change is `patterns`: the legacy 7 buckets (names + semantics preserved) **plus** the
-  finer GL-Guard signals. `planner_stats` keeps the online record with precise `rule_ids`.
+  finer Drift-QL signals. `planner_stats` keeps the online record with precise `rule_ids`.
 
 ## Usage
 
@@ -102,6 +102,6 @@ legacy pipeline).
 - `schema.py` — record model + long-JSON / wide-CSV I/O (the single source of truth for the
   signal set, shared with the replay engine).
 - `sources.py` — trajectory discovery, official labels, cost/step + planner.json metadata,
-  and the GL-Guard replay-detail driver.
+  and the Drift-QL replay-detail driver.
 - `tests/` — signal-count-agnostic schema round-trips, replay detection, and the
   online-vs-committed reconciliation.

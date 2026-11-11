@@ -33,14 +33,14 @@ except ImportError:  # pragma: no cover
     ActionEvent = None  # type: ignore
 
 try:
-    # GL-Guard engine: a drop-in StatefulPhaseMonitor whose rules come from the
+    # Drift-QL engine: a drop-in StatefulPhaseMonitor whose rules come from the
     # declarative DSL specs instead of the hand-written RuleEngine.
-    from plan_monitor.gl_guard.guard_monitor import GuardMonitor
+    from plan_monitor.drift_ql.drift_monitor import DriftMonitor
 
-    GL_GUARD_AVAILABLE = True
+    DRIFT_QL_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    GL_GUARD_AVAILABLE = False
-    GuardMonitor = None  # type: ignore
+    DRIFT_QL_AVAILABLE = False
+    DriftMonitor = None  # type: ignore
 
 try:
     from plan_refiner import PlanRefiner
@@ -62,7 +62,7 @@ def build_interceptor(config: Any, agent: Any, *, observe_results: bool = True) 
     Args:
         observe_results: Feed each executed action's observation back to the monitor
             (``monitor.observe_result``) so the committed graph node records its real
-            outcome. Default True reproduces the root fork. Only gl_guard implements
+            outcome. Default True reproduces the root fork. Only drift_ql implements
             the hook (legacy no-ops via the ``hasattr`` guard); it is kept because
             outcome-aware signals (see specs/extra_signals.glg) consume it.
     """
@@ -84,7 +84,7 @@ class LivePlanInterceptor(StepInterceptor):
         self.agent = agent
         self.config = config
         # Feed observations back to the monitor after execution so committed nodes
-        # record their real outcome (consumed by outcome-aware gl_guard signals).
+        # record their real outcome (consumed by outcome-aware drift_ql signals).
         # No-op on the legacy monitor, which has no observe_result hook.
         self.observe_results = observe_results
 
@@ -101,13 +101,13 @@ class LivePlanInterceptor(StepInterceptor):
 
         # Initialize monitor if enabled and available
         if config.enable_monitor and MONITOR_AVAILABLE:
-            if config.monitor_engine == "gl_guard":
-                if not GL_GUARD_AVAILABLE:
+            if config.monitor_engine in ("drift_ql", "gl_guard"):  # gl_guard: back-compat alias
+                if not DRIFT_QL_AVAILABLE:
                     raise ImportError(
-                        "monitor_engine='gl_guard' but plan_monitor.gl_guard could not be "
-                        "imported; set monitor_engine='legacy' or fix the gl_guard install."
+                        "monitor_engine='drift_ql' but plan_monitor.drift_ql could not be "
+                        "imported; set monitor_engine='legacy' or fix the drift_ql install."
                     )
-                monitor_cls = GuardMonitor
+                monitor_cls = DriftMonitor
             else:
                 monitor_cls = StatefulPhaseMonitor
             self.monitor = monitor_cls(

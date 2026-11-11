@@ -12,7 +12,7 @@ END_IDX="${3:-}"
 MODEL="openrouter/deepseek/deepseek-chat-v3-0324"
 MODEL_NAME="${MODEL##*/}"
 CONFIG="monitor"
-# Existing hand-written monitor engine (not the GL-Guard DSL default).
+# Existing hand-written monitor engine (not the Drift-QL DSL default).
 MONITOR_ENGINE="legacy"
 DATASET="swebench-pro"
 SAMPLE_APPROACH="python"
