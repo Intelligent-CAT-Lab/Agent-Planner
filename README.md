@@ -1,18 +1,19 @@
 # Agent-Planner
 
-Artifact for Monitor, Detect, Advise: Rule-Based Monitoring and Next-Step Intervention for Programming Agents. This repository contains **LivePlan**, a system that monitors programming agent execution and provides both rule-based predefined guidance and LLM-generated custom advice to improve agent performance on code repair tasks.
+Artifact repository for **LivePlan**, a system that monitors programming agent execution and provides both rule-based predefined guidance and LLM-generated custom advice to improve agent performance on code repair tasks.
 
 ## Overview
 
 LivePlan operates through two complementary components:
 
 **Monitor** (`plan_monitor`) continuously observes agent execution and builds trajectory representations:
-- Extracts high-level phases from low-level actions (e.g., code navigation, patching, validation)
-- Constructs program dependency graphs (Graphectory) and execution sequences (Langutory)
-- Evaluates trajectories against configurable rules to detect issues: plan violations, stuck behavior, oscillations, or lost strategy
+- Constructs agent execution graphs (Graphectory) and phase sequences (Langutory)
+- Evaluates these representations against configurable rules to detect signals: plan violations, stuck behavior, oscillations, or lost strategy
+
+Detection rules are written in **Drift-QL** (`plan_monitor/drift_ql`), a small declarative DSL for detecting and evaluating drift patterns over a trajectory. A shared engine runs every rule, so adding one is typically a short `when` formula rather than a bespoke detector class; `monitor_engine: drift_ql` is the default.
 
 **Advisor** (`plan_refiner`) provides LLM-based intervention when triggered by rules:
-- Receives issue description, execution trajectory, and monitor state
+- Receives the issue description, execution trajectory, and monitor state
 - Queries an LLM for analysis and refined next-step guidance
 - Fully pluggable—integrates cleanly via step-level hooks in any agent
 - Invoked only when monitor rules fire and outside cooldown to minimize cost
