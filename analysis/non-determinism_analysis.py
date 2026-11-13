@@ -15,6 +15,11 @@ from math import comb
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+try:  # runnable both as a script and as part of the ``analysis`` package
+    from analysis.dataset_info import dataset_size
+except ImportError:
+    from dataset_info import dataset_size
+
 
 @dataclass
 class ConfigResult:
@@ -234,9 +239,15 @@ def analyze_non_determinism(
         f"{'pass@2':>9} {'pass^2':>9}"
     )
     print("-" * 92)
-    shared_total = max(
+    # Full-dataset denominator so pass@k/pass^k are comparable across configs:
+    # SWE-bench Pro reports grade only a subset, so its size comes from the dataset
+    # (by language); SWE-bench's full test set is the ``all_instances`` loaded above.
+    # Fall back to the observed paired count only if neither source is available.
+    observed_total = max(
         (len(r.run1.keys() & r.run2.keys()) for r in results.values()), default=0
     )
+    canonical_total = dataset_size(dataset) or (len(all_instances) if all_instances else 0)
+    shared_total = max(canonical_total, observed_total)
     for config in configs:
         name = names.get(config, config)
         if config in errors:
@@ -255,7 +266,7 @@ def analyze_non_determinism(
     print("Subset membership and size can differ across configurations.")
     print(
         f"pass@2 (Reach) / pass^2 (Consistency) share one dividend "
-        f"({shared_total}, the largest paired count); missing = unresolved (k=2, n=2)."
+        f"({shared_total}, the full dataset); missing = unresolved (k=2, n=2)."
     )
     for config, error in errors.items():
         print(f"\n{names.get(config, config)}: {error}")

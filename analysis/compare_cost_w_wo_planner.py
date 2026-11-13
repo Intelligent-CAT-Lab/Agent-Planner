@@ -40,6 +40,11 @@ from collections import defaultdict, Counter
 from typing import Set
 import numpy as np
 
+try:  # runnable both as a script and as part of the ``analysis`` package
+    from analysis.dataset_info import dataset_size
+except ImportError:
+    from dataset_info import dataset_size
+
 
 def load_report(agent_dir: Path, config: str, dataset: str, model: str, run_id: int, version: str = None) -> Set[str]:
     """Load resolved instance IDs from report file (from collect_pattern_resolution.py)."""
@@ -274,7 +279,7 @@ def compute_averages(data: list, total_instances: int = None) -> dict:
 
     Args:
         data: List of instance data
-        total_instances: Total dataset size for resolution rate calculation (500 for swebench, 264 for swebench-pro)
+        total_instances: Total dataset size for resolution rate calculation (500 for swebench, 266 python instances for swebench-pro)
     """
     if not data:
         return {
@@ -627,8 +632,12 @@ def process_config(agent_dir: Path, dataset: str, model: str, config: str,
         if vanilla_data:
             all_vanilla_data.append(vanilla_data)
 
-    # Determine total instances: max of config and all vanilla runs
-    total_instances = max(len(config_data), max((len(vd) for vd in all_vanilla_data), default=0))
+    # Resolution-rate denominator = the full dataset, so configs with different
+    # report coverage stay comparable. SWE-bench Pro grades only a subset per report,
+    # so its size comes from the dataset itself (by language); otherwise fall back to
+    # the largest observed run (vanilla or config).
+    observed_total = max(len(config_data), max((len(vd) for vd in all_vanilla_data), default=0))
+    total_instances = max(dataset_size(dataset) or 0, observed_total)
 
     # Compute and print cost breakdown for the config
     config_avg = compute_averages(config_data, total_instances)
